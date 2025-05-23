@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Upload, FileText, Download, Eye, X, FileImage, Type, Brain, CheckCircle, AlertCircle, FileSpreadsheet, Zap } from 'lucide-react'
+import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap } from 'lucide-react'
 
 interface SplitDocument {
   id: string
@@ -454,7 +454,7 @@ export default function Home() {
                             <div className="flex items-center gap-2">
                               <h3 className="font-medium">{doc.filename}</h3>
                               {doc.claudeProcessed && (
-                                <CheckCircle className="w-4 h-4 text-green-500" title="Processed with Claude" />
+                                <CheckCircle className="w-4 h-4 text-green-500" aria-label="Processed with Claude" />
                               )}
                             </div>
                             <p className="text-sm text-gray-500">Page {doc.pageNumber}</p>

@@ -2,15 +2,61 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 
+interface Employee {
+  name?: string
+  dni?: string
+  nss?: string
+  category?: string
+  code?: string
+}
+
+interface Company {
+  name?: string
+  cif?: string
+  address?: string
+  center_code?: string
+}
+
+interface PerceptionDeduction {
+  code?: string
+  concept?: string
+  amount?: number
+}
+
+interface Contribution {
+  concept?: string
+  base?: number
+  rate?: number
+  employer_contribution?: number
+}
+
+interface Nomina {
+  id: string
+  created_at: string
+  period_start: string
+  period_end: string
+  employee: Employee
+  company: Company
+  perceptions: PerceptionDeduction[]
+  deductions: PerceptionDeduction[]
+  contributions: Contribution[]
+  base_ss: number
+  net_pay: number
+  iban?: string
+  swift_bic?: string
+  cost_empresa: number
+  signed: boolean
+}
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Fetch all nominas from Supabase
-    const { data: nominas, error } = await supabase
+    const { data: nominas, error, count } = await supabase
       .from('nominas')
       .select('*')
       .order('created_at', { ascending: false })
@@ -30,14 +76,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform data for Excel export
-    const excelData = nominas.map((nomina, index) => {
+    const excelData = (nominas as Nomina[]).map((nomina, index) => {
       const employee = nomina.employee || {}
       const company = nomina.company || {}
       
       // Calculate totals
-      const totalPerceptions = (nomina.perceptions || []).reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
-      const totalDeductions = (nomina.deductions || []).reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
-      const totalContributions = (nomina.contributions || []).reduce((sum: number, p: any) => sum + (p.employer_contribution || 0), 0)
+      const totalPerceptions = (nomina.perceptions || []).reduce((sum: number, p: PerceptionDeduction) => sum + (p.amount || 0), 0)
+      const totalDeductions = (nomina.deductions || []).reduce((sum: number, p: PerceptionDeduction) => sum + (p.amount || 0), 0)
+      const totalContributions = (nomina.contributions || []).reduce((sum: number, p: Contribution) => sum + (p.employer_contribution || 0), 0)
 
       return {
         // Basic Info
@@ -85,10 +131,10 @@ export async function GET(request: NextRequest) {
     XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen Nóminas')
 
     // Detailed perceptions sheet
-    const perceptionsData: any[] = []
-    nominas.forEach((nomina) => {
+    const perceptionsData: Record<string, string | number>[] = []
+    nominas.forEach((nomina: Nomina) => {
       const employee = nomina.employee || {}
-      ;(nomina.perceptions || []).forEach((perception: any) => {
+      ;(nomina.perceptions || []).forEach((perception: PerceptionDeduction) => {
         perceptionsData.push({
           'ID Nómina': nomina.id,
           'Empleado': employee.name || '',
@@ -107,10 +153,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Detailed deductions sheet
-    const deductionsData: any[] = []
-    nominas.forEach((nomina) => {
+    const deductionsData: Record<string, string | number>[] = []
+    nominas.forEach((nomina: Nomina) => {
       const employee = nomina.employee || {}
-      ;(nomina.deductions || []).forEach((deduction: any) => {
+      ;(nomina.deductions || []).forEach((deduction: PerceptionDeduction) => {
         deductionsData.push({
           'ID Nómina': nomina.id,
           'Empleado': employee.name || '',

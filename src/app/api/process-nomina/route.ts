@@ -13,7 +13,7 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const { textContent, documentId } = await request.json()
+    const { textContent } = await request.json()
     
     if (!textContent) {
       return NextResponse.json({ error: 'Text content is required' }, { status: 400 })
