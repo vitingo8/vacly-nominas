@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     const filename = `${uniqueId}_${file.name}`
 
     // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase
+    const { error: uploadError } = await supabase
       .storage
       .from('pdfs')
       .upload(filename, buffer, {

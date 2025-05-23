@@ -4,6 +4,16 @@ import pdf from 'pdf-parse'
 import { v4 as uuidv4 } from 'uuid'
 import { createClient } from '@supabase/supabase-js'
 
+interface SplitDocument {
+  id: string
+  filename: string
+  pageNumber: number
+  textContent: string
+  pdfUrl: string
+  textUrl: string
+  claudeProcessed: boolean
+}
+
 // Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,7 +39,7 @@ export async function POST(request: NextRequest) {
     const pdfDoc = await PDFDocument.load(pdfBuffer)
     const pageCount = pdfDoc.getPageCount()
 
-    const documents: any[] = []
+    const documents: SplitDocument[] = []
 
     // Process each page
     for (let i = 0; i < pageCount; i++) {
@@ -47,7 +57,7 @@ export async function POST(request: NextRequest) {
       const pagePdfName = `${baseName}_page_${pageNum}.pdf`
       
       // Upload split PDF to Supabase Storage
-      const { data: pdfUploadData, error: pdfUploadError } = await supabase
+      const { error: pdfUploadError } = await supabase
         .storage
         .from('split-pdfs')
         .upload(pagePdfName, pdfBytes, {
@@ -78,7 +88,7 @@ export async function POST(request: NextRequest) {
 
       // Upload text content to Supabase Storage
       const textFileName = `${baseName}_page_${pageNum}.txt`
-      const { data: textUploadData, error: textUploadError } = await supabase
+      const { error: textUploadError } = await supabase
         .storage
         .from('text-files')
         .upload(textFileName, textContent, {
