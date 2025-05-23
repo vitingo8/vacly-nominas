@@ -253,7 +253,7 @@ This prompt instructs Claude to extract structured data from Spanish/Catalan pay
 The application supports PDFs up to reasonable sizes. Large files are processed efficiently through streaming.
 
 ### Claude AI Settings
-- Model: `claude-3-5-sonnet-20241022`
+- Model: `claude-3-haiku`
 - Max Tokens: 4000
 - Temperature: Default (controlled)
 
