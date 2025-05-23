@@ -60,6 +60,8 @@ interface SplitDocument {
   textPath: string
   claudeProcessed?: boolean
   nominaData?: NominaData
+  pdfUrl: string
+  textUrl: string
 }
 
 type ViewMode = 'pdf' | 'text'
@@ -109,7 +111,10 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ filename: uploadResult.filename }),
+        body: JSON.stringify({ 
+          filename: uploadResult.filename,
+          url: uploadResult.url 
+        }),
       })
 
       if (!processResponse.ok) {
@@ -117,10 +122,7 @@ export default function Home() {
       }
 
       const processResult = await processResponse.json()
-      setSplitDocuments(processResult.documents.map((doc: SplitDocument) => ({
-        ...doc,
-        claudeProcessed: false
-      })))
+      setSplitDocuments(processResult.documents)
       setUploadProgress(100)
 
     } catch (error) {
@@ -132,13 +134,26 @@ export default function Home() {
     }
   }
 
-  const downloadFile = (filePath: string, filename: string) => {
-    const link = document.createElement('a')
-    link.href = filePath
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const downloadFile = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error('Download failed')
+      
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      URL.revokeObjectURL(objectUrl)
+    } catch (error) {
+      console.error('Download error:', error)
+      alert('Failed to download file')
+    }
   }
 
   const openViewer = (document: SplitDocument) => {
@@ -477,15 +492,7 @@ export default function Home() {
                 <CardContent>
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {splitDocuments.map((doc) => (
-                      <div
-                        key={doc.id}
-                        className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                          selectedDocument?.id === doc.id
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                        onClick={() => setSelectedDocument(doc)}
-                      >
+                      <div key={doc.id} className="p-4 border rounded-lg bg-white shadow-sm">
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
@@ -499,46 +506,42 @@ export default function Home() {
                               <p className="text-xs text-green-600 mt-1">✅ Processed & Saved to Supabase</p>
                             )}
                           </div>
-                          <div className="flex gap-2 flex-wrap">
+                          <div className="flex gap-2">
                             <Button
-                              size="sm"
                               variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openViewer(doc)
-                              }}
-                              title="View document"
+                              size="sm"
+                              onClick={() => downloadFile(doc.pdfUrl, doc.filename)}
                             >
-                              <Eye className="w-4 h-4" />
+                              <Download className="w-4 h-4 mr-1" />
+                              PDF
                             </Button>
                             <Button
-                              size="sm"
                               variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                downloadFile(doc.pdfPath, doc.filename)
-                              }}
-                              title="Download PDF"
+                              size="sm"
+                              onClick={() => downloadFile(doc.textUrl, doc.filename.replace('.pdf', '.txt'))}
                             >
-                              <Download className="w-4 h-4" />
+                              <FileText className="w-4 h-4 mr-1" />
+                              Text
                             </Button>
                             <Button
+                              variant="outline"
                               size="sm"
-                              variant={doc.claudeProcessed ? "default" : "secondary"}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                processWithClaude(doc)
-                              }}
-                              disabled={isProcessingClaude === doc.id}
-                              title={doc.claudeProcessed ? "Already processed" : "Process with Claude AI"}
-                              className={doc.claudeProcessed ? "bg-green-600 hover:bg-green-700" : ""}
+                              onClick={() => openViewer(doc)}
                             >
-                              {isProcessingClaude === doc.id ? (
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              ) : (
-                                <Brain className="w-4 h-4" />
-                              )}
+                              <Eye className="w-4 h-4 mr-1" />
+                              View
                             </Button>
+                            {!doc.claudeProcessed && !isProcessingClaude && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => processWithClaude(doc)}
+                                disabled={isProcessingClaude === doc.id}
+                              >
+                                <Brain className="w-4 h-4 mr-1" />
+                                Claude
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -575,7 +578,7 @@ export default function Home() {
                             size="sm"
                             variant="outline"
                             onClick={() =>
-                              downloadFile(selectedDocument.textPath, `${selectedDocument.filename}.txt`)
+                              downloadFile(selectedDocument.textUrl, `${selectedDocument.filename}.txt`)
                             }
                           >
                             <Download className="w-4 h-4 mr-2" />
@@ -686,7 +689,7 @@ export default function Home() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => viewerDocument && downloadFile(viewerDocument.pdfPath, viewerDocument.filename)}
+                    onClick={() => viewerDocument && downloadFile(viewerDocument.pdfUrl, viewerDocument.filename)}
                   >
                     <Download className="w-4 h-4 mr-1" />
                     PDF
@@ -694,7 +697,7 @@ export default function Home() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => viewerDocument && downloadFile(viewerDocument.textPath, `${viewerDocument.filename}.txt`)}
+                    onClick={() => viewerDocument && downloadFile(viewerDocument.textUrl, `${viewerDocument.filename}.txt`)}
                   >
                     <Download className="w-4 h-4 mr-1" />
                     TXT

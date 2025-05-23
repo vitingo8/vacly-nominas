@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { writeFile } from 'fs/promises'
-import { join } from 'path'
+import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,16 +28,33 @@ export async function POST(request: NextRequest) {
     // Generate unique filename
     const uniqueId = uuidv4()
     const filename = `${uniqueId}_${file.name}`
-    const filepath = join(process.cwd(), 'public', 'uploads', filename)
 
-    // Save the file
-    await writeFile(filepath, buffer)
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase
+      .storage
+      .from('pdfs')
+      .upload(filename, buffer, {
+        contentType: 'application/pdf',
+        cacheControl: '3600'
+      })
+
+    if (uploadError) {
+      console.error('Supabase Storage upload error:', uploadError)
+      return NextResponse.json({ error: 'Upload failed' }, { status: 500 })
+    }
+
+    // Get the public URL
+    const { data: publicUrlData } = supabase
+      .storage
+      .from('pdfs')
+      .getPublicUrl(filename)
 
     return NextResponse.json({ 
       message: 'File uploaded successfully',
       filename: filename,
       originalName: file.name,
-      size: file.size
+      size: file.size,
+      url: publicUrlData.publicUrl
     })
   } catch (error) {
     console.error('Upload error:', error)

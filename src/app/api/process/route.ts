@@ -1,41 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFile, writeFile, mkdir } from 'fs/promises'
-import { join } from 'path'
 import { PDFDocument } from 'pdf-lib'
 import pdf from 'pdf-parse'
 import { v4 as uuidv4 } from 'uuid'
+import { createClient } from '@supabase/supabase-js'
 
-interface SplitDocument {
-  id: string
-  filename: string
-  pageNumber: number
-  textContent: string
-  pdfPath: string
-  textPath: string
-}
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 export async function POST(request: NextRequest) {
   try {
-    const { filename } = await request.json()
+    const { filename, url } = await request.json()
     
-    if (!filename) {
-      return NextResponse.json({ error: 'Filename is required' }, { status: 400 })
+    if (!filename || !url) {
+      return NextResponse.json({ error: 'Filename and URL are required' }, { status: 400 })
     }
 
-    const inputPath = join(process.cwd(), 'public', 'uploads', filename)
-    const splitDir = join(process.cwd(), 'public', 'split-pdfs')
-    const textDir = join(process.cwd(), 'public', 'text-files')
+    // Download the PDF from Supabase Storage
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error('Failed to download PDF from storage')
+    }
+    const pdfBuffer = await response.arrayBuffer()
 
-    // Ensure directories exist
-    await mkdir(splitDir, { recursive: true })
-    await mkdir(textDir, { recursive: true })
-
-    // Read the uploaded PDF
-    const pdfBuffer = await readFile(inputPath)
+    // Load the PDF document
     const pdfDoc = await PDFDocument.load(pdfBuffer)
     const pageCount = pdfDoc.getPageCount()
 
-    const documents: SplitDocument[] = []
+    const documents: any[] = []
 
     // Process each page
     for (let i = 0; i < pageCount; i++) {
@@ -51,8 +45,26 @@ export async function POST(request: NextRequest) {
       const pdfBytes = await newPdf.save()
       const baseName = filename.replace('.pdf', '')
       const pagePdfName = `${baseName}_page_${pageNum}.pdf`
-      const pagePdfPath = join(splitDir, pagePdfName)
-      await writeFile(pagePdfPath, pdfBytes)
+      
+      // Upload split PDF to Supabase Storage
+      const { data: pdfUploadData, error: pdfUploadError } = await supabase
+        .storage
+        .from('split-pdfs')
+        .upload(pagePdfName, pdfBytes, {
+          contentType: 'application/pdf',
+          cacheControl: '3600'
+        })
+
+      if (pdfUploadError) {
+        console.error(`Error uploading split PDF page ${pageNum}:`, pdfUploadError)
+        continue
+      }
+
+      // Get the public URL for the split PDF
+      const { data: pdfUrlData } = supabase
+        .storage
+        .from('split-pdfs')
+        .getPublicUrl(pagePdfName)
 
       // Extract text from this single page PDF
       let textContent = ''
@@ -64,33 +76,45 @@ export async function POST(request: NextRequest) {
         textContent = 'Error extracting text from this page'
       }
 
-      // Save the text content
+      // Upload text content to Supabase Storage
       const textFileName = `${baseName}_page_${pageNum}.txt`
-      const textFilePath = join(textDir, textFileName)
-      await writeFile(textFilePath, textContent, 'utf8')
+      const { data: textUploadData, error: textUploadError } = await supabase
+        .storage
+        .from('text-files')
+        .upload(textFileName, textContent, {
+          contentType: 'text/plain',
+          cacheControl: '3600'
+        })
 
-      // Add to documents array
+      if (textUploadError) {
+        console.error(`Error uploading text file for page ${pageNum}:`, textUploadError)
+        continue
+      }
+
+      // Get the public URL for the text file
+      const { data: textUrlData } = supabase
+        .storage
+        .from('text-files')
+        .getPublicUrl(textFileName)
+
       documents.push({
         id: pageId,
         filename: pagePdfName,
         pageNumber: pageNum,
-        textContent: textContent,
-        pdfPath: `/split-pdfs/${pagePdfName}`,
-        textPath: `/text-files/${textFileName}`
+        pdfUrl: pdfUrlData.publicUrl,
+        textUrl: textUrlData.publicUrl,
+        textContent,
+        claudeProcessed: false
       })
     }
 
     return NextResponse.json({
       message: 'PDF processed successfully',
-      totalPages: pageCount,
-      documents: documents
+      documents
     })
 
   } catch (error) {
     console.error('Processing error:', error)
-    return NextResponse.json({ 
-      error: 'Failed to process PDF',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Processing failed' }, { status: 500 })
   }
 } 
