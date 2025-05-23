@@ -56,7 +56,7 @@ const supabase = createClient(
 export async function GET() {
   try {
     // Fetch all nominas from Supabase
-    const { data: nominas, error, count } = await supabase
+    const { data: nominas, error } = await supabase
       .from('nominas')
       .select('*')
       .order('created_at', { ascending: false })

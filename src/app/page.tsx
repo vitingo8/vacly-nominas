@@ -9,6 +9,48 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap } from 'lucide-react'
 
+interface NominaData {
+  id: string
+  nominaId: string
+  period_start: string
+  period_end: string
+  employee: {
+    name?: string
+    dni?: string
+    nss?: string
+    category?: string
+    code?: string
+  }
+  company: {
+    name?: string
+    cif?: string
+    address?: string
+    center_code?: string
+  }
+  perceptions: Array<{
+    code?: string
+    concept?: string
+    amount?: number
+  }>
+  deductions: Array<{
+    code?: string
+    concept?: string
+    amount?: number
+  }>
+  contributions: Array<{
+    concept?: string
+    base?: number
+    rate?: number
+    employer_contribution?: number
+  }>
+  base_ss: number
+  net_pay: number
+  iban?: string
+  swift_bic?: string
+  cost_empresa: number
+  signed: boolean
+}
+
 interface SplitDocument {
   id: string
   filename: string
@@ -17,7 +59,7 @@ interface SplitDocument {
   pdfPath: string
   textPath: string
   claudeProcessed?: boolean
-  nominaData?: any
+  nominaData?: NominaData
 }
 
 type ViewMode = 'pdf' | 'text'
@@ -103,11 +145,6 @@ export default function Home() {
     setViewerDocument(document)
     setIsViewerOpen(true)
     setViewMode('pdf') // Default to PDF view
-  }
-
-  const closeViewer = () => {
-    setIsViewerOpen(false)
-    setViewerDocument(null)
   }
 
   const processWithClaude = async (document: SplitDocument) => {
