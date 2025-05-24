@@ -28,6 +28,7 @@
     "tailwind-merge": "^3.3.0",
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^11.1.0",
+    "voyageai": "^0.0.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

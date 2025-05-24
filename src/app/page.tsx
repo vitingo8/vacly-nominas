@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap } from 'lucide-react'
+import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap, Database, TrendingUp, Clock, Hash } from 'lucide-react'
 
 interface NominaData {
   id: string
@@ -78,6 +78,31 @@ export default function Home() {
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   const [isExportingExcel, setIsExportingExcel] = useState(false)
   const [batchProgress, setBatchProgress] = useState(0)
+  const [memoryStatus, setMemoryStatus] = useState<any>(null)
+  const [isLoadingMemory, setIsLoadingMemory] = useState(false)
+
+  // Load memory status on component mount
+  useEffect(() => {
+    loadMemoryStatus()
+  }, [])
+
+  const loadMemoryStatus = async () => {
+    setIsLoadingMemory(true)
+    try {
+      const response = await fetch('/api/memory-status')
+      const result = await response.json()
+      
+      if (response.ok) {
+        setMemoryStatus(result.data)
+      } else {
+        console.error('Error loading memory status:', result.error)
+      }
+    } catch (error) {
+      console.error('Error loading memory status:', error)
+    } finally {
+      setIsLoadingMemory(false)
+    }
+  }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -219,6 +244,9 @@ export default function Home() {
         })
       }
 
+      // Refresh memory status to show updated patterns and embeddings
+      loadMemoryStatus()
+
       alert('¡Nómina procesada y guardada en Supabase exitosamente!')
 
     } catch (error) {
@@ -308,10 +336,13 @@ export default function Home() {
 
       setBatchProgress(100)
 
+      // Refresh memory status after batch processing
+      loadMemoryStatus()
+
       const successMessage = `¡Procesamiento completado!\n\n` +
         `✅ Procesados exitosamente: ${results.length}\n` +
         `❌ Errores: ${errors.length}\n\n` +
-        `Todos los datos se han guardado en Supabase.`
+        `Todos los datos se han guardado en Supabase y la memoria AI se ha actualizado.`
 
       if (errors.length > 0) {
         console.log('Errores encontrados:', errors)
@@ -632,6 +663,178 @@ export default function Home() {
               </Card>
             </div>
           </div>
+        )}
+
+        {/* Memory Status Panel */}
+        {memoryStatus && (
+          <Card className="mt-8">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="w-5 h-5" />
+                RAG Memory Status
+              </CardTitle>
+              <CardDescription>
+                Current state of AI memory and learned patterns
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-blue-700 font-medium">
+                    <Brain className="w-4 h-4" />
+                    Memory Patterns
+                  </div>
+                  <p className="text-2xl font-bold text-blue-900 mt-1">
+                    {memoryStatus.summary.total_memories}
+                  </p>
+                  <p className="text-sm text-blue-600">
+                    Avg. Confidence: {(memoryStatus.summary.avg_confidence * 100).toFixed(1)}%
+                  </p>
+                </div>
+                
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-green-700 font-medium">
+                    <Hash className="w-4 h-4" />
+                    Vector Embeddings
+                  </div>
+                  <p className="text-2xl font-bold text-green-900 mt-1">
+                    {memoryStatus.summary.total_embeddings}
+                  </p>
+                  <p className="text-sm text-green-600">
+                    Text chunks indexed
+                  </p>
+                </div>
+                
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-purple-700 font-medium">
+                    <FileText className="w-4 h-4" />
+                    Documents Processed
+                  </div>
+                  <p className="text-2xl font-bold text-purple-900 mt-1">
+                    {memoryStatus.summary.total_processed}
+                  </p>
+                  <p className="text-sm text-purple-600">
+                    Total processed docs
+                  </p>
+                </div>
+                
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-orange-700 font-medium">
+                    <TrendingUp className="w-4 h-4" />
+                    Performance
+                  </div>
+                  <p className="text-2xl font-bold text-orange-900 mt-1">
+                    {memoryStatus.memory_patterns.reduce((acc: number, pattern: any) => acc + (pattern.usage_count || 0), 0)}
+                  </p>
+                  <p className="text-sm text-orange-600">
+                    Total pattern usage
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Learned Patterns */}
+                <div>
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    <Brain className="w-4 h-4" />
+                    Learned Patterns
+                  </h4>
+                  <div className="space-y-3 max-h-64 overflow-y-auto">
+                    {memoryStatus.memory_patterns.length > 0 ? (
+                      memoryStatus.memory_patterns.map((pattern: any, index: number) => (
+                        <div key={pattern.id} className="bg-gray-50 rounded-lg p-3 border">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-medium text-sm text-gray-700">
+                              {pattern.document_types?.name || 'Unknown'} Pattern
+                            </span>
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <TrendingUp className="w-3 h-3" />
+                              {(pattern.confidence_score * 100).toFixed(0)}%
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">
+                            {pattern.summary}
+                          </p>
+                          {pattern.keywords && pattern.keywords.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {pattern.keywords.slice(0, 5).map((keyword: string, kIndex: number) => (
+                                <span key={kIndex} className="inline-block bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded">
+                                  {keyword}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center mt-2 text-xs text-gray-500">
+                            <span>Used {pattern.usage_count} times</span>
+                            <span>
+                              <Clock className="w-3 h-3 inline mr-1" />
+                              {new Date(pattern.last_used_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-gray-500 text-sm italic">
+                        No patterns learned yet. Process some documents to build memory.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Recent Activity */}
+                <div>
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Recent Activity
+                  </h4>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {memoryStatus.recent_activity.length > 0 ? (
+                      memoryStatus.recent_activity.map((activity: any, index: number) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded border">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              activity.processing_status === 'completed' ? 'bg-green-500' :
+                              activity.processing_status === 'processing' ? 'bg-yellow-500' :
+                              activity.processing_status === 'error' ? 'bg-red-500' : 'bg-gray-500'
+                            }`} />
+                            <span className="text-sm font-medium text-gray-700">
+                              {activity.original_filename}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {new Date(activity.created_at).toLocaleString()}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-gray-500 text-sm italic">
+                        No recent activity.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-between items-center">
+                <p className="text-sm text-gray-600">
+                  Memory system helps Claude learn from previous documents and provide better results.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadMemoryStatus}
+                  disabled={isLoadingMemory}
+                >
+                  {isLoadingMemory ? (
+                    <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2" />
+                  ) : (
+                    <Database className="w-4 h-4 mr-2" />
+                  )}
+                  Refresh
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Enhanced Document Viewer Dialog */}

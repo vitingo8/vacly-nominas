@@ -28,6 +28,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Filename and URL are required' }, { status: 400 })
     }
 
+    // Get document type ID for nomina (default for now)
+    const { data: documentType, error: docTypeError } = await supabase
+      .from('document_types')
+      .select('id')
+      .eq('name', 'nomina')
+      .single()
+
+    if (docTypeError || !documentType) {
+      console.error('Error getting document type:', docTypeError)
+      return NextResponse.json({ error: 'Document type not found' }, { status: 500 })
+    }
+
+    // Fixed IDs for testing (same as in process-nomina API)
+    const companyId = 'e3605f07-2576-4960-81a5-04184661926d'
+    const employeeId = 'de95edea-9322-494a-a693-61e1ac7337f8'
+
     // Download the PDF from Supabase Storage
     const response = await fetch(url)
     if (!response.ok) {
@@ -107,6 +123,26 @@ export async function POST(request: NextRequest) {
         .from('text-files')
         .getPublicUrl(textFileName)
 
+      // Create entry in processed_documents table
+      const { error: processedDocError } = await supabase
+        .from('processed_documents')
+        .insert({
+          id: pageId,
+          original_filename: pagePdfName,
+          document_type_id: documentType.id,
+          company_id: companyId,
+          employee_id: employeeId,
+          extracted_text: textContent,
+          processing_status: 'pending',
+          split_pdf_paths: [pagePdfName],
+          text_file_paths: [textFileName]
+        })
+
+      if (processedDocError) {
+        console.error(`Error creating processed document entry for page ${pageNum}:`, processedDocError)
+        // Continue with processing even if database insert fails
+      }
+
       documents.push({
         id: pageId,
         filename: pagePdfName,
@@ -120,7 +156,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       message: 'PDF processed successfully',
-      documents
+      documents,
+      totalDocumentsCreated: documents.length
     })
 
   } catch (error) {
