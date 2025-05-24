@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PDFDocument } from 'pdf-lib'
-import pdf from 'pdf-parse'
 import { v4 as uuidv4 } from 'uuid'
 import { createClient } from '@supabase/supabase-js'
+import { parsePDF } from '@/lib/pdf-utils'
 
 interface SplitDocument {
   id: string
@@ -95,8 +95,7 @@ export async function POST(request: NextRequest) {
       // Extract text from this single page PDF
       let textContent = ''
       try {
-        const pageData = await pdf(Buffer.from(pdfBytes))
-        textContent = pageData.text.trim()
+        textContent = await parsePDF(Buffer.from(pdfBytes))
       } catch (textError) {
         console.error(`Error extracting text from page ${pageNum}:`, textError)
         textContent = 'Error extracting text from this page'
