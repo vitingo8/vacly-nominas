@@ -53,16 +53,16 @@ export async function findSimilarDocuments(
     }
 
     const { data, error } = await query
-
+    
     if (error) {
-      console.error('Error searching similar documents:', error)
-      return []
+      console.error('Error in findSimilarDocuments:', error)
+      throw error
     }
-
+    
     return data || []
   } catch (error) {
     console.error('Error in findSimilarDocuments:', error)
-    return []
+    throw error
   }
 }
 
@@ -73,12 +73,23 @@ export async function getMemoryContext(
   employeeId?: string
 ): Promise<MemoryContext> {
   try {
+    // Get document type ID
+    const { data: docType } = await supabase
+      .from('document_types')
+      .select('id')
+      .eq('name', documentType)
+      .single()
+
+    if (!docType) {
+      throw new Error(`Document type '${documentType}' not found`)
+    }
+
     // Obtener patrones aprendidos de la empresa
     const { data: companyPatterns } = await supabase
       .from('document_memory')
       .select('*')
       .eq('company_id', companyId)
-      .eq('document_type_id', documentType)
+      .eq('document_type_id', docType.id)
       .is('employee_id', null)
       .order('confidence_score', { ascending: false })
       .limit(3)
@@ -90,7 +101,7 @@ export async function getMemoryContext(
         .from('document_memory')
         .select('*')
         .eq('company_id', companyId)
-        .eq('document_type_id', documentType)
+        .eq('document_type_id', docType.id)
         .eq('employee_id', employeeId)
         .order('confidence_score', { ascending: false })
         .limit(2)
@@ -112,12 +123,7 @@ export async function getMemoryContext(
     }
   } catch (error) {
     console.error('Error getting memory context:', error)
-    return {
-      similar_documents: [],
-      company_patterns: [],
-      employee_patterns: [],
-      learned_keywords: []
-    }
+    throw error
   }
 }
 
@@ -155,14 +161,14 @@ export async function storeDocumentEmbeddings(
 
     if (error) {
       console.error('Error storing Voyage embeddings:', error)
-      return false
+      throw error
     }
 
     console.log(`Stored ${embeddings.length} Voyage embeddings for document ${documentId}`)
     return true
   } catch (error) {
     console.error('Error in storeDocumentEmbeddings:', error)
-    return false
+    throw error
   }
 }
 
@@ -223,6 +229,7 @@ export async function updateMemory(
     }
   } catch (error) {
     console.error('Error updating memory:', error)
+    throw error
   }
 }
 
@@ -281,7 +288,7 @@ export async function buildClaudeContext(
     return context
   } catch (error) {
     console.error('Error building Claude context:', error)
-    return ''
+    throw error
   }
 }
 
@@ -335,7 +342,7 @@ function generateSummary(processedData: any): string {
   if (processedData.period_start && processedData.period_end) {
     parts.push(`Período: ${processedData.period_start} - ${processedData.period_end}`)
   }
-
+  
   const numPerceptions = processedData.perceptions ? processedData.perceptions.length : 0
   const numDeductions = processedData.deductions ? processedData.deductions.length : 0
   

@@ -129,7 +129,7 @@ export async function generateEmbeddings(chunks: TextChunk[]): Promise<Array<{ c
       }
     } catch (error) {
       console.error(`Error generating embeddings for batch starting at ${i}:`, error)
-      // Continuar con el siguiente lote si uno falla
+      throw error // Propagar el error en lugar de continuar
     }
   }
 
