@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
-import { buildClaudeContext, storeDocumentEmbeddings, updateMemory } from '@/lib/memory-rag'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -14,14 +13,6 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    // Check that Voyage AI is configured (required for memory system)
-    if (!process.env.VOYAGE_API_KEY) {
-      return NextResponse.json({ 
-        error: 'Voyage AI not configured',
-        details: 'VOYAGE_API_KEY environment variable is required for the memory system'
-      }, { status: 500 })
-    }
-
     const { textContent, documentId } = await request.json()
     
     if (!textContent) {
@@ -51,17 +42,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Document type not found' }, { status: 500 })
     }
 
-    // Build enriched context using RAG memory
-    console.log('Building Claude context with RAG memory...')
-    const ragContext = await buildClaudeContext(
-      textContent,
-      companyId,
-      'nomina',
-      employeeId
-    )
-
-    // Enhanced Claude prompt with memory context
-    const basePrompt = `Ets un assistent que interpreta documents de nòmina en text pla. A la teva sortida, has d'incloure:
+    // Basic Claude prompt without memory context
+    const basicPrompt = `Ets un assistent que interpreta documents de nòmina en text pla. A la teva sortida, has d'incloure:
 
 - company_id: deixar buit ""
 - employee_id: deixar buit ""
@@ -77,23 +59,21 @@ export async function POST(request: NextRequest) {
 - bank: objecte amb { iban, swift_bic }
 - cost_empresa: cost total per a l'empresa
 
-Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o formatació markdown. El JSON ha de ser directament parseable.`
+Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o formatació markdown. El JSON ha de ser directament parseable.
 
-    // Combine base prompt with RAG context
-    const enhancedPrompt = ragContext 
-      ? `${ragContext}\n\n${basePrompt}\n\nText de la nòmina:\n${textContent}`
-      : `${basePrompt}\n\nText de la nòmina:\n${textContent}`
+Text de la nòmina:
+${textContent}`
 
-    console.log('Sending enhanced prompt to Claude...')
+    console.log('Sending basic prompt to Claude...')
 
-    // Send to Claude API with enhanced context
+    // Send to Claude API with basic prompt
     const response = await anthropic.messages.create({
       model: "claude-3-haiku-20240307",
       max_tokens: 4000,
       messages: [
         {
           role: "user",
-          content: enhancedPrompt
+          content: basicPrompt
         }
       ],
     })
@@ -152,7 +132,7 @@ Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o fo
       }, { status: 500 })
     }
 
-    // Update processed_documents table with the result
+    // Update processed_documents table with the result (basic mode)
     const { error: updateError } = await supabase
       .from('processed_documents')
       .upsert({
@@ -160,7 +140,7 @@ Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o fo
         document_type_id: documentType.id,
         company_id: companyId,
         employee_id: employeeId,
-        original_filename: `nomina_${documentId}.pdf`,
+        original_filename: `nomina_basic_${documentId}.pdf`,
         extracted_text: textContent,
         processed_data: processedData,
         processing_status: 'completed'
@@ -170,49 +150,17 @@ Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o fo
       console.error('Error updating processed_documents:', updateError)
     }
 
-    // Store document embeddings for future RAG searches
-    console.log('Storing document embeddings...')
-    try {
-      await storeDocumentEmbeddings(
-        documentId,
-        companyId,
-        documentType.id,
-        textContent,
-        employeeId
-      )
-      console.log('Embeddings stored successfully')
-    } catch (embeddingError) {
-      console.error('Error storing embeddings:', embeddingError)
-      // Don't fail the request if embeddings fail
-    }
-
-    // Update memory with learned patterns
-    console.log('Updating memory with learned patterns...')
-    const conversationId = crypto.randomUUID() // Generate new conversation ID
-    try {
-      await updateMemory(
-        companyId,
-        documentType.id,
-        processedData,
-        conversationId,
-        employeeId
-      )
-      console.log('Memory updated successfully')
-    } catch (memoryError) {
-      console.error('Error updating memory:', memoryError)
-      // Don't fail the request if memory update fails
-    }
-
     return NextResponse.json({
       success: true,
-      message: 'Nómina processed and saved successfully with RAG memory',
+      message: 'Nómina processed and saved successfully (Basic Mode)',
       data: {
         nominaId: nominaId,
         processedData: processedData,
         supabaseRecord: insertedData[0],
-        ragContextUsed: !!ragContext,
-        embeddingsStored: true,
-        memoryUpdated: true
+        mode: 'basic',
+        ragContextUsed: false,
+        embeddingsStored: false,
+        memoryUpdated: false
       }
     })
 
@@ -238,7 +186,7 @@ Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o fo
     }
 
     return NextResponse.json({ 
-      error: 'Failed to process nomina',
+      error: 'Failed to process nomina (Basic Mode)',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })
   }
