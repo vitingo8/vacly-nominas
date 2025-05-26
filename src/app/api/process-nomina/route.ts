@@ -119,9 +119,54 @@ Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o fo
       
       // Post-processing validation and correction for cost_empresa
       if (processedData.perceptions && Array.isArray(processedData.perceptions)) {
-        const grossSalary = processedData.perceptions.reduce((sum: number, perception: any) => {
-          return sum + (perception.amount || 0)
-        }, 0)
+        // Find the appropriate base for gross salary calculation
+        // Look for bases like "Base SS", "Base Cotización", etc. but NOT "REM.TOTAL"
+        let grossSalary = 0
+        
+        // First try to find it in contributions bases
+        if (processedData.contributions && Array.isArray(processedData.contributions)) {
+          const validBase = processedData.contributions.find((contrib: any) => 
+            contrib.base && contrib.base > 0 && 
+            contrib.concept && 
+            !contrib.concept.toLowerCase().includes('rem.total') &&
+            !contrib.concept.toLowerCase().includes('remuneración total')
+          )
+          if (validBase) {
+            grossSalary = validBase.base
+          }
+        }
+        
+        // If not found in contributions, try base_ss
+        if (grossSalary === 0 && processedData.base_ss && processedData.base_ss > 0) {
+          grossSalary = processedData.base_ss
+        }
+        
+        // If still not found, look for specific perception concepts that represent gross salary
+        if (grossSalary === 0) {
+          const grossPerception = processedData.perceptions.find((perception: any) => 
+            perception.concept && (
+              perception.concept.toLowerCase().includes('salari brut') ||
+              perception.concept.toLowerCase().includes('salario bruto') ||
+              perception.concept.toLowerCase().includes('base') ||
+              perception.concept.toLowerCase().includes('sueldo base')
+            ) && !perception.concept.toLowerCase().includes('rem.total')
+          )
+          if (grossPerception) {
+            grossSalary = grossPerception.amount || 0
+          }
+        }
+        
+        // Fallback: sum all perceptions except REM.TOTAL
+        if (grossSalary === 0) {
+          grossSalary = processedData.perceptions
+            .filter((perception: any) => 
+              !perception.concept || (
+                !perception.concept.toLowerCase().includes('rem.total') &&
+                !perception.concept.toLowerCase().includes('remuneración total')
+              )
+            )
+            .reduce((sum: number, perception: any) => sum + (perception.amount || 0), 0)
+        }
         
         const employerContributions = processedData.contributions 
           ? processedData.contributions.reduce((sum: number, contribution: any) => {
