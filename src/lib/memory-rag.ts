@@ -142,7 +142,7 @@ export async function storeDocumentEmbeddings(
     // Generar embeddings para cada chunk usando Voyage
     const embeddingsData = await generateEmbeddings(chunks)
     
-    // Preparar datos para inserción con dimensiones de Voyage (512)
+    // Preparar datos para inserción - voyage-3-lite retorna vectores de 512 dimensiones
     const embeddings = embeddingsData.map(({ chunk, embedding }) => ({
       document_id: documentId,
       company_id: companyId,
@@ -150,7 +150,7 @@ export async function storeDocumentEmbeddings(
       employee_id: employeeId || null,
       text_chunk: chunk.text,
       chunk_index: chunk.index,
-      embedding: `[${embedding.join(',')}]`, // Vector de 512 dimensiones
+      embedding: embedding, // Vector como array directo para pgvector
       metadata: chunk.metadata
     }))
 
@@ -365,4 +365,4 @@ function mergePatterns(existing: any, newPatterns: any): any {
   })
 
   return merged
-} 
+}

@@ -14,6 +14,14 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    // Check that Voyage AI is configured (required for memory system)
+    if (!process.env.VOYAGE_API_KEY) {
+      return NextResponse.json({ 
+        error: 'Voyage AI not configured',
+        details: 'VOYAGE_API_KEY environment variable is required for the memory system'
+      }, { status: 500 })
+    }
+
     const { textContent, documentId } = await request.json()
     
     if (!textContent) {
