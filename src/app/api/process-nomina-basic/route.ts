@@ -59,6 +59,15 @@ export async function POST(request: NextRequest) {
 - bank: objecte amb { iban, swift_bic }
 - cost_empresa: cost total per a l'empresa
 
+IMPORTANT per al càlcul de cost_empresa:
+1. Busca primer si apareix directament el concepte "cost empresa", "coste empresa", "coste total empresa" o similar
+2. Si NO apareix directament, calcula'l com: SALARI BRUT + APORTACIONS EMPRESARIALS
+3. El salari brut és la suma de totes les percepcions (abans de deduccions)
+4. Les aportacions empresarials són les cotitzacions que paga l'empresa a la Seguretat Social
+5. Exemples d'aportacions empresarials: "Contingències comunes empresa", "Desocupació empresa", "Formació professional empresa", "FOGASA", etc.
+6. Si veus conceptes com "Empresa aporta", "Aportació patronal", "Cotització empresa" - suma'ls tots
+7. SEMPRE verifica que cost_empresa >= salari brut (mai pot ser menor)
+
 Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o formatació markdown. El JSON ha de ser directament parseable.
 
 Text de la nòmina:
@@ -87,6 +96,31 @@ ${textContent}`
       // Parse the JSON response from Claude
       const claudeResponse = response.content[0].text.trim()
       processedData = JSON.parse(claudeResponse)
+      
+      // Post-processing validation and correction for cost_empresa
+      if (processedData.perceptions && Array.isArray(processedData.perceptions)) {
+        const grossSalary = processedData.perceptions.reduce((sum: number, perception: any) => {
+          return sum + (perception.amount || 0)
+        }, 0)
+        
+        const employerContributions = processedData.contributions 
+          ? processedData.contributions.reduce((sum: number, contribution: any) => {
+              return sum + (contribution.employer_contribution || 0)
+            }, 0)
+          : 0
+        
+        const calculatedCostEmpresa = grossSalary + employerContributions
+        
+        // If cost_empresa is missing, too low, or seems incorrect, use our calculation
+        if (!processedData.cost_empresa || 
+            processedData.cost_empresa < grossSalary || 
+            Math.abs(processedData.cost_empresa - calculatedCostEmpresa) > grossSalary * 0.1) {
+          
+          console.log(`Correcting cost_empresa: Original=${processedData.cost_empresa}, Calculated=${calculatedCostEmpresa} (Gross=${grossSalary} + Contributions=${employerContributions})`)
+          processedData.cost_empresa = calculatedCostEmpresa
+        }
+      }
+      
     } catch (parseError) {
       console.error('Error parsing Claude response:', parseError)
       return NextResponse.json({ 
