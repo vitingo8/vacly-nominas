@@ -1103,7 +1103,7 @@ export default function Home() {
                         <p className="text-xs text-gray-600 mt-2">
                           • OCR Básico<br/>
                           • Procesar unitariamente<br/>
-                          • APIs<br/>
+                          • Sin validación inteligente<br/>
                           • Más lento pero estable
                         </p>
                       </div>

@@ -157,9 +157,16 @@ INFORMACIÓN COMPLETA DE LA NÓMINA:
 6. Período detallado (fechas inicio y fin)
 7. Percepciones (conceptos y cantidades)
 8. Deducciones (conceptos y cantidades) 
-9. Cotizaciones sociales
+9. Cotizaciones sociales (incluye contribuciones del empleador)
 10. Base SS y neto a pagar
 11. Datos bancarios si están disponibles
+12. Coste empresa: Si no aparece explícitamente, CALCÚLALO sumando el sueldo bruto + todas las contribuciones del empleador
+13. Estado de firma: Por defecto siempre false (pendiente de firma)
+
+IMPORTANTE PARA COSTE EMPRESA:
+- Si encuentras "Coste empresa" o "Coste total empresa" explícito, úsalo
+- Si NO aparece, calcúlalo automáticamente: gross_salary + suma de todas las employer_contribution
+- Las contribuciones del empleador suelen incluir: Seguridad Social empresa, desempleo empresa, formación profesional empresa, etc.
 
 Responde ÚNICAMENTE con un objeto JSON en este formato:
 {
@@ -191,16 +198,17 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
       {"concept": "concepto", "code": "código", "amount": cantidad}
     ],
     "contributions": [
-      {"concept": "concepto", "base": base, "rate": tasa, "employer_contribution": contribución}
+      {"concept": "concepto", "base": base, "rate": tasa, "employer_contribution": contribución_empleador}
     ],
     "base_ss": base_seguridad_social,
     "net_pay": neto_a_pagar,
+    "gross_salary": sueldo_bruto,
     "bank": {
       "iban": "IBAN si disponible",
       "swift_bic": "SWIFT/BIC si disponible"
     },
-    "cost_empresa": coste_empresa,
-    "signed": true_o_false
+    "cost_empresa": coste_empresa_calculado_o_encontrado,
+    "signed": false
   }
 }`
 
@@ -514,7 +522,7 @@ export async function POST(request: NextRequest) {
                       iban: fullNominaData.bank?.iban || null,
                       swift_bic: fullNominaData.bank?.swift_bic || null,
                       cost_empresa: costEmpresa, // Usar valor calculado
-                      signed: fullNominaData.signed || false,
+                      signed: false, // Siempre false por defecto (pendiente de firma)
                     }
 
                     // Save to nominas table
@@ -618,7 +626,7 @@ export async function POST(request: NextRequest) {
                     cost_empresa: fullNominaData.cost_empresa || fullNominaData.employer_cost || 
                                  (fullNominaData.gross_salary || 0) + 
                                  (fullNominaData.contributions?.reduce((sum: number, c: any) => sum + (c.employer_contribution || 0), 0) || 0),
-                    signed: fullNominaData.signed || false
+                    signed: false
                   } : undefined
                 })
 
