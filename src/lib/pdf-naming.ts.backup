@@ -94,34 +94,11 @@ ${textContent}`
 }
 
 /**
- * Corrige el formato de nombres de "APELLIDOS, NOMBRE" a "NOMBRE APELLIDOS"
- */
-export function correctNameFormat(name: string): string {
-  if (!name || typeof name !== 'string') return name
-  
-  // Si el nombre contiene una coma, probablemente está en formato "APELLIDOS, NOMBRE"
-  if (name.includes(',')) {
-    const parts = name.split(',').map(part => part.trim())
-    if (parts.length === 2) {
-      // Intercambiar: parts[0] = apellidos, parts[1] = nombre
-      return `${parts[1]} ${parts[0]}`
-    }
-  }
-  
-  // Si no tiene coma, devolver tal como está
-  return name
-}
-
-/**
  * Sanitiza un nombre para usarlo como nombre de archivo
  */
 function sanitizeFileName(name: string): string {
   return name
-    .normalize('NFD') // Normalizar caracteres Unicode
-    .replace(/[\u0300-\u036f]/g, '') // Remover acentos y diacríticos
     .replace(/[<>:"/\\|?*]/g, '') // Remove invalid filename characters
-    .replace(/[ñÑ]/g, (match) => match === 'ñ' ? 'n' : 'N') // Replace ñ with n
-    .replace(/[^a-zA-Z0-9\s\-_.]/g, '') // Keep only alphanumeric, spaces, hyphens, underscores, dots
     .replace(/\s+/g, ' ') // Replace multiple spaces with single space
     .trim()
     .substring(0, 50) // Limit length

@@ -143,12 +143,12 @@ export async function POST(request: NextRequest) {
           .from('split-pdfs')
           .upload(pagePdfName, pdfBytes, {
             contentType: 'application/pdf',
-            cacheControl: "3600", upsert: true
+            cacheControl: '3600'
           })
 
         if (pdfUploadError) {
           console.error(`❌ Error uploading split PDF page ${pageNum}:`, pdfUploadError)
-          // REMOVED continue - now always shows documents
+          continue
         }
 
         console.log(`✅ Split PDF uploaded successfully: ${pagePdfName}`)
@@ -168,12 +168,12 @@ export async function POST(request: NextRequest) {
           .from('text-files')
           .upload(textFileName, textContent, {
             contentType: 'text/plain',
-            cacheControl: "3600", upsert: true
+            cacheControl: '3600'
           })
 
         if (textUploadError) {
           console.error(`❌ Error uploading text file for page ${pageNum}:`, textUploadError)
-          // REMOVED continue - now always shows documents
+          continue
         }
 
         console.log(`✅ Text file uploaded successfully: ${textFileName}`)
@@ -202,7 +202,7 @@ export async function POST(request: NextRequest) {
 
         if (processedDocError) {
           console.error(`❌ Error creating processed document entry for page ${pageNum}:`, processedDocError)
-          // // REMOVED continue - now always shows documents with processing even if database insert fails
+          // Continue with processing even if database insert fails
         } else {
           console.log(`✅ Database entry created for page ${pageNum}`)
         }
@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
 
       } catch (pageError) {
         console.error(`❌ Error processing page ${pageNum}:`, pageError)
-        // // REMOVED continue - now always shows documents with next page
+        // Continue with next page
       }
     }
 
