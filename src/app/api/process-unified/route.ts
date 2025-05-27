@@ -157,19 +157,18 @@ INFORMACIÓN COMPLETA DE LA NÓMINA:
 6. Período detallado (fechas inicio y fin)
 7. Percepciones (conceptos y cantidades)
 8. Deducciones (conceptos y cantidades) 
-9. Cotizaciones sociales (incluye contribuciones del empleador)
+9. Cotizaciones sociales (SOLO contribuciones empresariales, NO del empleado)
 10. Base SS y neto a pagar
 11. Datos bancarios si están disponibles
-12. Coste empresa: Si no aparece explícitamente, CALCÚLALO sumando el sueldo bruto + todas las CONTRIBUCIONES DE LA EMPRESA (NO del empleado)
+12. Coste empresa: gross_salary + suma total de contribuciones empresariales
 13. Estado de firma: Por defecto siempre false (pendiente de firma)
 
 DIFERENCIA IMPORTANTE:
-- CONTRIBUCIONES EMPRESA: Lo que paga la empresa ADICIONAL al sueldo (Seg. Social empresa, desempleo empresa, etc.)
-- DEDUCCIONES EMPLEADO: Lo que se DESCUENTA del sueldo del empleado (IRPF, Seg. Social empleado, etc.)
+- CONTRIBUCIONES (contributions): SOLO lo que paga la empresa (Seg. Social empresa, desempleo empresa, etc.)
+- DEDUCCIONES (deductions): Lo que se DESCUENTA del sueldo del empleado (IRPF, Seg. Social empleado, etc.)
 
 IMPORTANTE PARA COSTE EMPRESA:
-- Si encuentras "Coste empresa" o "Coste total empresa" explícito, úsalo
-- Si NO aparece, calcúlalo automáticamente: gross_salary + suma de todas las CONTRIBUCIONES DE LA EMPRESA (NO del empleado)
+- Coste empresa = gross_salary + suma de todas las contribuciones empresariales
 - Las contribuciones DE LA EMPRESA incluyen: Seguridad Social a cargo empresa, desempleo a cargo empresa, formación profesional a cargo empresa, etc.
 - NO incluyas las contribuciones que descuentan al empleado (esas van en deductions)
 
@@ -208,6 +207,7 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
     "base_ss": base_seguridad_social,
     "net_pay": neto_a_pagar,
     "gross_salary": sueldo_bruto,
+    "total_contributions": suma_total_contribuciones_empresariales,
     "bank": {
       "iban": "IBAN si disponible",
       "swift_bic": "SWIFT/BIC si disponible"
@@ -497,17 +497,14 @@ export async function POST(request: NextRequest) {
                     const grossSalary = fullNominaData.gross_salary || 
                                        fullNominaData.perceptions?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0
                     
-                    // Calcular coste empresa automáticamente si no está disponible
-                    let costEmpresa = fullNominaData.cost_empresa || fullNominaData.employer_cost || 0
+                    // Calcular total de contribuciones empresariales
+                    const totalContributions = fullNominaData.contributions?.reduce((sum: number, c: any) => 
+                      sum + (c.employer_contribution || c.amount || 0), 0) || 0
                     
-                    if (!costEmpresa && grossSalary > 0) {
-                      // Calcular coste empresa: sueldo bruto + cotizaciones patronales
-                      const employerContributions = fullNominaData.contributions?.reduce((sum: number, c: any) => 
-                        sum + (c.employer_contribution || 0), 0) || 0
-                      
-                      costEmpresa = grossSalary + employerContributions
-                      console.log(`💰 Auto-calculated cost_empresa for ${correctedBasicInfo.employeeName}: Gross(${grossSalary}) + Contributions(${employerContributions}) = ${costEmpresa}`)
-                    }
+                    // Calcular coste empresa: sueldo bruto + total contribuciones empresariales
+                    const costEmpresa = grossSalary + totalContributions
+                    
+                    console.log(`💰 Calculated for ${correctedBasicInfo.employeeName}: Gross(${grossSalary}) + Contributions(${totalContributions}) = Cost Empresa(${costEmpresa})`)
                     
                     // Prepare data for nominas table (VERIFICADO CON MCP SUPABASE + NORMALIZADO)
                     const nominaData = {
@@ -523,11 +520,12 @@ export async function POST(request: NextRequest) {
                       contributions: fullNominaData.contributions || [],
                       base_ss: fullNominaData.base_ss || 0,
                       net_pay: fullNominaData.net_pay || 0,
-                      gross_salary: grossSalary, // Agregar campo de sueldo bruto
+                      gross_salary: grossSalary,
+                      total_contributions: totalContributions,
                       iban: fullNominaData.bank?.iban || null,
                       swift_bic: fullNominaData.bank?.swift_bic || null,
-                      cost_empresa: costEmpresa, // Usar valor calculado
-                      signed: false, // Siempre false por defecto (pendiente de firma)
+                      cost_empresa: costEmpresa,
+                      signed: false,
                     }
 
                     // Save to nominas table
@@ -626,11 +624,14 @@ export async function POST(request: NextRequest) {
                     net_pay: fullNominaData.net_pay || 0,
                     gross_salary: fullNominaData.gross_salary || 
                                  fullNominaData.perceptions?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0,
+                    total_contributions: fullNominaData.contributions?.reduce((sum: number, c: any) => 
+                                        sum + (c.employer_contribution || c.amount || 0), 0) || 0,
                     iban: fullNominaData.bank?.iban || fullNominaData.iban || '',
                     swift_bic: fullNominaData.bank?.swift_bic || fullNominaData.swift_bic || '',
-                    cost_empresa: fullNominaData.cost_empresa || fullNominaData.employer_cost || 
-                                 (fullNominaData.gross_salary || 0) + 
-                                 (fullNominaData.contributions?.reduce((sum: number, c: any) => sum + (c.employer_contribution || 0), 0) || 0),
+                    cost_empresa: (fullNominaData.gross_salary || 
+                                 fullNominaData.perceptions?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0) +
+                                 (fullNominaData.contributions?.reduce((sum: number, c: any) => 
+                                 sum + (c.employer_contribution || c.amount || 0), 0) || 0),
                     signed: false
                   } : undefined
                 })
