@@ -1102,7 +1102,7 @@ export default function Home() {
                         </Badge>
                         <p className="text-xs text-gray-600 mt-2">
                           • OCR Básico<br/>
-                          • Procesar una a una<br/>
+                          • Procesar unitariamente<br/>
                           • APIs<br/>
                           • Más lento pero estable
                         </p>

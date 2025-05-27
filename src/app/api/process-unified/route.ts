@@ -598,23 +598,27 @@ export async function POST(request: NextRequest) {
                   pdfUrl: pdfUrlData.publicUrl,
                   textUrl: textUrlData.publicUrl,
                   textContent,
-                  claudeProcessed: dbSaved && Object.keys(fullNominaData).length > 0,
-                  nominaData: nominaRecord ? {
-                    id: nominaRecord.id,
-                    nominaId: nominaRecord.id,
-                    period_start: nominaRecord.period_start || '',
-                    period_end: nominaRecord.period_end || '',
-                    employee: nominaRecord.employee || {},
-                    company: nominaRecord.company || {},
-                    perceptions: nominaRecord.perceptions || [],
-                    deductions: nominaRecord.deductions || [],
-                    contributions: nominaRecord.contributions || [],
-                    base_ss: nominaRecord.base_ss || 0,
-                    net_pay: nominaRecord.net_pay || 0,
-                    iban: nominaRecord.iban || '',
-                    swift_bic: nominaRecord.swift_bic || '',
-                    cost_empresa: nominaRecord.cost_empresa || 0,
-                    signed: nominaRecord.signed || false
+                  claudeProcessed: Object.keys(fullNominaData).length > 0,
+                  nominaData: Object.keys(fullNominaData).length > 0 ? {
+                    id: nominaRecord?.id || pageId, // Use nominaRecord ID if available, otherwise pageId
+                    nominaId: nominaRecord?.id || pageId,
+                    period_start: fullNominaData.period_start || '',
+                    period_end: fullNominaData.period_end || '',
+                    employee: fullNominaData.employee || {},
+                    company: fullNominaData.company || {},
+                    perceptions: fullNominaData.perceptions || [],
+                    deductions: fullNominaData.deductions || [],
+                    contributions: fullNominaData.contributions || [],
+                    base_ss: fullNominaData.base_ss || 0,
+                    net_pay: fullNominaData.net_pay || 0,
+                    gross_salary: fullNominaData.gross_salary || 
+                                 fullNominaData.perceptions?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0,
+                    iban: fullNominaData.bank?.iban || fullNominaData.iban || '',
+                    swift_bic: fullNominaData.bank?.swift_bic || fullNominaData.swift_bic || '',
+                    cost_empresa: fullNominaData.cost_empresa || fullNominaData.employer_cost || 
+                                 (fullNominaData.gross_salary || 0) + 
+                                 (fullNominaData.contributions?.reduce((sum: number, c: any) => sum + (c.employer_contribution || 0), 0) || 0),
+                    signed: fullNominaData.signed || false
                   } : undefined
                 })
 
