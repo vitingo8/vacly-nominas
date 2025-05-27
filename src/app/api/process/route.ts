@@ -3,6 +3,7 @@ import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
 import { createClient } from '@supabase/supabase-js'
 import { parsePDF } from '@/lib/pdf-utils'
+import { extractBasicNominaInfo, generateSplitFileName, generateTextFileName } from '@/lib/pdf-naming'
 
 interface SplitDocument {
   id: string
@@ -101,8 +102,38 @@ export async function POST(request: NextRequest) {
         
         // Save the single-page PDF
         const pdfBytes = await newPdf.save()
-        const baseName = filename.replace('.pdf', '')
-        const pagePdfName = `${baseName}_page_${pageNum}.pdf`
+        
+        // Extract text from this specific page to get individual naming info
+        let pageBasicInfo = {
+          companyName: 'Desconocido',
+          employeeName: 'Desconocido', 
+          period: new Date().getFullYear() + String(new Date().getMonth() + 1).padStart(2, '0')
+        }
+
+        console.log(`📝 Extracting text from page ${pageNum}...`)
+        let textContent = ''
+        try {
+          textContent = await parsePDF(Buffer.from(pdfBytes))
+          console.log(`✅ Text extracted from page ${pageNum}: ${textContent.length} characters`)
+          
+          // Extract specific info for this page
+          if (textContent && textContent.length > 50) {
+            try {
+              console.log(`🔍 Extracting specific info for page ${pageNum}...`)
+              pageBasicInfo = await extractBasicNominaInfo(textContent)
+              console.log(`✅ Page ${pageNum} info extracted:`, pageBasicInfo)
+            } catch (namingError) {
+              console.error(`❌ Error extracting naming info for page ${pageNum}:`, namingError)
+              // Use default values for this page
+            }
+          }
+        } catch (textError) {
+          console.error(`❌ Error extracting text from page ${pageNum}:`, textError)
+          textContent = 'Error extracting text from this page'
+        }
+
+        // Generate proper filenames using extracted info from this specific page
+        const pagePdfName = generateSplitFileName(pageBasicInfo.employeeName, pageBasicInfo.period, pageNum)
         
         console.log(`📤 Uploading split PDF: ${pagePdfName}`)
         
@@ -128,19 +159,8 @@ export async function POST(request: NextRequest) {
           .from('split-pdfs')
           .getPublicUrl(pagePdfName)
 
-        // Extract text from this single page PDF
-        console.log(`📝 Extracting text from page ${pageNum}...`)
-        let textContent = ''
-        try {
-          textContent = await parsePDF(Buffer.from(pdfBytes))
-          console.log(`✅ Text extracted from page ${pageNum}: ${textContent.length} characters`)
-        } catch (textError) {
-          console.error(`❌ Error extracting text from page ${pageNum}:`, textError)
-          textContent = 'Error extracting text from this page'
-        }
-
         // Upload text content to Supabase Storage
-        const textFileName = `${baseName}_page_${pageNum}.txt`
+        const textFileName = generateTextFileName(pageBasicInfo.employeeName, pageBasicInfo.period, pageNum)
         console.log(`📤 Uploading text file: ${textFileName}`)
         
         const { error: textUploadError } = await supabase

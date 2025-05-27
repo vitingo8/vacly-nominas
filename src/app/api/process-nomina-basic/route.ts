@@ -95,7 +95,36 @@ ${textContent}`
     try {
       // Parse the JSON response from Claude
       const claudeResponse = response.content[0].text.trim()
-      processedData = JSON.parse(claudeResponse)
+      
+      // Clean the response - remove any markdown formatting or extra text
+      let cleanedResponse = claudeResponse
+      
+      // Remove markdown code blocks if present
+      if (cleanedResponse.includes('```json')) {
+        cleanedResponse = cleanedResponse.replace(/```json\s*/g, '').replace(/```\s*$/g, '')
+      } else if (cleanedResponse.includes('```')) {
+        cleanedResponse = cleanedResponse.replace(/```\s*/g, '').replace(/```\s*$/g, '')
+      }
+      
+      // Find the JSON object - look for the first { and last }
+      const firstBrace = cleanedResponse.indexOf('{')
+      const lastBrace = cleanedResponse.lastIndexOf('}')
+      
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1)
+      }
+      
+      // Additional cleaning - remove any trailing commas before closing braces/brackets
+      cleanedResponse = cleanedResponse.replace(/,(\s*[}\]])/g, '$1')
+      
+      console.log('Attempting to parse Claude response (Basic):', cleanedResponse.substring(0, 200) + '...')
+      
+      processedData = JSON.parse(cleanedResponse)
+      
+      // Validate that we got a proper object
+      if (!processedData || typeof processedData !== 'object') {
+        throw new Error('Parsed data is not a valid object')
+      }
       
       // Post-processing validation and correction for cost_empresa
       if (processedData.perceptions && Array.isArray(processedData.perceptions)) {

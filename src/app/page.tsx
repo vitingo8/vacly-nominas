@@ -72,6 +72,9 @@ type ViewMode = 'pdf' | 'text'
 export default function Home() {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [progressMessage, setProgressMessage] = useState('')
+  const [currentPage, setCurrentPage] = useState<number | null>(null)
+  const [totalPages, setTotalPages] = useState<number | null>(null)
   const [splitDocuments, setSplitDocuments] = useState<SplitDocument[]>([])
   const [selectedDocument, setSelectedDocument] = useState<SplitDocument | null>(null)
   const [isViewerOpen, setIsViewerOpen] = useState(false)
@@ -158,16 +161,18 @@ export default function Home() {
 
   // Helper function to generate business insights from memory data
   const generateBusinessInsights = (memoryStatus: any) => {
-    if (!memoryStatus) return []
+    if (!memoryStatus || !memoryStatus.summary) return []
 
     const insights = []
     const patterns = memoryStatus.memory_patterns || []
-    const totalDocs = memoryStatus.summary.total_processed || 0
-    const totalEmbeddings = memoryStatus.summary.total_embeddings || 0
+    const totalDocs = memoryStatus.summary?.total_processed || 0
+    const totalEmbeddings = memoryStatus.summary?.total_embeddings || 0
 
     // Company structure insights
     if (patterns.length > 0) {
-      const companies = patterns.map((p: any) => p.extracted_data?.company?.name).filter(Boolean)
+      const companies = patterns
+        .map((p: any) => p.extracted_data?.company?.name)
+        .filter(Boolean)
       const uniqueCompanies = [...new Set(companies)]
       if (uniqueCompanies.length > 0) {
         insights.push({
@@ -196,16 +201,20 @@ export default function Home() {
 
     // Pattern recognition
     if (patterns.length > 0) {
-      const keywords = patterns.flatMap((p: any) => p.keywords || [])
+      const keywords = patterns
+        .flatMap((p: any) => p.keywords || [])
+        .filter(Boolean)
       const uniqueKeywords = [...new Set(keywords)].slice(0, 5)
-      insights.push({
-        icon: '🧠',
-        title: 'Términos Empresariales Aprendidos',
-        description: `Reconocemos automáticamente ${uniqueKeywords.length} términos específicos de tu empresa`,
-        details: uniqueKeywords.join(', '),
-        value: `${uniqueKeywords.length} términos`,
-        type: 'keywords'
-      })
+      if (uniqueKeywords.length > 0) {
+        insights.push({
+          icon: '🧠',
+          title: 'Términos Empresariales Aprendidos',
+          description: `Reconocemos automáticamente ${uniqueKeywords.length} términos específicos de tu empresa`,
+          details: uniqueKeywords.join(', '),
+          value: `${uniqueKeywords.length} términos`,
+          type: 'keywords'
+        })
+      }
     }
 
     // Document similarity
@@ -222,7 +231,7 @@ export default function Home() {
     }
 
     // Accuracy improvement
-    const avgConfidence = memoryStatus.summary.avg_confidence || 0.5
+    const avgConfidence = memoryStatus.summary?.avg_confidence || 0.5
     if (avgConfidence > 0.7) {
       insights.push({
         icon: '🎯',
@@ -246,13 +255,18 @@ export default function Home() {
 
     setIsUploading(true)
     setUploadProgress(0)
+    setProgressMessage('Iniciando carga...')
+    setCurrentPage(null)
+    setTotalPages(null)
 
     const formData = new FormData()
     formData.append('pdf', file)
 
     try {
-      // Upload phase (0-30%)
-      setUploadProgress(10)
+      // Phase 1: Upload the file (0-20%)
+      setUploadProgress(5)
+      setProgressMessage('Subiendo archivo PDF...')
+      
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
@@ -263,38 +277,137 @@ export default function Home() {
       }
 
       const uploadResult = await uploadResponse.json()
-      setUploadProgress(30)
+      setUploadProgress(20)
+      setProgressMessage('Archivo subido, iniciando procesamiento...')
 
-      // Processing phase (30-100%)
-      setUploadProgress(40)
-      const processResponse = await fetch('/api/process', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          filename: uploadResult.filename,
-          url: uploadResult.url 
-        }),
-      })
+      // Try to use the new progress API first
+      let processedSuccessfully = false
+      
+      try {
+        // Phase 2: Process with real-time progress using fetch stream (20-100%)
+        const processResponse = await fetch('/api/process-with-progress', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            filename: uploadResult.filename,
+            url: uploadResult.url 
+          }),
+        })
 
-      if (!processResponse.ok) {
-        throw new Error('Error al procesar el archivo')
+        if (processResponse.ok) {
+          // Handle the Server-Sent Events stream
+          const reader = processResponse.body?.getReader()
+          const decoder = new TextDecoder()
+
+          if (reader) {
+            let buffer = ''
+            
+            while (true) {
+              const { done, value } = await reader.read()
+              
+              if (done) break
+
+              const chunk = decoder.decode(value, { stream: true })
+              buffer += chunk
+              
+              // Split by double newlines to get complete SSE messages
+              const messages = buffer.split('\n\n')
+              buffer = messages.pop() || '' // Keep the incomplete message in buffer
+
+              for (const message of messages) {
+                const lines = message.split('\n')
+                
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6))
+                      
+                      if (data.type === 'progress') {
+                        setUploadProgress(Math.max(20, data.progress)) // Ensure we don't go below 20%
+                        setProgressMessage(data.message)
+                        if (data.currentPage !== undefined) {
+                          setCurrentPage(data.currentPage)
+                        }
+                        if (data.totalPages !== undefined) {
+                          setTotalPages(data.totalPages)
+                        }
+                      } else if (data.type === 'complete') {
+                        setUploadProgress(100)
+                        setProgressMessage('¡Procesamiento completado!')
+                        setSplitDocuments(data.documents)
+                        processedSuccessfully = true
+                        
+                        // Reset progress after a short delay
+                        setTimeout(() => {
+                          setUploadProgress(0)
+                          setProgressMessage('')
+                          setCurrentPage(null)
+                          setTotalPages(null)
+                        }, 2000)
+                        return // Exit the function successfully
+                      } else if (data.type === 'error') {
+                        throw new Error(data.error)
+                      }
+                    } catch (parseError) {
+                      console.error('Error parsing SSE data:', parseError, 'Line:', line)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (progressApiError) {
+        console.warn('Progress API failed, falling back to basic processing:', progressApiError)
       }
 
-      setUploadProgress(70)
-      const processResult = await processResponse.json()
-      setUploadProgress(90)
-      
-      setSplitDocuments(processResult.documents)
-      setUploadProgress(100)
+      // Fallback to original API if progress API failed
+      if (!processedSuccessfully) {
+        setProgressMessage('Procesamiento con API básica...')
+        setUploadProgress(50)
+        
+        const fallbackResponse = await fetch('/api/process', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            filename: uploadResult.filename,
+            url: uploadResult.url 
+          }),
+        })
 
-      // Reset progress after a short delay
-      setTimeout(() => setUploadProgress(0), 1000)
+        if (!fallbackResponse.ok) {
+          throw new Error('Error al procesar el archivo con API básica')
+        }
+
+        setUploadProgress(80)
+        const fallbackResult = await fallbackResponse.json()
+        setUploadProgress(100)
+        setProgressMessage('¡Procesamiento completado!')
+        
+        setSplitDocuments(fallbackResult.documents)
+
+        // Reset progress after a short delay
+        setTimeout(() => {
+          setUploadProgress(0)
+          setProgressMessage('')
+          setCurrentPage(null)
+          setTotalPages(null)
+        }, 2000)
+      }
 
     } catch (error) {
       console.error('Error:', error)
-      alert('Ocurrió un error durante la carga o procesamiento')
+      alert('Ocurrió un error durante la carga o procesamiento: ' + (error instanceof Error ? error.message : 'Error desconocido'))
+      
+      // Reset progress on error
+      setUploadProgress(0)
+      setProgressMessage('')
+      setCurrentPage(null)
+      setTotalPages(null)
     } finally {
       setIsUploading(false)
     }
@@ -719,7 +832,7 @@ export default function Home() {
                   <div className="flex items-center space-x-6 text-sm">
                     <div className="flex items-center space-x-2">
                       <Database className="h-4 w-4" />
-                      <span>{memoryStatus.summary.total_processed || 0} documentos aprendidos</span>
+                      <span>{memoryStatus.summary?.total_processed || 0} documentos aprendidos</span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <Brain className="h-4 w-4" />
@@ -727,7 +840,7 @@ export default function Home() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <Award className="h-4 w-4" />
-                      <span>{Math.round((memoryStatus.summary.avg_confidence || 0.5) * 100)}% confianza</span>
+                      <span>{Math.round((memoryStatus.summary?.avg_confidence || 0.5) * 100)}% confianza</span>
                     </div>
                   </div>
                 )}
@@ -786,12 +899,41 @@ export default function Home() {
               </div>
 
               {uploadProgress > 0 && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Progreso de carga</span>
+                    <span className="text-gray-600">
+                      {progressMessage || 'Progreso de carga'}
+                    </span>
                     <span className="font-medium">{uploadProgress}%</span>
                   </div>
-                  <Progress value={uploadProgress} className="h-2" />
+                  <Progress value={uploadProgress} className="h-3" />
+                  {currentPage !== null && totalPages !== null && (
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>
+                        Procesando página {currentPage} de {totalPages}
+                      </span>
+                      <span>
+                        {totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0}% de páginas completadas
+                      </span>
+                    </div>
+                  )}
+                  {totalPages !== null && totalPages > 1 && (
+                    <div className="bg-gray-100 rounded-lg p-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center space-x-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                          <span className="text-gray-700">
+                            Dividiendo PDF en {totalPages} páginas individuales
+                          </span>
+                        </div>
+                        {currentPage !== null && (
+                          <Badge variant="secondary" className="text-xs">
+                            Página actual: {currentPage}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -884,18 +1026,18 @@ export default function Home() {
                       <div className="mb-4 p-4 bg-white rounded-lg border border-gray-200 space-y-2">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600">Empleado:</span>
-                          <span className="text-sm font-medium">{doc.nominaData.employee.name || 'N/A'}</span>
+                          <span className="text-sm font-medium">{doc.nominaData.employee?.name || 'N/A'}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600">Periodo:</span>
                           <span className="text-sm font-medium">
-                            {doc.nominaData.period_start} - {doc.nominaData.period_end}
+                            {doc.nominaData.period_start || 'N/A'} - {doc.nominaData.period_end || 'N/A'}
                           </span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600">Neto a pagar:</span>
                           <span className="text-sm font-bold text-green-600">
-                            €{doc.nominaData.net_pay.toFixed(2)}
+                            €{doc.nominaData.net_pay ? doc.nominaData.net_pay.toFixed(2) : '0.00'}
                           </span>
                         </div>
                       </div>
@@ -1177,7 +1319,7 @@ export default function Home() {
                       </CardHeader>
                       <CardContent>
                         <p className="text-2xl font-bold text-blue-600">
-                          {memoryStatus.summary.total_processed || 0}
+                          {memoryStatus.summary?.total_processed || 0}
                         </p>
                       </CardContent>
                     </Card>
@@ -1203,7 +1345,7 @@ export default function Home() {
                       </CardHeader>
                       <CardContent>
                         <p className="text-2xl font-bold text-green-600">
-                          {Math.round((memoryStatus.summary.avg_confidence || 0.5) * 100)}%
+                          {Math.round((memoryStatus.summary?.avg_confidence || 0.5) * 100)}%
                         </p>
                       </CardContent>
                     </Card>
@@ -1233,7 +1375,7 @@ export default function Home() {
                                       <Badge key={kidx} variant="secondary" className="text-xs">
                                         {keyword}
                                       </Badge>
-                                    ))}
+                                    )) || null}
                                   </div>
                                 </div>
                                 <Button
