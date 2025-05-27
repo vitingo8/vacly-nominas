@@ -160,13 +160,18 @@ INFORMACIÓN COMPLETA DE LA NÓMINA:
 9. Cotizaciones sociales (incluye contribuciones del empleador)
 10. Base SS y neto a pagar
 11. Datos bancarios si están disponibles
-12. Coste empresa: Si no aparece explícitamente, CALCÚLALO sumando el sueldo bruto + todas las contribuciones del empleador
+12. Coste empresa: Si no aparece explícitamente, CALCÚLALO sumando el sueldo bruto + todas las CONTRIBUCIONES DE LA EMPRESA (NO del empleado)
 13. Estado de firma: Por defecto siempre false (pendiente de firma)
+
+DIFERENCIA IMPORTANTE:
+- CONTRIBUCIONES EMPRESA: Lo que paga la empresa ADICIONAL al sueldo (Seg. Social empresa, desempleo empresa, etc.)
+- DEDUCCIONES EMPLEADO: Lo que se DESCUENTA del sueldo del empleado (IRPF, Seg. Social empleado, etc.)
 
 IMPORTANTE PARA COSTE EMPRESA:
 - Si encuentras "Coste empresa" o "Coste total empresa" explícito, úsalo
-- Si NO aparece, calcúlalo automáticamente: gross_salary + suma de todas las employer_contribution
-- Las contribuciones del empleador suelen incluir: Seguridad Social empresa, desempleo empresa, formación profesional empresa, etc.
+- Si NO aparece, calcúlalo automáticamente: gross_salary + suma de todas las CONTRIBUCIONES DE LA EMPRESA (NO del empleado)
+- Las contribuciones DE LA EMPRESA incluyen: Seguridad Social a cargo empresa, desempleo a cargo empresa, formación profesional a cargo empresa, etc.
+- NO incluyas las contribuciones que descuentan al empleado (esas van en deductions)
 
 Responde ÚNICAMENTE con un objeto JSON en este formato:
 {
@@ -198,7 +203,7 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
       {"concept": "concepto", "code": "código", "amount": cantidad}
     ],
     "contributions": [
-      {"concept": "concepto", "base": base, "rate": tasa, "employer_contribution": contribución_empleador}
+      {"concept": "concepto", "base": base, "rate": tasa, "employer_contribution": contribución_a_cargo_empresa}
     ],
     "base_ss": base_seguridad_social,
     "net_pay": neto_a_pagar,
