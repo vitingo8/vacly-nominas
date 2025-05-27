@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap, Database, TrendingUp, Clock, Hash, Settings, AlertCircle, Star, Sparkles } from 'lucide-react'
+import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap, Database, TrendingUp, Clock, Hash, Settings, AlertCircle, Star, Sparkles, Loader2 } from 'lucide-react'
 
 interface NominaData {
   id: string
@@ -250,6 +250,8 @@ export default function Home() {
     formData.append('pdf', file)
 
     try {
+      // Upload phase (0-30%)
+      setUploadProgress(10)
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
@@ -260,9 +262,10 @@ export default function Home() {
       }
 
       const uploadResult = await uploadResponse.json()
-      setUploadProgress(50)
+      setUploadProgress(30)
 
-      // Process the uploaded PDF
+      // Processing phase (30-100%)
+      setUploadProgress(40)
       const processResponse = await fetch('/api/process', {
         method: 'POST',
         headers: {
@@ -278,16 +281,21 @@ export default function Home() {
         throw new Error('Processing failed')
       }
 
+      setUploadProgress(70)
       const processResult = await processResponse.json()
+      setUploadProgress(90)
+      
       setSplitDocuments(processResult.documents)
       setUploadProgress(100)
+
+      // Reset progress after a short delay
+      setTimeout(() => setUploadProgress(0), 1000)
 
     } catch (error) {
       console.error('Error:', error)
       alert('An error occurred during upload or processing')
     } finally {
       setIsUploading(false)
-      setUploadProgress(0)
     }
   }
 
@@ -399,17 +407,13 @@ export default function Home() {
     }
   }
 
-  const processAllWithClaude = async () => {
-    const unprocessedDocs = splitDocuments.filter(doc => !doc.claudeProcessed && doc.textContent?.trim())
+  const processBatchWithClaude = async () => {
+    const unprocessedDocs = splitDocuments.filter(doc => !doc.claudeProcessed)
     
     if (unprocessedDocs.length === 0) {
-      alert('No hay documentos sin procesar disponibles')
+      alert('No hay documentos sin procesar')
       return
     }
-
-    const modeText = memoryMode === 'enterprise' ? 'Memoria Empresarial' : 'Procesamiento Básico'
-    const confirmProcess = confirm(`¿Quieres procesar ${unprocessedDocs.length} documentos con Claude AI usando ${modeText}? Esto puede tardar unos minutos.`)
-    if (!confirmProcess) return
 
     setIsBatchProcessing(true)
     setBatchProgress(0)
@@ -418,39 +422,66 @@ export default function Home() {
       // Choose endpoint based on memory mode
       const endpoint = memoryMode === 'enterprise' ? '/api/process-nomina' : '/api/process-nomina-basic'
       
-      // Process documents one by one to show progress
-      const results = []
-      const errors = []
+      // Process documents in parallel batches of 3 to avoid overwhelming the API
+      const batchSize = 3
+      const results: any[] = []
+      const errors: any[] = []
 
-      for (let i = 0; i < unprocessedDocs.length; i++) {
-        const doc = unprocessedDocs[i]
+      for (let i = 0; i < unprocessedDocs.length; i += batchSize) {
+        const batch = unprocessedDocs.slice(i, i + batchSize)
         setBatchProgress(Math.round((i / unprocessedDocs.length) * 100))
 
-        try {
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              textContent: doc.textContent,
-              documentId: doc.id
-            }),
-          })
-
-          const result = await response.json()
-
-          if (response.ok) {
-            results.push({
-              documentId: doc.id,
-              success: true,
-              data: result.data
+        // Process batch in parallel
+        const batchPromises = batch.map(async (doc) => {
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                textContent: doc.textContent,
+                documentId: doc.id
+              }),
             })
 
+            const result = await response.json()
+
+            if (response.ok) {
+              return {
+                documentId: doc.id,
+                success: true,
+                data: result.data
+              }
+            } else {
+              return {
+                documentId: doc.id,
+                success: false,
+                filename: doc.filename,
+                error: result.error
+              }
+            }
+          } catch (error) {
+            return {
+              documentId: doc.id,
+              success: false,
+              filename: doc.filename,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            }
+          }
+        })
+
+        // Wait for all requests in this batch to complete
+        const batchResults = await Promise.all(batchPromises)
+        
+        // Process results
+        batchResults.forEach(result => {
+          if (result.success) {
+            results.push(result)
             // Update the document immediately
             setSplitDocuments(prevDocs => 
               prevDocs.map(prevDoc => 
-                prevDoc.id === doc.id 
+                prevDoc.id === result.documentId 
                   ? { 
                       ...prevDoc, 
                       claudeProcessed: true, 
@@ -460,53 +491,40 @@ export default function Home() {
               )
             )
           } else {
-            errors.push({
-              documentId: doc.id,
-              filename: doc.filename,
-              error: result.error
-            })
+            errors.push(result)
           }
-        } catch (error) {
-          errors.push({
-            documentId: doc.id,
-            filename: doc.filename,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          })
-        }
+        })
 
-        // Small delay to avoid overwhelming the API
-        if (i < unprocessedDocs.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000))
+        // Small delay between batches to be respectful to the API
+        if (i + batchSize < unprocessedDocs.length) {
+          await new Promise(resolve => setTimeout(resolve, 500))
         }
       }
 
       setBatchProgress(100)
 
-      // Refresh memory status only if in enterprise mode
+      // Reload memory status if using enterprise mode
       if (memoryMode === 'enterprise') {
-        loadMemoryStatus()
+        await loadMemoryStatus()
       }
 
-      const modeInfo = memoryMode === 'enterprise' 
-        ? 'La memoria empresarial se ha actualizado con todos los documentos procesados. 🧠'
-        : 'Procesamiento básico completado sin memoria empresarial. ⚡'
-
-      const successMessage = `¡Procesamiento completado!\n\n` +
-        `✅ Procesados exitosamente: ${results.length}\n` +
-        `❌ Errores: ${errors.length}\n` +
-        `📊 Modo: ${modeText}\n\n` +
-        `${modeInfo}\n\n` +
-        `Todos los datos se han guardado en Supabase.`
+      // Show results
+      if (results.length > 0) {
+        alert(`✅ Procesamiento completado!\n\n` +
+              `Documentos procesados: ${results.length}\n` +
+              `Errores: ${errors.length}\n\n` +
+              `Velocidad mejorada con procesamiento paralelo`)
+      }
 
       if (errors.length > 0) {
-        console.log('Errores encontrados:', errors)
+        console.error('Batch processing errors:', errors)
+        const errorMessage = errors.map(e => `${e.filename}: ${e.error}`).join('\n')
+        alert(`⚠️ Algunos documentos tuvieron errores:\n\n${errorMessage}`)
       }
 
-      alert(successMessage)
-
     } catch (error) {
-      console.error('Error in batch processing:', error)
-      alert(`Error en procesamiento por lotes: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      console.error('Batch processing error:', error)
+      alert('Error durante el procesamiento en lote')
     } finally {
       setIsBatchProcessing(false)
       setBatchProgress(0)
@@ -566,318 +584,212 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Memory Configuration Section */}
-        <Card className="mb-8 border-2 border-blue-200 bg-gradient-to-r from-blue-50 via-emerald-50 to-orange-50 shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-2xl text-gray-800">
-              <Settings className="w-6 h-6 text-blue-600" />
-              ⚙️ Configuración del Sistema de Procesamiento
+        {/* Compact Memory Configuration */}
+        <Card className="mb-6 border border-blue-200 bg-gradient-to-r from-blue-50 to-purple-50 shadow-md">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-xl text-gray-800">
+              <Brain className="w-5 h-5 text-blue-600" />
+              🧠 Configuración de Memoria
             </CardTitle>
-            <CardDescription className="text-lg text-gray-600">
-              Elige el nivel de procesamiento que mejor se adapte a tus necesidades empresariales
-            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Basic Mode */}
-                <div className={`p-6 rounded-xl border-2 cursor-pointer transition-all duration-300 transform hover:scale-105 ${
+          <CardContent className="pt-0">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Basic Mode */}
+              <div 
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
                   memoryMode === 'basic' 
-                    ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-blue-100 shadow-lg' 
-                    : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+                    ? 'border-green-400 bg-green-50 shadow-md' 
+                    : 'border-gray-200 bg-white hover:border-green-300'
                 }`}
-                onClick={() => setMemoryMode('basic')}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <Brain className="w-6 h-6 text-blue-600" />
-                      <h3 className="font-bold text-xl text-gray-800">Procesamiento Básico</h3>
-                    </div>
-                    <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-sm px-3 py-1">
-                      GRATUITO
-                    </Badge>
-                  </div>
-                  <ul className="space-y-3 text-sm text-gray-600 mb-4">
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      Procesamiento con Claude AI
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      Extracción de datos de nóminas
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      Exportación a Excel
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-gray-400" />
-                      Sin memoria empresarial
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-gray-400" />
-                      Cada documento se procesa desde cero
-                    </li>
-                  </ul>
-                  <p className="text-xs text-gray-500 bg-blue-50 p-2 rounded-lg">
-                    ⏱️ Tiempo promedio: 20-30 segundos por documento
-                  </p>
+                onClick={() => setMemoryMode('basic')}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`w-3 h-3 rounded-full ${memoryMode === 'basic' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                  <h3 className="font-semibold text-green-700">Procesamiento Básico</h3>
+                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">GRATIS</Badge>
                 </div>
-
-                {/* Enterprise Mode */}
-                <div className={`p-6 rounded-xl border-2 cursor-pointer transition-all duration-300 transform hover:scale-105 ${
-                  memoryMode === 'enterprise' 
-                    ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-orange-100 shadow-lg' 
-                    : 'border-gray-200 bg-white hover:border-purple-300 hover:shadow-md'
-                }`}
-                onClick={() => setMemoryMode('enterprise')}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <Sparkles className="w-6 h-6 text-purple-600" />
-                      <h3 className="font-bold text-xl text-gray-800">Memoria Empresarial</h3>
-                    </div>
-                    <Badge variant="secondary" className="bg-orange-100 text-orange-700 text-sm px-3 py-1">
-                      PREMIUM
-                    </Badge>
-                  </div>
-                  <ul className="space-y-3 text-sm text-gray-600 mb-4">
-                    <li className="flex items-center gap-2">
-                      <Star className="w-4 h-4 text-yellow-500" />
-                      Todo lo del plan básico +
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      Sistema de memoria inteligente
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      Búsqueda semántica de documentos
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      Aprendizaje automático de patrones
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      Precisión mejorada (90-95%)
-                    </li>
-                  </ul>
-                  <div className="space-y-2">
-                    <p className="text-xs text-gray-500 bg-purple-50 p-2 rounded-lg">
-                      ⏱️ Tiempo promedio: 5-10 segundos por documento
-                    </p>
-                    <p className="text-xs text-orange-600 font-medium bg-orange-50 p-2 rounded-lg">
-                      💰 Costo: ~$0.10 por 1000 documentos procesados
-                    </p>
-                  </div>
-                </div>
+                <p className="text-sm text-gray-600 mb-2">Solo Claude AI • 20-30s por documento</p>
+                <p className="text-xs text-gray-500">Procesamiento estándar sin memoria empresarial</p>
               </div>
 
-              {/* Current Selection Info */}
-              <div className={`p-4 rounded-xl border-2 ${
-                memoryMode === 'enterprise' 
-                  ? 'bg-gradient-to-r from-purple-50 to-orange-50 border-purple-200' 
-                  : 'bg-gradient-to-r from-blue-50 to-emerald-50 border-blue-200'
-              }`}>
-                <div className="flex items-center gap-3 text-sm">
-                  {memoryMode === 'enterprise' ? (
-                    <>
-                      <Sparkles className="w-5 h-5 text-purple-600" />
-                      <span className="font-bold text-purple-700 text-lg">
-                        🚀 Memoria Empresarial Activada
-                      </span>
-                      <span className="text-purple-600">
-                        - Tu sistema aprenderá automáticamente de cada documento
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="w-5 h-5 text-blue-600" />
-                      <span className="font-bold text-blue-700 text-lg">
-                        ⚡ Procesamiento Básico Activado
-                      </span>
-                      <span className="text-blue-600">
-                        - Procesamiento estándar sin memoria empresarial
-                      </span>
-                    </>
-                  )}
+              {/* Enterprise Mode */}
+              <div 
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                  memoryMode === 'enterprise' 
+                    ? 'border-blue-400 bg-blue-50 shadow-md' 
+                    : 'border-gray-200 bg-white hover:border-blue-300'
+                }`}
+                onClick={() => setMemoryMode('enterprise')}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`w-3 h-3 rounded-full ${memoryMode === 'enterprise' ? 'bg-blue-500' : 'bg-gray-300'}`} />
+                  <h3 className="font-semibold text-blue-700">Memoria Empresarial</h3>
+                  <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-xs">PREMIUM</Badge>
                 </div>
+                <p className="text-sm text-gray-600 mb-2">Claude AI + Voyage AI • 5-10s por documento</p>
+                <p className="text-xs text-gray-500">~$0.10 por 1000 documentos • Aprende patrones</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Upload Section */}
-        <Card className="mb-8 border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-blue-50 shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-2xl text-gray-800">
-              <Upload className="w-6 h-6 text-emerald-600" />
-              📁 Cargar Documentos PDF
+        {/* Compact Upload Section */}
+        <Card className="mb-6 border border-emerald-200 bg-gradient-to-r from-emerald-50 to-blue-50 shadow-md">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-xl text-gray-800">
+              <Upload className="w-5 h-5 text-emerald-600" />
+              📁 Cargar PDF
             </CardTitle>
-            <CardDescription className="text-lg text-gray-600">
-              Selecciona archivos PDF de nóminas para dividir en páginas individuales y extraer texto automáticamente
-            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="pdf-upload" className="text-lg font-medium text-gray-700">
-                  Seleccionar Archivos PDF
-                </Label>
+          <CardContent className="pt-0">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
                 <Input
                   id="pdf-upload"
                   type="file"
                   accept=".pdf"
                   onChange={handleFileUpload}
                   disabled={isUploading}
-                  className="cursor-pointer mt-2 border-2 border-emerald-200 focus:border-emerald-400 text-lg p-3"
+                  className="cursor-pointer border border-emerald-200 focus:border-emerald-400 text-sm"
                 />
               </div>
-
+              
               {isUploading && (
-                <div className="space-y-3 bg-blue-50 p-4 rounded-xl border border-blue-200">
-                  <div className="flex justify-between text-sm font-medium">
-                    <span className="text-blue-700">🔄 Procesando archivo...</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between text-xs font-medium mb-1">
+                    <span className="text-blue-700">🔄 Procesando...</span>
                     <span className="text-blue-600">{uploadProgress}%</span>
                   </div>
-                  <Progress value={uploadProgress} className="w-full h-3" />
+                  <Progress value={uploadProgress} className="w-full h-2" />
                 </div>
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Results Section */}
+        {/* Compact Results Section */}
         {splitDocuments.length > 0 && (
-          <div className="space-y-6">
-            {/* Action Buttons */}
-            <Card className="border-2 border-orange-200 bg-gradient-to-r from-orange-50 to-purple-50 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-2xl text-gray-800">
-                  <Zap className="w-6 h-6 text-orange-600" />
-                  ⚡ Acciones Masivas
-                </CardTitle>
-                <CardDescription className="text-lg text-gray-600">
-                  Procesa todos los documentos automáticamente o exporta los datos existentes a Excel
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-4">
-                  <Button
-                    onClick={processAllWithClaude}
-                    disabled={isBatchProcessing || splitDocuments.filter(doc => !doc.claudeProcessed && doc.textContent?.trim()).length === 0}
-                    size="lg"
-                    className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-6 py-3 text-lg font-medium shadow-lg"
-                  >
-                    {isBatchProcessing ? (
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <Brain className="w-5 h-5" />
-                    )}
-                    {isBatchProcessing 
-                      ? 'Procesando...' 
-                      : `🧠 Procesar Todo con IA (${splitDocuments.filter(doc => !doc.claudeProcessed && doc.textContent?.trim()).length} pendientes)`
-                    }
-                  </Button>
-                  
-                  <Button
-                    onClick={exportToExcel}
-                    disabled={isExportingExcel}
-                    size="lg"
-                    variant="secondary"
-                    className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-blue-500 hover:from-emerald-600 hover:to-blue-600 text-white px-6 py-3 text-lg font-medium shadow-lg"
-                  >
-                    {isExportingExcel ? (
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <FileSpreadsheet className="w-5 h-5" />
-                    )}
-                    {isExportingExcel ? 'Exportando...' : '📊 Exportar a Excel'}
-                  </Button>
-                </div>
-
-                {isBatchProcessing && (
-                  <div className="mt-6 space-y-3 bg-blue-50 p-4 rounded-xl border border-blue-200">
-                    <div className="flex justify-between text-sm font-medium">
-                      <span className="text-blue-700">🔄 Procesando documentos con Claude AI...</span>
-                      <span className="text-blue-600">{batchProgress}%</span>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            {/* Documents List - Compact */}
+            <div className="xl:col-span-2">
+              <Card className="border border-gray-200 shadow-md">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-lg text-gray-800">
+                      <FileText className="w-5 h-5 text-blue-600" />
+                      📄 Documentos ({splitDocuments.length})
+                    </CardTitle>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={processBatchWithClaude}
+                        disabled={isBatchProcessing || splitDocuments.filter(doc => !doc.claudeProcessed && doc.textContent?.trim()).length === 0}
+                        size="sm"
+                        className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-md"
+                      >
+                        {isBatchProcessing ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Procesando...
+                          </>
+                        ) : (
+                          <>
+                            <Brain className="w-4 h-4 mr-2" />
+                            Procesar Todo
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        onClick={exportToExcel}
+                        disabled={isExportingExcel || splitDocuments.filter(doc => doc.claudeProcessed).length === 0}
+                        size="sm"
+                        variant="outline"
+                        className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      >
+                        {isExportingExcel ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Exportando...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-4 h-4 mr-2" />
+                            Excel
+                          </>
+                        )}
+                      </Button>
                     </div>
-                    <Progress value={batchProgress} className="w-full h-3" />
                   </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Document List */}
-              <Card className="border-2 border-blue-200 bg-gradient-to-br from-blue-50 to-emerald-50 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-xl text-gray-800">
-                    <FileText className="w-6 h-6 text-blue-600" />
-                    📄 Documentos Divididos ({splitDocuments.length} páginas)
-                  </CardTitle>
+                  
+                  {isBatchProcessing && (
+                    <div className="mt-3">
+                      <div className="flex justify-between text-xs font-medium mb-1">
+                        <span className="text-blue-700">🔄 Procesando lote...</span>
+                        <span className="text-blue-600">{batchProgress}%</span>
+                      </div>
+                      <Progress value={batchProgress} className="w-full h-2" />
+                    </div>
+                  )}
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                <CardContent className="pt-0 max-h-96 overflow-y-auto">
+                  <div className="space-y-2">
                     {splitDocuments.map((doc) => (
-                      <div key={doc.id} className="p-4 border-2 border-gray-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-all duration-200 hover:border-blue-300">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="font-semibold text-gray-800">{doc.filename}</h3>
-                              {doc.claudeProcessed && (
-                                <CheckCircle className="w-5 h-5 text-emerald-500" aria-label="Processed with Claude" />
+                      <div
+                        key={doc.id}
+                        className={`p-3 rounded-lg border transition-all cursor-pointer ${
+                          selectedDocument?.id === doc.id
+                            ? 'border-blue-400 bg-blue-50 shadow-md'
+                            : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+                        }`}
+                        onClick={() => setSelectedDocument(doc)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm font-medium text-gray-800 truncate">
+                                {doc.filename}
+                              </span>
+                              {doc.claudeProcessed ? (
+                                <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
+                                  ✅ Procesado
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="bg-gray-100 text-gray-600 text-xs">
+                                  🔄 Pendiente
+                                </Badge>
                               )}
                             </div>
-                            <p className="text-sm text-gray-500 mb-1">📄 Página {doc.pageNumber}</p>
-                            {doc.claudeProcessed && (
-                              <p className="text-xs text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full inline-block">
-                                ✅ Procesado y guardado en Supabase
-                              </p>
-                            )}
+                            <p className="text-xs text-gray-500">
+                              Página {doc.pageNumber} • {doc.textContent?.length || 0} caracteres
+                            </p>
                           </div>
-                          <div className="flex gap-2 flex-wrap">
+                          <div className="flex gap-1 ml-2">
                             <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadFile(doc.pdfUrl, doc.filename)}
-                              className="border-blue-300 text-blue-700 hover:bg-blue-50"
-                            >
-                              <Download className="w-4 h-4 mr-1" />
-                              PDF
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadFile(doc.textUrl, doc.filename.replace('.pdf', '.txt'))}
-                              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                            >
-                              <FileText className="w-4 h-4 mr-1" />
-                              Texto
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedDocument(doc)
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 openViewer(doc)
                               }}
-                              className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 hover:bg-blue-100"
                             >
-                              <Eye className="w-4 h-4 mr-1" />
-                              Ver
+                              <Eye className="w-4 h-4 text-blue-600" />
                             </Button>
-                            {!doc.claudeProcessed && !isProcessingClaude && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => processWithClaude(doc)}
-                                disabled={isProcessingClaude === doc.id}
-                                className="border-orange-300 text-orange-700 hover:bg-orange-50"
-                              >
-                                <Brain className="w-4 h-4 mr-1" />
-                                IA
-                              </Button>
-                            )}
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                processWithClaude(doc)
+                              }}
+                              disabled={isProcessingClaude === doc.id || doc.claudeProcessed}
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 hover:bg-purple-100"
+                            >
+                              {isProcessingClaude === doc.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+                              ) : (
+                                <Brain className="w-4 h-4 text-purple-600" />
+                              )}
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -885,323 +797,82 @@ export default function Home() {
                   </div>
                 </CardContent>
               </Card>
+            </div>
 
-              {/* Text Viewer */}
-              <Card className="border-2 border-purple-200 bg-gradient-to-br from-purple-50 to-orange-50 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl text-gray-800">
-                    {selectedDocument ? (
-                      <div className="flex items-center gap-2">
-                        <span>📄 {selectedDocument.filename}</span>
-                        {selectedDocument.claudeProcessed && (
-                          <CheckCircle className="w-5 h-5 text-emerald-500" />
+            {/* Memory Panel - Compact */}
+            <div className="xl:col-span-1">
+              {memoryMode === 'enterprise' && (
+                <Card className="border border-purple-200 bg-gradient-to-br from-purple-50 to-blue-50 shadow-md">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-lg text-gray-800">
+                      <Database className="w-5 h-5 text-purple-600" />
+                      🧠 Memoria Empresarial
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {isLoadingMemory ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                        <span className="ml-2 text-sm text-gray-600">Cargando memoria...</span>
+                      </div>
+                    ) : memoryStatus ? (
+                      <div className="space-y-4">
+                        {/* Quick Stats */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white p-3 rounded-lg border border-purple-100">
+                            <div className="text-lg font-bold text-purple-700">
+                              {memoryStatus.summary?.total_memories || 0}
+                            </div>
+                            <div className="text-xs text-gray-600">Patrones</div>
+                          </div>
+                          <div className="bg-white p-3 rounded-lg border border-blue-100">
+                            <div className="text-lg font-bold text-blue-700">
+                              {memoryStatus.summary?.total_embeddings || 0}
+                            </div>
+                            <div className="text-xs text-gray-600">Fragmentos</div>
+                          </div>
+                        </div>
+
+                        {/* Recent Activity */}
+                        {memoryStatus.recent_activity && memoryStatus.recent_activity.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-gray-700 mb-2">Actividad Reciente</h4>
+                            <div className="space-y-2 max-h-32 overflow-y-auto">
+                              {memoryStatus.recent_activity.slice(0, 3).map((activity: any, index: number) => (
+                                <div key={index} className="bg-white p-2 rounded border border-gray-100">
+                                  <div className="text-xs font-medium text-gray-800 truncate">
+                                    {activity.original_filename}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {new Date(activity.created_at).toLocaleDateString()}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         )}
+
+                        <Button
+                          onClick={() => setShowMemoryConfig(!showMemoryConfig)}
+                          size="sm"
+                          variant="outline"
+                          className="w-full border-purple-200 text-purple-700 hover:bg-purple-50"
+                        >
+                          <Settings className="w-4 h-4 mr-2" />
+                          {showMemoryConfig ? 'Ocultar' : 'Ver'} Detalles
+                        </Button>
                       </div>
                     ) : (
-                      '👁️ Visor de Contenido'
+                      <div className="text-center py-6">
+                        <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                        <p className="text-sm text-gray-600">Sin datos de memoria</p>
+                      </div>
                     )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {selectedDocument ? (
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500">
-                          Página {selectedDocument.pageNumber}
-                        </span>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              downloadFile(selectedDocument.textUrl, `${selectedDocument.filename}.txt`)
-                            }
-                            className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                          >
-                            <Download className="w-4 h-4 mr-2" />
-                            Descargar Texto
-                          </Button>
-                          {!selectedDocument.claudeProcessed && (
-                            <Button
-                              size="sm"
-                              variant="default"
-                              onClick={() => processWithClaude(selectedDocument)}
-                              disabled={isProcessingClaude === selectedDocument.id}
-                              className="bg-blue-600 hover:bg-blue-700"
-                            >
-                              {isProcessingClaude === selectedDocument.id ? (
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                              ) : (
-                                <Brain className="w-4 h-4 mr-2" />
-                              )}
-                              Procesar con Claude
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      {selectedDocument.claudeProcessed && (
-                        <div className="bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-xl p-4">
-                          <div className="flex items-center gap-2 text-emerald-700 font-medium mb-2">
-                            <CheckCircle className="w-5 h-5" />
-                            ✅ Procesado con Claude AI
-                          </div>
-                          <p className="text-sm text-emerald-600">
-                            📋 Nómina ID: {selectedDocument.nominaData?.nominaId}
-                          </p>
-                          <p className="text-sm text-emerald-600">
-                            💾 Guardado en Supabase exitosamente
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="bg-gradient-to-br from-gray-50 to-blue-50 border-2 border-gray-200 rounded-xl p-4 max-h-96 overflow-y-auto">
-                        <pre className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
-                          {selectedDocument.textContent || 'No se encontró contenido de texto en esta página.'}
-                        </pre>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl border-2 border-blue-200">
-                      <div className="text-6xl mb-4">📄</div>
-                      <p className="text-gray-600 text-lg font-medium mb-2">
-                        Selecciona un documento
-                      </p>
-                      <p className="text-gray-500 text-sm">
-                        Haz clic en "Ver" en cualquier documento de la lista para mostrar su contenido aquí
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
-        )}
-
-        {/* Memory Status Panel */}
-        {memoryMode === 'enterprise' && memoryStatus && (
-          <Card className="mt-8 border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-blue-50">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between text-emerald-800">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-6 h-6" />
-                  🧠 Lo que hemos aprendido de tu empresa
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={loadMemoryStatus}
-                    disabled={isLoadingMemory}
-                    className="border-emerald-300 text-emerald-700 hover:bg-emerald-100"
-                  >
-                    {isLoadingMemory ? (
-                      <div className="w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin mr-2" />
-                    ) : (
-                      <Database className="w-4 h-4 mr-2" />
-                    )}
-                    Actualizar
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => deleteMemoryData('all')}
-                    disabled={isDeletingMemory}
-                    className="border-red-300 text-red-700 hover:bg-red-100"
-                  >
-                    🗑️ Limpiar Memoria
-                  </Button>
-                </div>
-              </CardTitle>
-              <CardDescription className="text-emerald-700 text-lg">
-                Cada documento que procesas enseña algo nuevo a nuestro sistema. Aquí puedes ver exactamente qué hemos aprendido de tu empresa y cómo esto te ahorra tiempo y dinero.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {(() => {
-                const insights = generateBusinessInsights(memoryStatus)
-                
-                if (insights.length === 0) {
-                  return (
-                    <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl border-2 border-blue-200">
-                      <div className="text-6xl mb-4">🌱</div>
-                      <h3 className="text-xl font-bold text-gray-800 mb-2">¡Tu memoria empresarial está creciendo!</h3>
-                      <p className="text-gray-600 mb-4">
-                        Procesa algunos documentos más y verás aparecer aquí insights específicos sobre tu empresa.
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        Con cada nómina procesada, el sistema aprende más sobre tus patrones específicos.
-                      </p>
-                    </div>
-                  )
-                }
-
-                return (
-                  <div className="space-y-6">
-                    {/* Business Value Summary */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-2 border-emerald-200 rounded-xl p-4 text-center">
-                        <div className="text-3xl font-bold text-emerald-600 mb-1">
-                          {memoryStatus.summary.total_processed}
-                        </div>
-                        <p className="text-sm font-medium text-emerald-700">Documentos Aprendidos</p>
-                        <p className="text-xs text-emerald-600">Cada uno mejora la precisión</p>
-                      </div>
-                      
-                      <div className="bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-200 rounded-xl p-4 text-center">
-                        <div className="text-3xl font-bold text-blue-600 mb-1">
-                          {memoryStatus.summary.total_memories > 0 ? 
-                            Math.round((memoryStatus.memory_patterns.reduce((acc: number, pattern: any) => 
-                              acc + (pattern.confidence_score || 0), 0) / memoryStatus.memory_patterns.length) * 100) : 50}%
-                        </div>
-                        <p className="text-sm font-medium text-blue-700">Precisión Actual</p>
-                        <p className="text-xs text-blue-600">Mejora automáticamente</p>
-                      </div>
-                      
-                      <div className="bg-gradient-to-br from-orange-50 to-orange-100 border-2 border-orange-200 rounded-xl p-4 text-center">
-                        <div className="text-3xl font-bold text-orange-600 mb-1">
-                          {memoryStatus.summary.total_processed > 10 ? '5-8s' : '8-15s'}
-                        </div>
-                        <p className="text-sm font-medium text-orange-700">Tiempo por Documento</p>
-                        <p className="text-xs text-orange-600">Cada vez más rápido</p>
-                      </div>
-                    </div>
-
-                    {/* Business Insights */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {insights.map((insight, index) => (
-                        <div key={index} className="bg-white rounded-xl border-2 border-gray-100 p-6 shadow-sm hover:shadow-md transition-all">
-                          <div className="flex items-start gap-4">
-                            <div className="text-4xl">{insight.icon}</div>
-                            <div className="flex-1">
-                              <h4 className="font-bold text-gray-800 text-lg mb-2">{insight.title}</h4>
-                              <p className="text-gray-600 mb-3">{insight.description}</p>
-                              <div className="bg-gray-50 rounded-lg p-3 mb-3">
-                                <p className="text-sm text-gray-700 font-medium">{insight.details}</p>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-sm font-medium">
-                                  {insight.value}
-                                </span>
-                                {insight.type === 'companies' && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => deleteMemoryData('patterns')}
-                                    disabled={isDeletingMemory}
-                                    className="border-red-300 text-red-600 hover:bg-red-50 text-xs"
-                                  >
-                                    🗑️ Olvidar
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* ROI Information */}
-                    <div className="bg-gradient-to-r from-emerald-50 via-blue-50 to-purple-50 rounded-xl border-2 border-emerald-200 p-6">
-                      <div className="flex items-center gap-3 mb-4">
-                        <TrendingUp className="w-6 h-6 text-emerald-600" />
-                        <h3 className="text-xl font-bold text-emerald-800">💰 Valor de tu Memoria Empresarial</h3>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <h4 className="font-semibold text-gray-800 mb-2">🚀 Beneficios que ya tienes:</h4>
-                          <ul className="space-y-2 text-sm text-gray-700">
-                            <li className="flex items-center gap-2">
-                              <CheckCircle className="w-4 h-4 text-emerald-500" />
-                              Procesamiento {memoryStatus.summary.total_processed > 10 ? '3x más rápido' : '2x más rápido'} que el modo básico
-                            </li>
-                            <li className="flex items-center gap-2">
-                              <CheckCircle className="w-4 h-4 text-emerald-500" />
-                              Reconocimiento automático de tu formato de nóminas
-                            </li>
-                            <li className="flex items-center gap-2">
-                              <CheckCircle className="w-4 h-4 text-emerald-500" />
-                              Menos errores en la extracción de datos
-                            </li>
-                            <li className="flex items-center gap-2">
-                              <CheckCircle className="w-4 h-4 text-emerald-500" />
-                              Búsqueda inteligente de documentos similares
-                            </li>
-                          </ul>
-                        </div>
-                        
-                        <div>
-                          <h4 className="font-semibold text-gray-800 mb-2">📊 Ahorro estimado:</h4>
-                          <div className="bg-white rounded-lg p-4 border border-emerald-200">
-                            <div className="text-2xl font-bold text-emerald-600 mb-1">
-                              ~{Math.round(memoryStatus.summary.total_processed * 15)} segundos
-                            </div>
-                            <p className="text-sm text-gray-600 mb-2">Tiempo ahorrado hasta ahora</p>
-                            <p className="text-xs text-gray-500">
-                              Basado en {memoryStatus.summary.total_processed} documentos procesados con memoria vs modo básico
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                        <p className="text-sm text-blue-700">
-                          <strong>💡 Consejo:</strong> Cuantos más documentos proceses, más inteligente se vuelve el sistema. 
-                          La inversión en memoria empresarial se paga sola después de procesar ~100 documentos.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Privacy Controls */}
-                    <div className="bg-white rounded-xl border-2 border-gray-200 p-6">
-                      <div className="flex items-center gap-3 mb-4">
-                        <Settings className="w-6 h-6 text-gray-600" />
-                        <h3 className="text-xl font-bold text-gray-800">🔒 Control de Privacidad</h3>
-                      </div>
-                      
-                      <p className="text-gray-600 mb-4">
-                        Tienes control total sobre qué información guardamos. Puedes eliminar datos específicos en cualquier momento.
-                      </p>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Button
-                          variant="outline"
-                          onClick={() => deleteMemoryData('patterns')}
-                          disabled={isDeletingMemory}
-                          className="border-orange-300 text-orange-700 hover:bg-orange-50"
-                        >
-                          🧠 Olvidar Patrones
-                        </Button>
-                        
-                        <Button
-                          variant="outline"
-                          onClick={() => deleteMemoryData('embeddings')}
-                          disabled={isDeletingMemory}
-                          className="border-purple-300 text-purple-700 hover:bg-purple-50"
-                        >
-                          🔍 Limpiar Búsquedas
-                        </Button>
-                        
-                        <Button
-                          variant="outline"
-                          onClick={() => deleteMemoryData('documents')}
-                          disabled={isDeletingMemory}
-                          className="border-blue-300 text-blue-700 hover:bg-blue-50"
-                        >
-                          📄 Borrar Historial
-                        </Button>
-                      </div>
-                      
-                      <p className="text-xs text-gray-500 mt-3">
-                        ⚠️ Eliminar datos de memoria puede reducir la precisión y velocidad del procesamiento futuro.
-                      </p>
-                    </div>
-                  </div>
-                )
-              })()}
-            </CardContent>
-          </Card>
         )}
 
         {/* Enhanced Document Viewer Dialog */}

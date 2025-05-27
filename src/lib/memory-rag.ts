@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { generateEmbedding, generateQueryEmbedding, chunkText, generateEmbeddings } from './embeddings'
+import { generateEmbedding, generateQueryEmbedding, chunkText, generateEmbeddings, calculateVoyageCost } from './embeddings'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,7 +35,9 @@ export async function findSimilarDocuments(
 ): Promise<SimilarDocument[]> {
   try {
     // Generar embedding para la consulta usando inputType: 'query'
-    const queryEmbedding = await generateQueryEmbedding(queryText)
+    const { embedding: queryEmbedding, tokenUsage } = await generateQueryEmbedding(queryText)
+    
+    console.log(`Query embedding: ${tokenUsage.totalTokens} tokens, ~$${tokenUsage.estimatedCost.toFixed(4)} cost`)
     
     // Construir consulta SQL para búsqueda vectorial con Voyage
     let query = supabase
@@ -136,11 +138,13 @@ export async function storeDocumentEmbeddings(
   employeeId?: string
 ): Promise<boolean> {
   try {
-    // Dividir texto en chunks
+    // Dividir texto en chunks optimizados
     const chunks = chunkText(extractedText, 800)
     
-    // Generar embeddings para cada chunk usando Voyage
-    const embeddingsData = await generateEmbeddings(chunks)
+    // Generar embeddings para cada chunk usando Voyage con optimización de costos
+    const { results: embeddingsData, tokenUsage } = await generateEmbeddings(chunks)
+    
+    console.log(`Document embeddings: ${tokenUsage.chunksProcessed} chunks processed, ${tokenUsage.duplicatesSkipped} duplicates skipped, ${tokenUsage.totalTokens} tokens, ~$${tokenUsage.estimatedCost.toFixed(4)} cost`)
     
     // Preparar datos para inserción - voyage-3-lite retorna vectores de 512 dimensiones
     const embeddings = embeddingsData.map(({ chunk, embedding }) => ({
@@ -151,7 +155,11 @@ export async function storeDocumentEmbeddings(
       text_chunk: chunk.text,
       chunk_index: chunk.index,
       embedding: embedding, // Vector como array directo para pgvector
-      metadata: chunk.metadata
+      metadata: {
+        ...chunk.metadata,
+        token_count: chunk.metadata?.tokens || 0,
+        cost_estimate: calculateVoyageCost(chunk.metadata?.tokens || 0)
+      }
     }))
 
     // Insertar embeddings en lotes
