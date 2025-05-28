@@ -106,7 +106,6 @@ export class MemoryService {
           metadata: {
             ...metadata,
             chunk_position: chunkIndex,
-            chunk_size: finalChunk.length,
             has_amounts: /\d+[,.]?\d*\s*€/.test(finalChunk),
             has_table: /\|/.test(finalChunk) || /\t/.test(finalChunk),
             keywords: this.extractKeywords(finalChunk)
@@ -128,7 +127,6 @@ export class MemoryService {
         metadata: {
           ...metadata,
           chunk_position: chunkIndex,
-          chunk_size: currentChunk.length,
           has_amounts: /\d+[,.]?\d*\s*€/.test(currentChunk),
           has_table: /\|/.test(currentChunk) || /\t/.test(currentChunk),
           keywords: this.extractKeywords(currentChunk)
@@ -518,7 +516,7 @@ export class MemoryService {
         await supabase
           .from('document_memory')
           .update({ 
-            usage_count: supabase.raw('usage_count + 1'),
+            usage_count: "usage_count + 1",
             last_used_at: new Date().toISOString()
           })
           .in('id', memoryIds)
