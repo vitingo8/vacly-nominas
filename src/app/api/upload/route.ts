@@ -27,27 +27,41 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    // Extract text content to get basic info for naming
+    // Extract basic info directly from PDF using Haiku 3.5 with PDF support
     let finalFilename = `${uuidv4()}_${file.name}` // fallback name
     
     try {
-      console.log('📝 Extracting text for naming...')
-      const textContent = await parsePDF(buffer)
+      console.log('🚀 Extracting basic info with Haiku 3.5 + PDF support...')
+      const basicInfo = await extractBasicNominaInfo(buffer)
+      console.log('✅ Basic info extracted with Haiku 3.5:', basicInfo)
       
-      if (textContent && textContent.length > 50) {
-        console.log('🔍 Extracting basic nomina info for naming...')
-        const basicInfo = await extractBasicNominaInfo(textContent)
-        console.log('✅ Basic info extracted:', basicInfo)
-        
-        // Generate the new filename format: YYYYMM_Empresa.pdf
-        finalFilename = generateGlobalFileName(basicInfo.companyName, basicInfo.period)
-        console.log('📛 Generated filename:', finalFilename)
-      } else {
-        console.warn('⚠️ Insufficient text content for naming, using fallback')
-      }
+      // Generate the new filename format: YYYYMM_Empresa.pdf
+      finalFilename = generateGlobalFileName(basicInfo.companyName, basicInfo.period)
+      console.log('📛 Generated filename:', finalFilename)
     } catch (namingError) {
-      console.error('❌ Error extracting info for naming:', namingError)
-      // Continue with fallback filename
+      console.error('❌ Error extracting info with Haiku 3.5, trying fallback:', namingError)
+      
+      // Fallback to text extraction if PDF direct processing fails
+      try {
+        console.log('🔄 Fallback: Extracting text for naming...')
+        const textContent = await parsePDF(buffer)
+        
+        if (textContent && textContent.length > 50) {
+          console.log('🔍 Extracting basic nomina info from text...')
+          // Use the deprecated text-based function as fallback
+          const { extractBasicNominaInfoFromText } = await import('@/lib/pdf-naming')
+          const basicInfo = await extractBasicNominaInfoFromText(textContent)
+          console.log('✅ Basic info extracted from text fallback:', basicInfo)
+          
+          finalFilename = generateGlobalFileName(basicInfo.companyName, basicInfo.period)
+          console.log('📛 Generated filename (fallback):', finalFilename)
+        } else {
+          console.warn('⚠️ Insufficient text content for naming, using fallback')
+        }
+      } catch (fallbackError) {
+        console.error('❌ Both PDF and text extraction failed:', fallbackError)
+        // Continue with UUID fallback filename
+      }
     }
 
     // Upload to Supabase Storage with the new name
