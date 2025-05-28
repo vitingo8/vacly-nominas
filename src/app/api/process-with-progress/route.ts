@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
                   if (textContent && textContent.length > 50) {
                     try {
                       console.log(`🔍 Extracting specific info for page ${pageNum}...`)
-                      pageBasicInfo = await extractBasicNominaInfo(textContent)
+                      pageBasicInfo = await extractBasicNominaInfo(Buffer.from(textContent))
                       console.log(`✅ Page ${pageNum} info extracted:`, pageBasicInfo)
                     } catch (namingError) {
                       console.error(`❌ Error extracting naming info for page ${pageNum}:`, namingError)
