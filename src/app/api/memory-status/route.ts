@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { memoryService } from '@/lib/memory-service'
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,9 +36,12 @@ export async function GET(request: NextRequest) {
     const companyId = searchParams.get('companyId') || 'e3605f07-2576-4960-81a5-04184661926d'
     const employeeId = searchParams.get('employeeId') || 'de95edea-9322-494a-a693-61e1ac7337f8'
 
-    console.log('Fetching memory status for company:', companyId)
+    console.log('Fetching enhanced memory status for company:', companyId)
 
-    // Get memory statistics with joins
+    // Get enhanced analytics from memory service
+    const analytics = await memoryService.getMemoryAnalytics(companyId)
+
+    // Get memory statistics with joins and better metadata
     const { data: memoryStats, error: memoryError } = await supabase
       .from('document_memory')
       .select(`
@@ -46,6 +50,7 @@ export async function GET(request: NextRequest) {
       `)
       .eq('company_id', companyId)
       .order('confidence_score', { ascending: false })
+      .limit(20) // Get top 20 memories
 
     if (memoryError) {
       console.error('Error fetching memory stats:', memoryError)
@@ -56,17 +61,22 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // Get embedding statistics with joins
+    // Get embedding statistics with enhanced data
     const { data: embeddingStats, error: embeddingError } = await supabase
       .from('document_embeddings')
       .select(`
         document_type_id,
         chunk_index,
+        chunk_size,
+        token_count,
+        processing_model,
         created_at,
+        metadata_jsonb,
         document_types(name)
       `)
       .eq('company_id', companyId)
       .order('created_at', { ascending: false })
+      .limit(100) // Get more for better statistics
 
     if (embeddingError) {
       console.error('Error fetching embedding stats:', embeddingError)
@@ -107,7 +117,7 @@ export async function GET(request: NextRequest) {
       document_type: (doc.document_types as any)?.name || 'unknown'
     }))
 
-    // Calculate statistics
+    // Calculate enhanced statistics
     const totalMemories = memoryStats?.length || 0
     const totalEmbeddings = embeddingStats?.length || 0
     const totalProcessed = processedDocs?.length || 0
@@ -116,6 +126,14 @@ export async function GET(request: NextRequest) {
       ? memoryStats.reduce((acc: number, mem: any) => acc + (mem.confidence_score || 0), 0) / totalMemories
       : 0
 
+    // Calculate chunk size distribution
+    const chunkSizes = embeddingStats?.map(e => e.chunk_size || 0) || []
+    const avgChunkSize = chunkSizes.length > 0 
+      ? Math.round(chunkSizes.reduce((a, b) => a + b, 0) / chunkSizes.length)
+      : 0
+    const minChunkSize = chunkSizes.length > 0 ? Math.min(...chunkSizes) : 0
+    const maxChunkSize = chunkSizes.length > 0 ? Math.max(...chunkSizes) : 0
+
     // Group embeddings by document type
     const embeddingsByType = embeddingStats?.reduce((acc: any, emb: any) => {
       const typeName = (emb.document_types as any)?.name || 'unknown'
@@ -123,7 +141,43 @@ export async function GET(request: NextRequest) {
       return acc
     }, {}) || {}
 
-    console.log('Memory status fetched successfully')
+    // Extract unique companies and employees from memories
+    const uniqueCompanies = new Set<string>()
+    const uniqueEmployees = new Set<string>()
+    
+    memoryStats?.forEach((memory: any) => {
+      try {
+        if (memory.learned_patterns_jsonb) {
+          const patterns = memory.learned_patterns_jsonb
+          patterns.forEach((pattern: any) => {
+            if (pattern.type === 'company' && pattern.examples?.[0]?.name) {
+              uniqueCompanies.add(pattern.examples[0].name)
+            }
+            if (pattern.type === 'employee' && pattern.examples?.[0]?.name) {
+              uniqueEmployees.add(pattern.examples[0].name)
+            }
+          })
+        }
+      } catch (e) {
+        // Ignore parsing errors
+      }
+    })
+
+    // Memory quality distribution
+    const memoryQualityDistribution = {
+      high: memoryStats?.filter((m: any) => m.confidence_score >= 0.8).length || 0,
+      medium: memoryStats?.filter((m: any) => m.confidence_score >= 0.6 && m.confidence_score < 0.8).length || 0,
+      low: memoryStats?.filter((m: any) => m.confidence_score < 0.6).length || 0
+    }
+
+    // Validation status distribution
+    const validationDistribution = {
+      validated: memoryStats?.filter((m: any) => m.validation_status === 'validated').length || 0,
+      pending: memoryStats?.filter((m: any) => m.validation_status === 'pending').length || 0,
+      rejected: memoryStats?.filter((m: any) => m.validation_status === 'rejected').length || 0
+    }
+
+    console.log('Enhanced memory status fetched successfully')
 
     return NextResponse.json({
       success: true,
@@ -140,8 +194,27 @@ export async function GET(request: NextRequest) {
           total_embeddings: totalEmbeddings,
           total_processed: totalProcessed,
           avg_confidence: Math.round(avgConfidence * 100) / 100,
-          embeddings_by_type: embeddingsByType
-        }
+          embeddings_by_type: embeddingsByType,
+          unique_companies: Array.from(uniqueCompanies),
+          unique_employees: Array.from(uniqueEmployees),
+          companies_count: uniqueCompanies.size,
+          employees_count: uniqueEmployees.size
+        },
+        chunk_analytics: {
+          total_chunks: totalEmbeddings,
+          avg_chunk_size: avgChunkSize,
+          min_chunk_size: minChunkSize,
+          max_chunk_size: maxChunkSize,
+          optimal_chunk_size: 400 // Our target
+        },
+        memory_quality: {
+          distribution: memoryQualityDistribution,
+          validation_status: validationDistribution,
+          avg_usage_count: totalMemories > 0
+            ? Math.round(memoryStats.reduce((acc: number, m: any) => acc + (m.usage_count || 0), 0) / totalMemories)
+            : 0
+        },
+        advanced_analytics: analytics // From memory service
       }
     })
 

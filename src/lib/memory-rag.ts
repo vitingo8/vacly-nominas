@@ -146,7 +146,7 @@ export async function storeDocumentEmbeddings(
     
     console.log(`Document embeddings: ${tokenUsage.chunksProcessed} chunks processed, ${tokenUsage.duplicatesSkipped} duplicates skipped, ${tokenUsage.totalTokens} tokens, ~$${tokenUsage.estimatedCost.toFixed(4)} cost`)
     
-    // Preparar datos para inserción - voyage-3-lite retorna vectores de 512 dimensiones
+    // Preparar datos para inserción - voyage-3.5-lite retorna vectores de 512 dimensiones
     const embeddings = embeddingsData.map(({ chunk, embedding }) => ({
       document_id: documentId,
       company_id: companyId,

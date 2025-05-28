@@ -127,7 +127,7 @@ export async function generateEmbedding(text: string): Promise<{ embedding: numb
   try {
     const response = await voyageClient.embed({
       input: [text],
-      model: 'voyage-3-lite', // Optimizado para Claude, más económico
+      model: 'voyage-3.5-lite', // Optimizado para Claude, más económico
       inputType: 'document' // Para indexar documentos
     })
 
@@ -163,7 +163,7 @@ export async function generateQueryEmbedding(text: string): Promise<{ embedding:
   try {
     const response = await voyageClient.embed({
       input: [text],
-      model: 'voyage-3-lite',
+      model: 'voyage-3.5-lite',
       inputType: 'query' // Para búsquedas semánticas
     })
 
@@ -217,7 +217,7 @@ export async function generateEmbeddings(chunks: TextChunk[]): Promise<{
       
       const response = await voyageClient.embed({
         input: batchTexts,
-        model: 'voyage-3-lite',
+        model: 'voyage-3.5-lite',
         inputType: 'document'
       })
 

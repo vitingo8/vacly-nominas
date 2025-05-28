@@ -12,8 +12,9 @@ import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
 import { createClient } from '@supabase/supabase-js'
 import { parsePDF } from '@/lib/pdf-utils'
-import { extractBasicNominaInfo, generateSplitFileName, generateTextFileName, correctNameFormat } from '@/lib/pdf-naming'
+import { extractBasicNominaInfo, generateSplitFileName, generateTextFileName, correctNameFormat, generateGlobalFileName } from '@/lib/pdf-naming'
 import Anthropic from '@anthropic-ai/sdk'
+import { memoryService } from '@/lib/memory-service'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -279,7 +280,7 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
     // Fallback to basic extraction
     try {
       const textContent = await parsePDF(Buffer.from(pdfBytes))
-      const basicInfo = await extractBasicNominaInfo(textContent)
+      const basicInfo = await extractBasicNominaInfo(Buffer.from(pdfBytes))
       
       return {
         basicInfo,
@@ -569,6 +570,48 @@ export async function POST(request: NextRequest) {
                     if (!processedDocError) {
                       dbSaved = true
                       console.log(`✅ Page ${pageNum} saved to processed_documents with correct processed_data column`)
+                      
+                      // 🧠 INTEGRACIÓN CON SERVICIO DE MEMORIA MEJORADO
+                      if (process.env.VOYAGE_API_KEY) {
+                        try {
+                          console.log(`🧠 Starting memory service integration for page ${pageNum}...`)
+                          
+                          // 1. Create smart chunks from the document text
+                          const chunks = await memoryService.createSmartChunks(textContent, {
+                            page_number: pageNum,
+                            section: 'nomina'
+                          })
+                          
+                          console.log(`📝 Created ${chunks.length} smart chunks for page ${pageNum}`)
+                          
+                          // 2. Store document chunks with embeddings
+                          await memoryService.storeDocumentChunks(
+                            pageId,
+                            companyId,
+                            chunks,
+                            documentType.id
+                          )
+                          
+                          console.log(`✅ Stored chunks with embeddings for page ${pageNum}`)
+                          
+                          // 3. Learn patterns from the document
+                          await memoryService.learnFromDocument(
+                            companyId,
+                            employeeId,
+                            fullNominaData,
+                            0.85 // High confidence for unified processing
+                          )
+                          
+                          console.log(`🎯 Learned patterns from page ${pageNum}`)
+                          console.log(`✅ Memory service integration complete for page ${pageNum}`)
+                          
+                        } catch (memoryError) {
+                          // Don't fail the whole process if memory service fails
+                          console.error(`⚠️ Memory service error for page ${pageNum}:`, memoryError)
+                        }
+                      } else {
+                        console.log(`⚠️ Memory service skipped - VOYAGE_API_KEY not configured`)
+                      }
                     } else {
                       console.error(`❌ Error saving page ${pageNum} to processed_documents:`, processedDocError)
                     }

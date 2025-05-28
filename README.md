@@ -26,7 +26,7 @@ A modern web application built with Next.js, TypeScript, and React that allows y
 - **PDF Processing**: PDF-lib (splitting), pdf-parse (text extraction)
 - **AI Processing**: Anthropic Claude API with RAG enhancement
 - **Vector Database**: Supabase with pgvector extension
-- **Embeddings**: Voyage AI (voyage-3-lite) - Officially recommended by Anthropic
+- **Embeddings**: Voyage AI (voyage-3.5-lite) - Officially recommended by Anthropic
 - **Database**: Supabase (PostgreSQL) with vector search capabilities
 - **Excel Export**: xlsx library
 - **Icons**: Lucide React
@@ -36,7 +36,7 @@ A modern web application built with Next.js, TypeScript, and React that allows y
 
 ### Why Voyage AI?
 
-We use **Voyage AI (voyage-3-lite)** instead of OpenAI for embeddings because:
+We use **Voyage AI (voyage-3.5-lite)** instead of OpenAI for embeddings because:
 
 - ✅ **Officially recommended by Anthropic** for Claude integrations
 - ✅ **Optimized specifically for RAG** with Claude models
@@ -50,7 +50,7 @@ We use **Voyage AI (voyage-3-lite)** instead of OpenAI for embeddings because:
 
 The application implements a sophisticated RAG system enhanced with Voyage AI:
 
-1. **Document Embedding**: Text chunks are converted to 512-dimensional vectors using `voyage-3-lite`
+1. **Document Embedding**: Text chunks are converted to 512-dimensional vectors using `voyage-3.5-lite`
 2. **Query Optimization**: Search queries use `inputType: 'query'` for better retrieval
 3. **Pattern Learning**: System learns from each processed document per company/employee
 4. **Semantic Search**: pgvector with HNSW indices for ultra-fast similarity search

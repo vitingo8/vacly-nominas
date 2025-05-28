@@ -218,7 +218,7 @@ function generateExcelFromData(data: ProcessedDocument[] | Nomina[]) {
     perceptions.forEach((perception, pIndex) => {
       perceptionsData.push({
         'Nº Nómina': index + 1,
-        'ID Nómina': isProcessedDocs ? nomina?.nominaId || nomina?.id : (item as Nomina).id,
+        'ID Nómina': isProcessedDocs ? nomina?.id : (item as Nomina).id,
         'Empleado': employee.name || '',
         'DNI': employee.dni || '',
         'Nº Percepción': pIndex + 1,
@@ -249,7 +249,7 @@ function generateExcelFromData(data: ProcessedDocument[] | Nomina[]) {
     deductions.forEach((deduction, dIndex) => {
       deductionsData.push({
         'Nº Nómina': index + 1,
-        'ID Nómina': isProcessedDocs ? nomina?.nominaId || nomina?.id : (item as Nomina).id,
+        'ID Nómina': isProcessedDocs ? nomina?.id : (item as Nomina).id,
         'Empleado': employee.name || '',
         'DNI': employee.dni || '',
         'Nº Deducción': dIndex + 1,
@@ -280,7 +280,7 @@ function generateExcelFromData(data: ProcessedDocument[] | Nomina[]) {
     contributions.forEach((contribution, cIndex) => {
       contributionsData.push({
         'Nº Nómina': index + 1,
-        'ID Nómina': isProcessedDocs ? nomina?.nominaId || nomina?.id : (item as Nomina).id,
+        'ID Nómina': isProcessedDocs ? (item as ProcessedDocument).nominaData?.id : (item as Nomina).id,
         'Empleado': employee.name || '',
         'DNI': employee.dni || '',
         'Nº Contribución': cIndex + 1,
