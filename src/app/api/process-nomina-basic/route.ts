@@ -42,31 +42,59 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Document type not found' }, { status: 500 })
     }
 
-    // Basic Claude prompt without memory context
-    const basicPrompt = `Ets un assistent que interpreta documents de nòmina en text pla. A la teva sortida, has d'incloure:
+    // Enhanced Basic Claude prompt for better data extraction
+    const basicPrompt = `Ets un assistent especialitzat que interpreta documents de nòmina en text pla amb màxima precisió. A la teva sortida, has d'incloure:
 
+DADES BÀSIQUES:
 - company_id: deixar buit ""
 - employee_id: deixar buit ""
 - period_start: data d'inici del període en format YYYY-MM-DD
 - period_end: data de fi del període en format YYYY-MM-DD
-- employee: objecte JSON amb totes les dades del treballador (nom, dni, afiliació social, etc.)
-- company: objecte JSON amb totes les dades de l'empresa (nom, adreça, codi centre, etc.)
-- perceptions: array d'objectes JSON amb { code, concept, amount }
-- deductions: array d'objectes JSON amb { code, concept, amount }
-- contributions: array d'objectes JSON amb { concept, base, rate, employer_contribution }
-- base_ss: base de cotització a la seguretat social
-- net_pay: import net a percebre
-- bank: objecte amb { iban, swift_bic }
-- cost_empresa: cost total per a l'empresa
 
-IMPORTANT per al càlcul de cost_empresa:
-1. Busca primer si apareix directament el concepte "cost empresa", "coste empresa", "coste total empresa" o similar
-2. Si NO apareix directament, calcula'l com: SALARI BRUT + APORTACIONS EMPRESARIALS
-3. El salari brut és la suma de totes les percepcions (abans de deduccions)
-4. Les aportacions empresarials són les cotitzacions que paga l'empresa a la Seguretat Social
-5. Exemples d'aportacions empresarials: "Contingències comunes empresa", "Desocupació empresa", "Formació professional empresa", "FOGASA", etc.
-6. Si veus conceptes com "Empresa aporta", "Aportació patronal", "Cotització empresa" - suma'ls tots
-7. SEMPRE verifica que cost_empresa >= salari brut (mai pot ser menor)
+EMPLOYEE - objecte JSON obligatori amb:
+- name: nom complet del treballador
+- dni: DNI/NIF del treballador (busca patrons com "DNI", "N.I.F.", "NIF", "Document", seguits de números i lletres)
+- nss: número d'afiliació a la Seguretat Social (busca "Afiliació", "N.S.S.", "Núm. SS", "Seg. Social")
+- category: categoria professional del treballador
+- code: codi del treballador si existeix
+
+COMPANY - objecte JSON obligatori amb:
+- name: nom de l'empresa
+- cif: CIF de l'empresa (busca "CIF", "C.I.F.", seguits de números i lletres)
+- address: adreça completa de l'empresa
+- center_code: codi del centre de treball si existeix
+
+IMPORTS MONETARIS (tots en números decimals):
+- base_ss: base de cotització a la seguretat social (busca "Base SS", "Base Cotització", "Base C.C.")
+- net_pay: import net a percebre (busca "Líquid a percebre", "Neto a percibir", "Import net")
+- gross_salary: salari brut total (suma de percepcions principals sense deduccions - NO incloure "REM.TOTAL")
+- cost_empresa: cost total per a l'empresa (salari brut + aportacions empresarials)
+
+ARRAYS OBLIGATORIS:
+- perceptions: array d'objectes JSON amb { code, concept, amount } - NOMÉS percepcions, no deduccions
+- deductions: array d'objectes JSON amb { code, concept, amount } - NOMÉS deduccions/retencions
+- contributions: array d'objectes JSON amb { concept, base, rate, employer_contribution }
+
+BANK - objecte amb:
+- iban: número IBAN del compte bancari
+- swift_bic: codi SWIFT/BIC si existeix
+
+INSTRUCCIONS ESPECÍFIQUES PER DNI:
+1. Busca patrons com: "DNI:", "N.I.F.:", "NIF:", "Document:", seguits d'espais i números/lletres
+2. Format típic: 12345678A, 12.345.678-A, 12345678-A
+3. Si trobes múltiples DNIs, agafa el del treballador (no de l'empresa)
+
+INSTRUCCIONS ESPECÍFIQUES PER GROSS_SALARY:
+1. NO utilitzar "REM.TOTAL" o "Remuneración Total"
+2. Buscar conceptes com: "Salari Base", "Sueldo Base", "Salario Bruto", "Base"
+3. Si no està explícit, suma NOMÉS les percepcions principals (no complements extraordinaris)
+4. El gross_salary ha de ser <= base_ss normalment
+
+INSTRUCCIONS ESPECÍFIQUES PER COST_EMPRESA:
+1. Busca primer si apareix directament "Cost Empresa", "Coste Empresa", "Coste Total Empresa"
+2. Si NO apareix, calcula'l com: gross_salary + suma de totes les employer_contribution
+3. Les aportacions empresarials són: "CC Empresa", "Desocupació Empresa", "FP Empresa", "FOGASA", etc.
+4. SEMPRE verifica que cost_empresa >= gross_salary
 
 Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o formatació markdown. El JSON ha de ser directament parseable.
 
@@ -126,71 +154,74 @@ ${textContent}`
         throw new Error('Parsed data is not a valid object')
       }
       
-      // Post-processing validation and correction for cost_empresa
+      // Post-processing validation and correction for all important fields
       if (processedData.perceptions && Array.isArray(processedData.perceptions)) {
-        // Find the appropriate base for gross salary calculation
-        // Look for bases like "Base SS", "Base Cotización", etc. but NOT "REM.TOTAL"
-        let grossSalary = 0
+        // Calculate gross_salary if missing or incorrect
+        let grossSalary = processedData.gross_salary || 0
         
-        // First try to find it in contributions bases
-        if (processedData.contributions && Array.isArray(processedData.contributions)) {
-          const validBase = processedData.contributions.find((contrib: any) => 
-            contrib.base && contrib.base > 0 && 
-            contrib.concept && 
-            !contrib.concept.toLowerCase().includes('rem.total') &&
-            !contrib.concept.toLowerCase().includes('remuneración total')
-          )
-          if (validBase) {
-            grossSalary = validBase.base
-          }
-        }
-        
-        // If not found in contributions, try base_ss
-        if (grossSalary === 0 && processedData.base_ss && processedData.base_ss > 0) {
-          grossSalary = processedData.base_ss
-        }
-        
-        // If still not found, look for specific perception concepts that represent gross salary
-        if (grossSalary === 0) {
-          const grossPerception = processedData.perceptions.find((perception: any) => 
-            perception.concept && (
-              perception.concept.toLowerCase().includes('salari brut') ||
-              perception.concept.toLowerCase().includes('salario bruto') ||
-              perception.concept.toLowerCase().includes('base') ||
-              perception.concept.toLowerCase().includes('sueldo base')
-            ) && !perception.concept.toLowerCase().includes('rem.total')
-          )
-          if (grossPerception) {
-            grossSalary = grossPerception.amount || 0
-          }
-        }
-        
-        // Fallback: sum all perceptions except REM.TOTAL
-        if (grossSalary === 0) {
+        // If gross_salary is missing or zero, calculate it from perceptions
+        if (!grossSalary || grossSalary === 0) {
           grossSalary = processedData.perceptions
             .filter((perception: any) => 
-              !perception.concept || (
-                !perception.concept.toLowerCase().includes('rem.total') &&
-                !perception.concept.toLowerCase().includes('remuneración total')
+              perception.amount > 0 && (
+                !perception.concept || (
+                  !perception.concept.toLowerCase().includes('rem.total') &&
+                  !perception.concept.toLowerCase().includes('remuneración total') &&
+                  !perception.concept.toLowerCase().includes('total remuneracion')
+                )
               )
             )
             .reduce((sum: number, perception: any) => sum + (perception.amount || 0), 0)
+          
+          console.log(`Calculated gross_salary from perceptions: ${grossSalary}`)
+          processedData.gross_salary = grossSalary
         }
         
-        const employerContributions = processedData.contributions 
-          ? processedData.contributions.reduce((sum: number, contribution: any) => {
-              return sum + (contribution.employer_contribution || 0)
-            }, 0)
-          : 0
+        // Calculate total_contributions from employer contributions
+        let totalContributions = 0
+        if (processedData.contributions && Array.isArray(processedData.contributions)) {
+          totalContributions = processedData.contributions.reduce((sum: number, contribution: any) => {
+            return sum + (contribution.employer_contribution || 0)
+          }, 0)
+        }
         
-        const calculatedCostEmpresa = grossSalary + employerContributions
+        // Add total_contributions to the data
+        processedData.total_contributions = totalContributions
+        console.log(`Calculated total_contributions: ${totalContributions}`)
+        
+        // Ensure DNI is properly extracted
+        if (processedData.employee && (!processedData.employee.dni || processedData.employee.dni === '')) {
+          // Try to find DNI in the original text with better patterns
+          const dniPatterns = [
+            /(?:DNI|N\.I\.F\.|NIF|Document)[\s:]*([0-9]{8}[A-Z])/gi,
+            /(?:DNI|N\.I\.F\.|NIF|Document)[\s:]*([0-9]{1,2}\.?[0-9]{3}\.?[0-9]{3}[-\s]?[A-Z])/gi,
+            /\b([0-9]{8}[A-Z])\b/g,
+            /\b([0-9]{1,2}\.?[0-9]{3}\.?[0-9]{3}[-\s]?[A-Z])\b/g
+          ]
+          
+          for (const pattern of dniPatterns) {
+            const matches = textContent.match(pattern)
+            if (matches && matches.length > 0) {
+              // Clean the DNI (remove dots, spaces, etc.)
+              const cleanDni = matches[0].replace(/[^0-9A-Z]/g, '')
+              if (cleanDni.length === 9) {
+                processedData.employee.dni = cleanDni
+                console.log(`Extracted DNI: ${cleanDni}`)
+                break
+              }
+            }
+          }
+        }
+        
+        // Recalculate cost_empresa with the corrected gross_salary
+        const calculatedCostEmpresa = grossSalary + totalContributions
         
         // If cost_empresa is missing, too low, or seems incorrect, use our calculation
         if (!processedData.cost_empresa || 
             processedData.cost_empresa < grossSalary || 
             Math.abs(processedData.cost_empresa - calculatedCostEmpresa) > grossSalary * 0.1) {
           
-          console.log(`Correcting cost_empresa: Original=${processedData.cost_empresa}, Calculated=${calculatedCostEmpresa} (Gross=${grossSalary} + Contributions=${employerContributions})`)
+          console.log(`Correcting cost_empresa: Original=${processedData.cost_empresa}, Calculated=${calculatedCostEmpresa} (Gross=${grossSalary} + Contributions=${totalContributions})`)
           processedData.cost_empresa = calculatedCostEmpresa
         }
       }
@@ -220,6 +251,9 @@ ${textContent}`
       contributions: processedData.contributions,
       base_ss: processedData.base_ss,
       net_pay: processedData.net_pay,
+      gross_salary: processedData.gross_salary,
+      total_contributions: processedData.total_contributions,
+      dni: processedData.employee?.dni || null,
       iban: processedData.bank?.iban || null,
       swift_bic: processedData.bank?.swift_bic || null,
       cost_empresa: processedData.cost_empresa,

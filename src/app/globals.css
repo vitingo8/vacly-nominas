@@ -137,4 +137,21 @@
   .shadow-premium {
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   }
+
+  /* Lux gradient classes */
+  .gradient-lux {
+    @apply bg-gradient-to-r from-emerald-600 to-yellow-600;
+  }
+  
+  .gradient-lux-light {
+    @apply bg-gradient-to-r from-emerald-50 to-yellow-50;
+  }
+  
+  .badge-lux {
+    @apply bg-gradient-to-r from-emerald-600 to-yellow-600 text-white;
+  }
+  
+  .shadow-lux {
+    box-shadow: 0 25px 50px -12px rgba(16, 185, 129, 0.25), 0 0 0 1px rgba(16, 185, 129, 0.05);
+  }
 }

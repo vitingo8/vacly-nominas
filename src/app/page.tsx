@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap, Database, TrendingUp, Clock, Hash, Settings, AlertCircle, Star, Sparkles, Loader2, Shield, Rocket, Users, BarChart3, Lock, Award, ChevronRight, ArrowRight } from 'lucide-react'
+import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap, Database, TrendingUp, Clock, Hash, Settings, AlertCircle, Star, Sparkles, Loader2, Shield, Rocket, Users, BarChart3, Lock, Award, ChevronRight, ArrowRight, Gem, Crown, Diamond } from 'lucide-react'
 
 interface NominaData {
   id: string
@@ -87,21 +87,27 @@ export default function Home() {
   const [batchProgress, setBatchProgress] = useState(0)
   const [memoryStatus, setMemoryStatus] = useState<any>(null)
   const [isLoadingMemory, setIsLoadingMemory] = useState(false)
-  const [memoryMode, setMemoryMode] = useState<'basic' | 'enterprise'>('basic')
+  const [memoryMode, setMemoryMode] = useState<'basic' | 'lux' | 'memory'>('basic')
   const [showMemoryConfig, setShowMemoryConfig] = useState(false)
   const [isDeletingMemory, setIsDeletingMemory] = useState(false)
   const [showPricing, setShowPricing] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState<'basic' | 'professional' | 'lux'>('basic')
+  const [selectedPlan, setSelectedPlan] = useState<'basic' | 'lux' | 'memory'>('basic')
+  const [isMounted, setIsMounted] = useState(false)
+
+  // Prevent hydration mismatch
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   // Load memory status on component mount
   useEffect(() => {
-    if (memoryMode === 'enterprise') {
+    if (memoryMode === 'memory' || memoryMode === 'lux') {
       loadMemoryStatus()
     }
   }, [memoryMode])
 
   const loadMemoryStatus = async () => {
-    if (memoryMode !== 'enterprise') return
+    if (memoryMode !== 'memory' && memoryMode !== 'lux') return
     
     setIsLoadingMemory(true)
     try {
@@ -583,11 +589,12 @@ export default function Home() {
 
     try {
       // LÓGICA INTELIGENTE: Decidir qué endpoint usar
-      // Si usó procesamiento unificado (detectado por el plan o preferencia), usar Haiku 3.5
-      // Si usó procesamiento básico, usar el sistema tradicional
+      // Basic: usa procesamiento básico
+      // Lux: usa procesamiento unificado SIN memoria
+      // Memory: usa procesamiento unificado CON memoria
       
       // Determinar si debe usar procesamiento avanzado
-      const shouldUseAdvanced = memoryMode === 'enterprise' || 
+      const shouldUseAdvanced = memoryMode === 'memory' || memoryMode === 'lux' || 
                                  splitDocuments.some(d => d.claudeProcessed && d.nominaData?.id) // Detecta si ya hay docs procesados con unificado
       
       const endpoint = shouldUseAdvanced ? '/api/process-nomina' : '/api/process-nomina-basic'
@@ -643,7 +650,7 @@ export default function Home() {
       }
 
       // Refresh memory status only if in enterprise mode
-      if (memoryMode === 'enterprise') {
+      if (memoryMode === 'memory') {
         loadMemoryStatus()
       }
 
@@ -653,8 +660,10 @@ export default function Home() {
         ? `¡Nómina procesada con IA avanzada! 🚀 Procesamiento ${processingType} completado con máxima precisión.`
         : `¡Nómina procesada exitosamente! ⚡ Procesamiento ${processingType} completado.`
       
-      if (memoryMode === 'enterprise') {
+      if (memoryMode === 'memory') {
         alert(successMessage + ' 🧠 La memoria empresarial se ha actualizado automáticamente.')
+      } else if (memoryMode === 'lux') {
+        alert(successMessage + ' ✨ Procesamiento premium Lux completado.')
       } else {
         alert(successMessage)
       }
@@ -680,7 +689,7 @@ export default function Home() {
 
     try {
       // LÓGICA INTELIGENTE PARA BATCH: Mismo criterio que procesamiento individual
-      const shouldUseAdvanced = memoryMode === 'enterprise' || 
+      const shouldUseAdvanced = memoryMode === 'memory' || memoryMode === 'lux' || 
                                  splitDocuments.some(d => d.claudeProcessed && d.nominaData?.id)
       
       const endpoint = shouldUseAdvanced ? '/api/process-nomina' : '/api/process-nomina-basic'
@@ -770,7 +779,7 @@ export default function Home() {
       setBatchProgress(100)
 
       // Refresh memory status only if in enterprise mode
-      if (memoryMode === 'enterprise') {
+      if (memoryMode === 'memory') {
         loadMemoryStatus()
       }
 
@@ -793,8 +802,10 @@ export default function Home() {
         message += '\n🚀 Procesamiento avanzado con Haiku 3.5 utilizado para máxima precisión.'
       }
 
-      if (memoryMode === 'enterprise') {
+      if (memoryMode === 'memory') {
         message += '\n🧠 La memoria empresarial se ha actualizado con los nuevos patrones.'
+      } else if (memoryMode === 'lux') {
+        message += '\n✨ Procesamiento premium Lux aplicado sin memoria empresarial.'
       }
 
       alert(message)
@@ -857,6 +868,18 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Prevent hydration mismatch */}
+      {!isMounted && (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-600">Cargando sistema...</p>
+          </div>
+        </div>
+      )}
+      
+      {isMounted && (
+        <>
       {/* Header */}
       <header className="bg-white shadow-soft border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -887,25 +910,38 @@ export default function Home() {
                 >
                   <div className="flex items-center space-x-2">
                     <Zap className="h-4 w-4" />
-                    <span>Básico</span>
+                    <span>Basic</span>
                   </div>
                 </button>
                 <button
-                  onClick={() => setMemoryMode('enterprise')}
+                  onClick={() => setMemoryMode('lux')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    memoryMode === 'enterprise' 
+                    memoryMode === 'lux' 
+                      ? 'bg-gradient-to-r from-emerald-600 to-yellow-600 text-white shadow-sm' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <Gem className="h-4 w-4" />
+                    <span>Lux</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setMemoryMode('memory')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    memoryMode === 'memory' 
                       ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-sm' 
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
                   <div className="flex items-center space-x-2">
                     <Brain className="h-4 w-4" />
-                    <span>Memoria</span>
+                    <span>Memory</span>
                   </div>
                 </button>
               </div>
 
-              {memoryMode === 'enterprise' && (
+              {memoryMode === 'memory' && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -934,37 +970,52 @@ export default function Home() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Mode Switch Notification */}
-        {memoryMode === 'enterprise' && splitDocuments.length === 0 && (
-          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+        {(memoryMode === 'memory' || memoryMode === 'lux') && splitDocuments.length === 0 && (
+          <div className={`mb-6 ${memoryMode === 'lux' ? 'bg-gradient-to-r from-emerald-50 to-yellow-50 border-emerald-200' : 'bg-blue-50 border-blue-200'} border rounded-lg p-4`}>
             <div className="flex items-center space-x-3">
-              <div className="bg-blue-100 rounded-full p-2">
-                <Brain className="h-5 w-5 text-blue-600" />
+              <div className={`${memoryMode === 'lux' ? 'bg-gradient-to-r from-emerald-100 to-yellow-100' : 'bg-blue-100'} rounded-full p-2`}>
+                {memoryMode === 'lux' ? (
+                  <Gem className="h-5 w-5 text-emerald-600" />
+                ) : (
+                  <Brain className="h-5 w-5 text-blue-600" />
+                )}
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-blue-900">
-                  Modo Memoria Empresarial Activado
+                <h3 className={`text-sm font-semibold ${memoryMode === 'lux' ? 'text-emerald-900' : 'text-blue-900'}`}>
+                  {memoryMode === 'lux' ? 'Modo Lux Activado' : 'Modo Memory Activado'}
                 </h3>
-                <p className="text-sm text-blue-700 mt-1">
-                  Tu sistema comenzará a aprender automáticamente cuando proceses documentos. 
-                  Cada nómina mejorará la precisión y velocidad del siguiente procesamiento.
+                <p className={`text-sm ${memoryMode === 'lux' ? 'text-emerald-700' : 'text-blue-700'} mt-1`}>
+                  {memoryMode === 'lux' 
+                    ? 'Procesamiento premium con Claude 3.5 Haiku activado. Experiencia de alta calidad sin memoria empresarial.' 
+                    : 'Tu sistema comenzará a aprender automáticamente cuando proceses documentos. Cada nómina mejorará la precisión y velocidad del siguiente procesamiento.'
+                  }
                 </p>
               </div>
-              <Badge className="bg-blue-600 text-white">
-                <Sparkles className="h-3 w-3 mr-1" />
-                PREMIUM
+              <Badge className={memoryMode === 'lux' ? 'bg-gradient-to-r from-emerald-600 to-yellow-600 text-white' : 'bg-blue-600 text-white'}>
+                {memoryMode === 'lux' ? (
+                  <>
+                    <Crown className="h-3 w-3 mr-1" />
+                    LUX
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    PREMIUM
+                  </>
+                )}
               </Badge>
             </div>
           </div>
         )}
 
         {/* Memory Benefits Banner */}
-        {memoryMode === 'enterprise' && (
+        {memoryMode === 'memory' && (
           <div className="mb-8 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 text-white shadow-premium">
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <div className="flex items-center space-x-3 mb-4">
                   <Brain className="h-10 w-10" />
-                  <h2 className="text-3xl font-bold">Memoria Empresarial Activa</h2>
+                  <h2 className="text-3xl font-bold">Memoria Empresarial</h2>
                   <Badge className="badge-premium">PREMIUM</Badge>
                 </div>
                 <p className="text-lg mb-6 text-blue-100">
@@ -1024,6 +1075,74 @@ export default function Home() {
           </div>
         )}
 
+        {/* Lux Benefits Banner */}
+        {memoryMode === 'lux' && (
+          <div className="mb-8 bg-gradient-to-r from-emerald-600 to-yellow-600 rounded-2xl p-8 text-white shadow-premium">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="flex items-center space-x-3 mb-4">
+                  <Gem className="h-10 w-10" />
+                  <h2 className="text-3xl font-bold">Procesamiento Premium Lux</h2>
+                  <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-3 py-1">
+                    <Crown className="h-3 w-3 mr-1" />
+                    LUX
+                  </Badge>
+                </div>
+                <p className="text-lg mb-6 text-emerald-100">
+                  Experiencia premium de procesamiento con Claude 3.5 Haiku. IA de alta calidad sin memoria empresarial.
+                </p>
+                
+                {/* Key Benefits */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <Diamond className="h-5 w-5" />
+                      <span className="font-semibold">95% más rápido</span>
+                    </div>
+                    <p className="text-sm text-emerald-100">Procesamiento ultra-premium instantáneo</p>
+                  </div>
+                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <Crown className="h-5 w-5" />
+                      <span className="font-semibold">99% precisión</span>
+                    </div>
+                    <p className="text-sm text-emerald-100">Claude 3.5 Haiku con PDF nativo</p>
+                  </div>
+                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <Gem className="h-5 w-5" />
+                      <span className="font-semibold">Experiencia Premium</span>
+                    </div>
+                    <p className="text-sm text-emerald-100">Interfaz y procesamiento de alta calidad</p>
+                  </div>
+                </div>
+
+                {/* No memory status for Lux - just premium messaging */}
+                <div className="flex items-center space-x-6 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <Gem className="h-4 w-4" />
+                    <span>Procesamiento premium activo</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Crown className="h-4 w-4" />
+                    <span>Claude 3.5 Haiku habilitado</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Diamond className="h-4 w-4" />
+                    <span>Experiencia de alta calidad</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="ml-8 hidden lg:block">
+                <div className="animate-float">
+                  <Gem className="h-32 w-32 text-white/20" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Upload Section */}
         <Card className="mb-8 shadow-soft card-hover">
           <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-lg">
@@ -1039,76 +1158,126 @@ export default function Home() {
             <div className="space-y-6">
               {/* Processing Mode Selection */}
               <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Elige el método de procesamiento:</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  {memoryMode === 'basic' ? 'Procesamiento disponible:' : 
+                   memoryMode === 'lux' ? 'Procesamiento Lux disponible:' : 
+                   'Procesamiento Memory disponible:'}
+                </h3>
+                <div className="grid grid-cols-1 gap-4">
                   
-                  {/* Unified Processing (Recommended) */}
-                  <div className="border-2 border-dashed border-blue-300 rounded-xl p-6 text-center hover:border-blue-500 transition-colors bg-blue-50/50">
-                    <Input
-                      type="file"
-                      accept=".pdf"
-                      onChange={handleUnifiedProcessing}
-                      disabled={isUploading}
-                      className="hidden"
-                      id="unified-upload"
-                    />
-                    <Label
-                      htmlFor="unified-upload"
-                      className="cursor-pointer flex flex-col items-center space-y-3"
-                    >
-                      <div className="p-3 bg-blue-500 rounded-full">
-                        <Rocket className="h-6 w-6 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-base font-semibold text-gray-900">
-                          🚀 Procesamiento Unificado
-                        </p>
-                        <Badge className="mt-1 bg-blue-500 text-white text-xs">
-                          RECOMENDADO
-                        </Badge>
-                        <p className="text-xs text-gray-600 mt-2">
-                          • Claude 3.5 Haiku con PDF nativo<br/>
-                          • 3x más rápido<br/>
-                          • 95%+ precisión<br/>
-                          • Auto-guardado en BD
-                        </p>
-                      </div>
-                    </Label>
-                  </div>
+                  {/* Basic Mode - Only Basic Processing */}
+                  {memoryMode === 'basic' && (
+                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-gray-400 transition-colors">
+                      <Input
+                        type="file"
+                        accept=".pdf"
+                        onChange={handleFileUpload}
+                        disabled={isUploading}
+                        className="hidden"
+                        id="basic-upload"
+                      />
+                      <Label
+                        htmlFor="basic-upload"
+                        className="cursor-pointer flex flex-col items-center space-y-3"
+                      >
+                        <div className="p-3 bg-gray-500 rounded-full">
+                          <Upload className="h-6 w-6 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-base font-medium text-gray-900">
+                            📄 Procesamiento Básico
+                          </p>
+                          <Badge className="mt-1 bg-gray-500 text-white text-xs">
+                            PLAN BASIC
+                          </Badge>
+                          <p className="text-xs text-gray-600 mt-2">
+                            • OCR Básico<br/>
+                            • Claude 3.0 Haiku<br/>
+                            • Proceso IA individual de Nóminas<br/>
+                            • Sin exportación Excel
+                          </p>
+                        </div>
+                      </Label>
+                    </div>
+                  )}
 
-                  {/* Basic Processing (Fallback) */}
-                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-gray-400 transition-colors">
-                    <Input
-                      type="file"
-                      accept=".pdf"
-                      onChange={handleFileUpload}
-                      disabled={isUploading}
-                      className="hidden"
-                      id="basic-upload"
-                    />
-                    <Label
-                      htmlFor="basic-upload"
-                      className="cursor-pointer flex flex-col items-center space-y-3"
-                    >
-                      <div className="p-3 bg-gray-500 rounded-full">
-                        <Upload className="h-6 w-6 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-base font-medium text-gray-900">
-                          📄 Procesamiento Básico
-                        </p>
-                        <Badge className="mt-1 bg-gray-500 text-white text-xs">
-                          FALLBACK
-                        </Badge>
-                        <p className="text-xs text-gray-600 mt-2">
-                          • OCR Básico<br/>
-                          • Procesar unitariamente<br/>
-                          • Sin validación inteligente<br/>
-                          • Más lento pero estable
-                        </p>
-                      </div>
-                    </Label>
-                  </div>
+                  {/* Lux Mode - Only Unified Processing (No Memory) */}
+                  {memoryMode === 'lux' && (
+                    <div className="border-2 border-dashed border-emerald-300 rounded-xl p-6 text-center hover:border-emerald-500 transition-colors bg-gradient-to-br from-emerald-50 to-yellow-50">
+                      <Input
+                        type="file"
+                        accept=".pdf"
+                        onChange={handleUnifiedProcessing}
+                        disabled={isUploading}
+                        className="hidden"
+                        id="lux-upload"
+                      />
+                      <Label
+                        htmlFor="lux-upload"
+                        className="cursor-pointer flex flex-col items-center space-y-3"
+                      >
+                        <div className="p-3 bg-gradient-to-r from-emerald-500 to-yellow-500 rounded-full">
+                          <Gem className="h-6 w-6 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-base font-semibold text-gray-900">
+                            💎 Procesamiento Lux
+                          </p>
+                          <Badge className="mt-1 bg-gradient-to-r from-emerald-600 to-yellow-600 text-white text-xs">
+                            <Crown className="h-3 w-3 mr-1" />
+                            PREMIUM
+                          </Badge>
+                          <p className="text-xs text-gray-600 mt-2">
+                            • Claude 3.5 Haiku con PDF nativo<br/>
+                            • Procesamiento unificado automático<br/>
+                            • 3x más rápido que Basic<br/>
+                            • Procesamiento masivo disponible<br/>
+                            • Exportación Excel incluida<br/>
+                            • Sin memoria empresarial
+                          </p>
+                        </div>
+                      </Label>
+                    </div>
+                  )}
+
+                  {/* Memory Mode - Unified Processing with Memory */}
+                  {memoryMode === 'memory' && (
+                    <div className="border-2 border-dashed border-purple-300 rounded-xl p-6 text-center hover:border-purple-500 transition-colors bg-gradient-to-br from-purple-50 to-blue-50">
+                      <Input
+                        type="file"
+                        accept=".pdf"
+                        onChange={handleUnifiedProcessing}
+                        disabled={isUploading}
+                        className="hidden"
+                        id="memory-upload"
+                      />
+                      <Label
+                        htmlFor="memory-upload"
+                        className="cursor-pointer flex flex-col items-center space-y-3"
+                      >
+                        <div className="p-3 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full">
+                          <Brain className="h-6 w-6 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-base font-semibold text-gray-900">
+                            🧠 Procesamiento Memory
+                          </p>
+                          <Badge className="mt-1 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs">
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            INTELIGENTE
+                          </Badge>
+                          <p className="text-xs text-gray-600 mt-2">
+                            • Todo de Lux +<br/>
+                            • Memoria empresarial activa<br/>
+                            • Aprendizaje automático<br/>
+                            • 80% más rápido con patrones<br/>
+                            • 99% precisión empresarial<br/>
+                            • Analytics avanzados
+                          </p>
+                        </div>
+                      </Label>
+                    </div>
+                  )}
 
                 </div>
               </div>
@@ -1163,41 +1332,51 @@ export default function Home() {
                 Documentos Procesados ({splitDocuments.length})
               </h2>
               <div className="flex space-x-3">
-                <Button
-                  onClick={processBatchWithClaude}
-                  disabled={isBatchProcessing || splitDocuments.filter(d => !d.claudeProcessed).length === 0}
-                  className="gradient-primary text-white"
-                >
-                  {isBatchProcessing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Procesando {batchProgress}%
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="mr-2 h-4 w-4" />
-                      Procesar Todos con IA
-                    </>
-                  )}
-                </Button>
-                <Button
-                  onClick={exportToExcel}
-                  disabled={isExportingExcel || splitDocuments.filter(d => d.claudeProcessed).length === 0}
-                  variant="outline"
-                  className="border-green-600 text-green-600 hover:bg-green-50"
-                >
-                  {isExportingExcel ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Exportando...
-                    </>
-                  ) : (
-                    <>
-                      <FileSpreadsheet className="mr-2 h-4 w-4" />
-                      Exportar a Excel
-                    </>
-                  )}
-                </Button>
+                {(memoryMode === 'lux' || memoryMode === 'memory') && (
+                  <Button
+                    onClick={processBatchWithClaude}
+                    disabled={isBatchProcessing || splitDocuments.filter(d => !d.claudeProcessed).length === 0}
+                    className="gradient-primary text-white"
+                  >
+                    {isBatchProcessing ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Procesando {batchProgress}%
+                      </>
+                    ) : (
+                      <>
+                        <Brain className="mr-2 h-4 w-4" />
+                        Procesar Todos con IA
+                      </>
+                    )}
+                  </Button>
+                )}
+                {(memoryMode === 'lux' || memoryMode === 'memory') && (
+                  <Button
+                    onClick={exportToExcel}
+                    disabled={isExportingExcel || splitDocuments.filter(d => d.claudeProcessed).length === 0}
+                    variant="outline"
+                    className="border-green-600 text-green-600 hover:bg-green-50"
+                  >
+                    {isExportingExcel ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Exportando...
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="mr-2 h-4 w-4" />
+                        Exportar a Excel
+                      </>
+                    )}
+                  </Button>
+                )}
+                {memoryMode === 'basic' && (
+                  <div className="text-sm text-gray-500 bg-gray-100 px-4 py-2 rounded-lg">
+                    <AlertCircle className="inline h-4 w-4 mr-2" />
+                    Procesamiento masivo y Excel disponible en planes Lux y Memory
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1229,7 +1408,7 @@ export default function Home() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    {doc.claudeProcessed && doc.nominaData && (
+                    {doc.claudeProcessed && doc.nominaData && (memoryMode === 'lux' || memoryMode === 'memory') && (
                       <div className="mb-4 p-4 bg-white rounded-lg border border-gray-200 space-y-2">
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600">Empleado:</span>
@@ -1318,7 +1497,7 @@ export default function Home() {
         )}
 
         {/* Memory Insights Section */}
-        {memoryMode === 'enterprise' && memoryStatus && generateBusinessInsights(memoryStatus).length > 0 && (
+        {memoryMode === 'memory' && memoryStatus && generateBusinessInsights(memoryStatus).length > 0 && (
           <div className="mt-12">
             <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center space-x-3">
               <Sparkles className="h-6 w-6 text-purple-600" />
@@ -1377,7 +1556,7 @@ export default function Home() {
             </Card>
             
             {/* Memory indicator */}
-            {memoryMode === 'enterprise' && (
+            {memoryMode === 'memory' && (
               <Card className="p-3 shadow-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white">
                 <div className="text-center">
                   <Brain className="h-4 w-4 mx-auto mb-1" />
@@ -1455,98 +1634,201 @@ export default function Home() {
       </Dialog>
 
       {/* Memory Configuration Dialog */}
-      {memoryMode === 'enterprise' && (
+      {memoryMode === 'memory' && (
         <Dialog open={showMemoryConfig} onOpenChange={setShowMemoryConfig}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="text-2xl flex items-center space-x-3">
-                <Brain className="h-6 w-6 text-purple-600" />
+              <DialogTitle className="text-3xl flex items-center space-x-3 text-purple-600">
+                <Brain className="h-8 w-8 text-purple-600" />
                 <span>Configuración de Memoria Empresarial</span>
               </DialogTitle>
             </DialogHeader>
             
-            <div className="mt-6 space-y-6">
+            <div className="mt-8 space-y-8">
               {isLoadingMemory ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+                <div className="flex items-center justify-center py-16">
+                  <div className="text-center">
+                    <Loader2 className="h-12 w-12 animate-spin text-purple-600 mx-auto mb-4" />
+                    <p className="text-lg font-medium text-gray-900">Analizando memoria empresarial...</p>
+                    <p className="text-sm text-gray-500 mt-2">Procesando patrones y optimizaciones</p>
+                  </div>
                 </div>
               ) : memoryStatus ? (
                 <>
-                  {/* Summary Stats */}
-                  <div className="grid grid-cols-3 gap-4">
-                    <Card className="bg-gradient-to-br from-blue-50 to-indigo-50">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600">
-                          Documentos Procesados
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-2xl font-bold text-blue-600">
+                  {/* Executive Summary Dashboard */}
+                  <div className="p-6 rounded-2xl bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200">
+                    <h3 className="text-2xl font-bold mb-6 flex items-center space-x-3 text-purple-800">
+                      <BarChart3 className="h-6 w-6" />
+                      <span>Panel Ejecutivo de Memoria</span>
+                    </h3>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                      {/* Total Documents */}
+                      <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <Database className="h-5 w-5 text-blue-600" />
+                          <Badge className="bg-blue-600 text-white text-xs">TOTAL</Badge>
+                        </div>
+                        <p className="text-3xl font-bold text-blue-800">
                           {memoryStatus.summary?.total_processed || 0}
                         </p>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card className="bg-gradient-to-br from-purple-50 to-pink-50">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600">
-                          Patrones Aprendidos
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-2xl font-bold text-purple-600">
+                        <p className="text-sm text-gray-600 mt-1">Documentos procesados</p>
+                      </div>
+
+                      {/* Learned Patterns */}
+                      <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <Brain className="h-5 w-5 text-yellow-600" />
+                          <Badge className="bg-yellow-600 text-white text-xs">PATRONES</Badge>
+                        </div>
+                        <p className="text-3xl font-bold text-yellow-800">
                           {memoryStatus.memory_patterns?.length || 0}
                         </p>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card className="bg-gradient-to-br from-green-50 to-emerald-50">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600">
-                          Precisión Promedio
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-2xl font-bold text-green-600">
+                        <p className="text-sm text-gray-600 mt-1">Estructuras aprendidas</p>
+                      </div>
+
+                      {/* Confidence Level */}
+                      <div className="bg-gradient-to-br from-green-100 to-green-50 rounded-xl p-4 border border-green-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <Shield className="h-5 w-5 text-green-600" />
+                          <Badge className="bg-green-600 text-white text-xs">CONFIANZA</Badge>
+                        </div>
+                        <p className="text-3xl font-bold text-green-800">
                           {Math.round((memoryStatus.summary?.avg_confidence || 0.5) * 100)}%
                         </p>
-                      </CardContent>
-                    </Card>
+                        <p className="text-sm text-gray-600 mt-1">Precisión promedio</p>
+                      </div>
+
+                      {/* Processing Speed */}
+                      <div className="bg-gradient-to-br from-orange-100 to-orange-50 rounded-xl p-4 border border-orange-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <Rocket className="h-5 w-5 text-orange-600" />
+                          <Badge className="bg-orange-600 text-white text-xs">VELOCIDAD</Badge>
+                        </div>
+                        <p className="text-3xl font-bold text-orange-800">
+                          5.2s
+                        </p>
+                        <p className="text-sm text-gray-600 mt-1">Tiempo por documento</p>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Memory Patterns */}
-                  {memoryStatus.memory_patterns && memoryStatus.memory_patterns.length > 0 && (
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                        <Hash className="h-5 w-5 text-gray-600" />
-                        <span>Patrones Reconocidos</span>
+                  {/* Business Insights */}
+                  {generateBusinessInsights(memoryStatus).length > 0 && (
+                    <div className="space-y-6">
+                      <h3 className="text-2xl font-bold flex items-center space-x-3 text-purple-800">
+                        <TrendingUp className="h-6 w-6" />
+                        <span>Insights Empresariales</span>
                       </h3>
-                      <div className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {generateBusinessInsights(memoryStatus).map((insight: any, index: number) => (
+                          <Card key={index} className="shadow-lg hover:shadow-xl transition-all duration-300 border-purple-200 hover:border-purple-300">
+                            <CardContent className="p-6">
+                              <div className="flex items-start space-x-3">
+                                <div className="text-2xl text-purple-600">
+                                  {insight.icon}
+                                </div>
+                                <div className="flex-1">
+                                  <h4 className="font-semibold text-gray-900 mb-2">{insight.title}</h4>
+                                  <p className="text-sm text-gray-600 mb-3">{insight.description}</p>
+                                  <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                    {insight.value}
+                                  </div>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Memory Patterns Advanced View */}
+                  {memoryStatus.memory_patterns && memoryStatus.memory_patterns.length > 0 && (
+                    <div className="space-y-6">
+                      <h3 className="text-2xl font-bold flex items-center space-x-3 text-purple-800">
+                        <Hash className="h-6 w-6" />
+                        <span>Patrones de Memoria Avanzados</span>
+                      </h3>
+                      <div className="space-y-4">
                         {memoryStatus.memory_patterns.slice(0, 5).map((pattern: any, index: number) => (
-                          <Card key={index} className="shadow-sm">
-                            <CardContent className="p-4">
+                          <Card key={index} className="shadow-md hover:shadow-lg transition-all duration-300 bg-gray-50 border-gray-200">
+                            <CardContent className="p-6">
                               <div className="flex justify-between items-start">
                                 <div className="flex-1">
-                                  <p className="font-medium text-gray-900">
-                                    {pattern.extracted_data?.company?.name || 'Empresa sin nombre'}
-                                  </p>
-                                  <p className="text-sm text-gray-600 mt-1">
-                                    Empleado: {pattern.extracted_data?.employee?.name || 'N/A'}
-                                  </p>
-                                  <div className="flex flex-wrap gap-1 mt-2">
-                                    {pattern.keywords?.slice(0, 3).map((keyword: string, kidx: number) => (
-                                      <Badge key={kidx} variant="secondary" className="text-xs">
+                                  <div className="flex items-center space-x-3 mb-3">
+                                    <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                                      <span className="text-sm font-bold text-purple-700">
+                                        #{index + 1}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <h4 className="font-bold text-lg text-gray-900">
+                                        {pattern.extracted_data?.company?.name || 'Empresa sin identificar'}
+                                      </h4>
+                                      <p className="text-sm text-gray-600">
+                                        {pattern.extracted_data?.employee?.name || 'Empleado sin identificar'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Pattern Details */}
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-500">Base SS</p>
+                                      <p className="font-semibold">€{pattern.extracted_data?.base_ss || 'N/A'}</p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-500">Neto</p>
+                                      <p className="font-semibold">€{pattern.extracted_data?.net_pay || 'N/A'}</p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-500">Confianza</p>
+                                      <p className={`font-semibold ${
+                                        (pattern.confidence || 0) > 0.8 ? 'text-green-600' : 
+                                        (pattern.confidence || 0) > 0.6 ? 'text-yellow-600' : 'text-red-600'
+                                      }`}>
+                                        {Math.round((pattern.confidence || 0) * 100)}%
+                                      </p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-500">Uso</p>
+                                      <p className="font-semibold">{pattern.usage_count || 1}x</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Keywords */}
+                                  <div className="flex flex-wrap gap-2 mb-3">
+                                    {pattern.keywords?.slice(0, 4).map((keyword: string, kidx: number) => (
+                                      <Badge key={kidx} variant="secondary" className="text-xs bg-gray-100 text-gray-700">
                                         {keyword}
                                       </Badge>
                                     )) || null}
                                   </div>
+
+                                  {pattern.extracted_data && (
+                                    <div className="mt-4 p-3 bg-white/50 rounded-lg border border-purple-200">
+                                      <p className="text-xs text-gray-500 mb-2">Estructura detectada:</p>
+                                      <div className="text-xs space-y-1">
+                                        {pattern.extracted_data.company?.cif && (
+                                          <p><span className="font-medium">CIF:</span> {pattern.extracted_data.company.cif}</p>
+                                        )}
+                                        {pattern.extracted_data.employee?.dni && (
+                                          <p><span className="font-medium">DNI:</span> {pattern.extracted_data.employee.dni}</p>
+                                        )}
+                                        {pattern.extracted_data.employee?.category && (
+                                          <p><span className="font-medium">Categoría:</span> {pattern.extracted_data.employee.category}</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => deleteMemoryData('pattern', pattern.id)}
                                   disabled={isDeletingMemory}
-                                  className="text-red-600 hover:text-red-700"
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
                                 >
                                   <AlertCircle className="h-4 w-4" />
                                 </Button>
@@ -1558,45 +1840,55 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Danger Zone */}
-                  <div className="border-t pt-6">
-                    <h3 className="text-lg font-semibold mb-4 text-red-600 flex items-center space-x-2">
-                      <AlertCircle className="h-5 w-5" />
-                      <span>Zona de Peligro</span>
+                  {/* Advanced Controls - Danger Zone */}
+                  <div className="border-t-2 border-gray-200 pt-8">
+                    <h3 className="text-2xl font-bold mb-6 text-red-600 flex items-center space-x-3">
+                      <AlertCircle className="h-6 w-6" />
+                      <span>Controles Avanzados</span>
                     </h3>
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       <Button
                         variant="outline"
                         onClick={() => deleteMemoryData('patterns')}
                         disabled={isDeletingMemory}
-                        className="w-full justify-start text-orange-600 border-orange-600 hover:bg-orange-50"
+                        className="h-20 flex flex-col items-center justify-center space-y-2 text-orange-600 border-orange-600 hover:bg-orange-50"
                       >
-                        Eliminar todos los patrones aprendidos
+                        <Hash className="h-6 w-6" />
+                        <span>Resetear Patrones</span>
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() => deleteMemoryData('embeddings')}
                         disabled={isDeletingMemory}
-                        className="w-full justify-start text-orange-600 border-orange-600 hover:bg-orange-50"
+                        className="h-20 flex flex-col items-center justify-center space-y-2 text-orange-600 border-orange-600 hover:bg-orange-50"
                       >
-                        Eliminar índice de búsqueda semántica
+                        <Database className="h-6 w-6" />
+                        <span>Limpiar Índices</span>
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() => deleteMemoryData('all')}
                         disabled={isDeletingMemory}
-                        className="w-full justify-start text-red-600 border-red-600 hover:bg-red-50"
+                        className="h-20 flex flex-col items-center justify-center space-y-2 text-red-600 border-red-600 hover:bg-red-50"
                       >
-                        Eliminar TODA la memoria empresarial
+                        <AlertCircle className="h-6 w-6" />
+                        <span>Borrar Todo</span>
                       </Button>
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="text-center py-12">
-                  <Brain className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-600">No hay datos de memoria disponibles</p>
-                  <p className="text-sm text-gray-500 mt-2">
+                <div className="text-center py-16">
+                  <div className="mx-auto w-32 h-32 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+                    <Brain className="h-16 w-16 text-gray-400" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                    Memoria Empresarial Lista
+                  </h3>
+                  <p className="text-gray-600 mb-4">
+                    No hay datos de memoria disponibles aún
+                  </p>
+                  <p className="text-sm text-gray-500">
                     Procesa algunos documentos para comenzar a construir tu memoria empresarial
                   </p>
                 </div>
@@ -1608,7 +1900,7 @@ export default function Home() {
       
       {/* Pricing Dialog */}
       <Dialog open={showPricing} onOpenChange={setShowPricing}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-7xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-3xl flex items-center space-x-3">
               <Star className="h-8 w-8 text-yellow-500" />
@@ -1671,25 +1963,26 @@ export default function Home() {
                 </CardContent>
               </Card>
 
-              {/* Nominas Professional */}
+              {/* Nominas Lux */}
               <Card className={`relative border-2 transition-all cursor-pointer ${
-                selectedPlan === 'professional' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'
-              }`} onClick={() => setSelectedPlan('professional')}>
+                selectedPlan === 'lux' ? 'border-emerald-500 bg-gradient-to-br from-emerald-50 to-yellow-50' : 'border-gray-200 hover:border-gray-300'
+              }`} onClick={() => setSelectedPlan('lux')}>
                 <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                  <Badge className="bg-purple-600 text-white px-3 py-1">
-                    RECOMENDADO
+                  <Badge className="bg-gradient-to-r from-emerald-600 to-yellow-600 text-white px-3 py-1">
+                    <Crown className="h-3 w-3 mr-1" />
+                    LUX
                   </Badge>
                 </div>
                 <CardHeader className="text-center pb-4">
-                  <div className="mx-auto w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4">
-                    <Rocket className="h-8 w-8 text-purple-600" />
+                  <div className="mx-auto w-16 h-16 bg-gradient-to-br from-emerald-100 to-yellow-100 rounded-full flex items-center justify-center mb-4">
+                    <Gem className="h-8 w-8 text-emerald-600" />
                   </div>
-                  <CardTitle className="text-2xl font-bold">Nóminas Lux</CardTitle>
+                  <CardTitle className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-yellow-600 bg-clip-text text-transparent">Nóminas Lux</CardTitle>
                   <CardDescription className="text-gray-600 mt-2">
-                    Procesamiento avanzado con Haiku 3.5
+                    IA de vanguardia + Experiencia premium
                   </CardDescription>
                   <div className="mt-4">
-                    <span className="text-4xl font-bold text-purple-600">€39</span>
+                    <span className="text-4xl font-bold bg-gradient-to-r from-emerald-600 to-yellow-600 bg-clip-text text-transparent">€49</span>
                     <span className="text-gray-500">/mes</span>
                   </div>
                 </CardHeader>
@@ -1700,56 +1993,58 @@ export default function Home() {
                       <span className="text-sm">Claude 3.5 Haiku con PDF nativo</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Procesamiento unificado automático</span>
+                      <Crown className="h-5 w-5 text-yellow-500" />
+                      <span className="text-sm">Procesamiento ultra-premium</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <Diamond className="h-5 w-5 text-emerald-500" />
+                      <span className="text-sm">IA de vanguardia</span>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <Gem className="h-5 w-5 text-emerald-500" />
                       <span className="text-sm">95%+ precisión garantizada</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">3x más rápido que Basic</span>
+                      <Shield className="h-5 w-5 text-blue-500" />
+                      <span className="text-sm">Interfaz premium</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Auto-guardado en base de datos</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <Users className="h-5 w-5 text-indigo-500" />
                       <span className="text-sm">Soporte prioritario</span>
                     </div>
                   </div>
                   <Button 
-                    className={`w-full ${selectedPlan === 'professional' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                    className={`w-full ${selectedPlan === 'lux' ? 'bg-gradient-to-r from-emerald-600 to-yellow-600 text-white' : 'bg-gray-100 text-gray-700'}`}
                     onClick={() => {
-                      alert('¡Próximamente! Por ahora puedes usar el modo Memoria para funcionalidad similar.')
+                      setMemoryMode('lux')
+                      setShowPricing(false)
+                      alert('¡Modo Lux activado! Experiencia premium habilitada.')
                     }}
                   >
-                    {selectedPlan === 'professional' ? 'Próximamente' : 'Seleccionar Plan'}
+                    {selectedPlan === 'lux' ? 'Activar Lux' : 'Seleccionar Lux'}
                   </Button>
                 </CardContent>
               </Card>
 
-              {/* Nominas Lux */}
+              {/* Nominas Memory */}
               <Card className={`relative border-2 transition-all cursor-pointer ${
-                selectedPlan === 'lux' ? 'border-yellow-500 bg-yellow-50' : 'border-gray-200 hover:border-gray-300'
-              }`} onClick={() => setSelectedPlan('lux')}>
+                selectedPlan === 'memory' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'
+              }`} onClick={() => setSelectedPlan('memory')}>
                 <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                  <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-3 py-1">
-                    PREMIUM
+                  <Badge className="bg-purple-600 text-white px-3 py-1">
+                    RECOMENDADO
                   </Badge>
                 </div>
                 <CardHeader className="text-center pb-4">
-                  <div className="mx-auto w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
-                    <Brain className="h-8 w-8 text-yellow-600" />
+                  <div className="mx-auto w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4">
+                    <Brain className="h-8 w-8 text-purple-600" />
                   </div>
                   <CardTitle className="text-2xl font-bold">Nóminas Memory</CardTitle>
                   <CardDescription className="text-gray-600 mt-2">
                     IA avanzada + Memoria empresarial
                   </CardDescription>
                   <div className="mt-4">
-                    <span className="text-4xl font-bold text-yellow-600">€49</span>
+                    <span className="text-4xl font-bold text-purple-600">€89</span>
                     <span className="text-gray-500">/mes</span>
                   </div>
                 </CardHeader>
@@ -1757,42 +2052,42 @@ export default function Home() {
                   <div className="space-y-3">
                     <div className="flex items-center space-x-3">
                       <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Todo de Professional +</span>
+                      <span className="text-sm">Todo de Lux +</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <Brain className="h-5 w-5 text-purple-500" />
                       <span className="text-sm">Memoria empresarial inteligente</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <Rocket className="h-5 w-5 text-blue-500" />
                       <span className="text-sm">Aprendizaje automático</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <TrendingUp className="h-5 w-5 text-green-500" />
                       <span className="text-sm">80% más rápido con patrones</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <Shield className="h-5 w-5 text-blue-500" />
                       <span className="text-sm">99% precisión empresarial</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Insights y analytics</span>
+                      <BarChart3 className="h-5 w-5 text-purple-500" />
+                      <span className="text-sm">Analytics avanzados</span>
                     </div>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <Users className="h-5 w-5 text-indigo-500" />
                       <span className="text-sm">Soporte 24/7 dedicado</span>
                     </div>
                   </div>
                   <Button 
-                    className={`w-full ${selectedPlan === 'lux' ? 'bg-yellow-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                    className={`w-full ${selectedPlan === 'memory' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700'}`}
                     onClick={() => {
-                      setMemoryMode('enterprise')
+                      setMemoryMode('memory')
                       setShowPricing(false)
                       alert('¡Modo Memoria Empresarial activado! Comenzarás a ver los beneficios inmediatamente.')
                     }}
                   >
-                    {selectedPlan === 'lux' ? 'Activar Ahora' : 'Seleccionar Plan'}
+                    {selectedPlan === 'memory' ? 'Activar Memory' : 'Seleccionar Memory'}
                   </Button>
                 </CardContent>
               </Card>
@@ -1806,6 +2101,8 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
+  )}
+</div>
   )
 }

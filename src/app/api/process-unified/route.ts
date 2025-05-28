@@ -522,6 +522,7 @@ export async function POST(request: NextRequest) {
                       net_pay: fullNominaData.net_pay || 0,
                       gross_salary: grossSalary,
                       total_contributions: totalContributions,
+                      dni: normalizedEmployee.dni || null,
                       iban: fullNominaData.bank?.iban || null,
                       swift_bic: fullNominaData.bank?.swift_bic || null,
                       cost_empresa: costEmpresa,
