@@ -10,7 +10,7 @@ const supabase = createClient(
 
 // Voyage AI Configuration
 const VOYAGE_API_URL = 'https://api.voyageai.com/v1/embeddings'
-const VOYAGE_MODEL = 'voyage-3' // Latest model for best quality
+const VOYAGE_MODEL = 'voyage-3.5-lite' // Voyage 3.5 Lite - más eficiente y rápido con 512 dimensiones
 const OPTIMAL_CHUNK_SIZE = 400 // Characters - optimal for Spanish payroll documents
 const CHUNK_OVERLAP = 50 // Characters overlap between chunks
 
@@ -280,18 +280,45 @@ export class MemoryService {
       const patternsText = JSON.stringify(patterns)
       const [patternsEmbedding] = await this.generateEmbeddings([patternsText])
       
+      // Get or create default document type
+      let documentTypeId: string
+      const { data: docType } = await supabase
+        .from('document_types')
+        .select('id')
+        .eq('name', 'nomina')
+        .single()
+      
+      if (docType) {
+        documentTypeId = docType.id
+      } else {
+        // Create default document type
+        const { data: newDocType, error: docTypeError } = await supabase
+          .from('document_types')
+          .insert({ name: 'nomina', description: 'Payroll document' })
+          .select('id')
+          .single()
+        
+        if (docTypeError || !newDocType) {
+          console.error('Failed to create document type:', docTypeError)
+          return // Skip memory storage if we can't get document type
+        }
+        documentTypeId = newDocType.id
+      }
+      
       // Store memory
       const memoryRecord = {
         id: uuidv4(),
         company_id: companyId,
         employee_id: employeeId,
+        document_type_id: documentTypeId,
+        conversation_id: uuidv4(), // Generate a conversation ID for this memory session
         summary: summary,
         summary_embedding: summaryEmbedding,
         learned_patterns: patternsText, // Keep for compatibility
         learned_patterns_jsonb: patterns,
         patterns_embedding: patternsEmbedding,
         keywords: keywords.join(','), // Keep for compatibility
-        keywords_array: keywords,
+        keywords_array: keywords, // PostgreSQL will handle array conversion
         confidence_score: confidence,
         usage_count: 1,
         processing_model: 'claude-3.5-haiku',

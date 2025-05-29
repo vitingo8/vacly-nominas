@@ -977,7 +977,7 @@ export default function Home() {
                 {memoryMode === 'lux' ? (
                   <Gem className="h-5 w-5 text-emerald-600" />
                 ) : (
-                  <Brain className="h-5 w-5 text-blue-600" />
+                <Brain className="h-5 w-5 text-blue-600" />
                 )}
               </div>
               <div className="flex-1">
@@ -999,8 +999,8 @@ export default function Home() {
                   </>
                 ) : (
                   <>
-                    <Sparkles className="h-3 w-3 mr-1" />
-                    PREMIUM
+                <Sparkles className="h-3 w-3 mr-1" />
+                PREMIUM
                   </>
                 )}
               </Badge>
@@ -1204,79 +1204,79 @@ export default function Home() {
                   {/* Lux Mode - Only Unified Processing (No Memory) */}
                   {memoryMode === 'lux' && (
                     <div className="border-2 border-dashed border-emerald-300 rounded-xl p-6 text-center hover:border-emerald-500 transition-colors bg-gradient-to-br from-emerald-50 to-yellow-50">
-                      <Input
-                        type="file"
-                        accept=".pdf"
-                        onChange={handleUnifiedProcessing}
-                        disabled={isUploading}
-                        className="hidden"
+                    <Input
+                      type="file"
+                      accept=".pdf"
+                      onChange={handleUnifiedProcessing}
+                      disabled={isUploading}
+                      className="hidden"
                         id="lux-upload"
-                      />
-                      <Label
+                    />
+                    <Label
                         htmlFor="lux-upload"
-                        className="cursor-pointer flex flex-col items-center space-y-3"
-                      >
+                      className="cursor-pointer flex flex-col items-center space-y-3"
+                    >
                         <div className="p-3 bg-gradient-to-r from-emerald-500 to-yellow-500 rounded-full">
                           <Gem className="h-6 w-6 text-white" />
-                        </div>
-                        <div>
-                          <p className="text-base font-semibold text-gray-900">
+                      </div>
+                      <div>
+                        <p className="text-base font-semibold text-gray-900">
                             💎 Procesamiento Lux
-                          </p>
+                        </p>
                           <Badge className="mt-1 bg-gradient-to-r from-emerald-600 to-yellow-600 text-white text-xs">
                             <Crown className="h-3 w-3 mr-1" />
                             PREMIUM
-                          </Badge>
-                          <p className="text-xs text-gray-600 mt-2">
-                            • Claude 3.5 Haiku con PDF nativo<br/>
+                        </Badge>
+                        <p className="text-xs text-gray-600 mt-2">
+                          • Claude 3.5 Haiku con PDF nativo<br/>
                             • Procesamiento unificado automático<br/>
                             • 3x más rápido que Basic<br/>
                             • Procesamiento masivo disponible<br/>
                             • Exportación Excel incluida<br/>
                             • Sin memoria empresarial
-                          </p>
-                        </div>
-                      </Label>
-                    </div>
+                        </p>
+                      </div>
+                    </Label>
+                  </div>
                   )}
 
                   {/* Memory Mode - Unified Processing with Memory */}
                   {memoryMode === 'memory' && (
                     <div className="border-2 border-dashed border-purple-300 rounded-xl p-6 text-center hover:border-purple-500 transition-colors bg-gradient-to-br from-purple-50 to-blue-50">
-                      <Input
-                        type="file"
-                        accept=".pdf"
+                    <Input
+                      type="file"
+                      accept=".pdf"
                         onChange={handleUnifiedProcessing}
-                        disabled={isUploading}
-                        className="hidden"
+                      disabled={isUploading}
+                      className="hidden"
                         id="memory-upload"
-                      />
-                      <Label
+                    />
+                    <Label
                         htmlFor="memory-upload"
-                        className="cursor-pointer flex flex-col items-center space-y-3"
-                      >
+                      className="cursor-pointer flex flex-col items-center space-y-3"
+                    >
                         <div className="p-3 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full">
                           <Brain className="h-6 w-6 text-white" />
-                        </div>
-                        <div>
+                      </div>
+                      <div>
                           <p className="text-base font-semibold text-gray-900">
                             🧠 Procesamiento Memory
-                          </p>
+                        </p>
                           <Badge className="mt-1 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs">
                             <Sparkles className="h-3 w-3 mr-1" />
                             INTELIGENTE
-                          </Badge>
-                          <p className="text-xs text-gray-600 mt-2">
+                        </Badge>
+                        <p className="text-xs text-gray-600 mt-2">
                             • Todo de Lux +<br/>
                             • Memoria empresarial activa<br/>
                             • Aprendizaje automático<br/>
                             • 80% más rápido con patrones<br/>
                             • 99% precisión empresarial<br/>
                             • Analytics avanzados
-                          </p>
-                        </div>
-                      </Label>
-                    </div>
+                        </p>
+                      </div>
+                    </Label>
+                  </div>
                   )}
 
                 </div>
@@ -1333,43 +1333,43 @@ export default function Home() {
               </h2>
               <div className="flex space-x-3">
                 {(memoryMode === 'lux' || memoryMode === 'memory') && (
-                  <Button
-                    onClick={processBatchWithClaude}
-                    disabled={isBatchProcessing || splitDocuments.filter(d => !d.claudeProcessed).length === 0}
-                    className="gradient-primary text-white"
-                  >
-                    {isBatchProcessing ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Procesando {batchProgress}%
-                      </>
-                    ) : (
-                      <>
-                        <Brain className="mr-2 h-4 w-4" />
-                        Procesar Todos con IA
-                      </>
-                    )}
-                  </Button>
+                <Button
+                  onClick={processBatchWithClaude}
+                  disabled={isBatchProcessing || splitDocuments.filter(d => !d.claudeProcessed).length === 0}
+                  className="gradient-primary text-white"
+                >
+                  {isBatchProcessing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Procesando {batchProgress}%
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="mr-2 h-4 w-4" />
+                      Procesar Todos con IA
+                    </>
+                  )}
+                </Button>
                 )}
                 {(memoryMode === 'lux' || memoryMode === 'memory') && (
-                  <Button
-                    onClick={exportToExcel}
-                    disabled={isExportingExcel || splitDocuments.filter(d => d.claudeProcessed).length === 0}
-                    variant="outline"
-                    className="border-green-600 text-green-600 hover:bg-green-50"
-                  >
-                    {isExportingExcel ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Exportando...
-                      </>
-                    ) : (
-                      <>
-                        <FileSpreadsheet className="mr-2 h-4 w-4" />
-                        Exportar a Excel
-                      </>
-                    )}
-                  </Button>
+                <Button
+                  onClick={exportToExcel}
+                  disabled={isExportingExcel || splitDocuments.filter(d => d.claudeProcessed).length === 0}
+                  variant="outline"
+                  className="border-green-600 text-green-600 hover:bg-green-50"
+                >
+                  {isExportingExcel ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Exportando...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="mr-2 h-4 w-4" />
+                      Exportar a Excel
+                    </>
+                  )}
+                </Button>
                 )}
                 {memoryMode === 'basic' && (
                   <div className="text-sm text-gray-500 bg-gray-100 px-4 py-2 rounded-lg">
@@ -1825,7 +1825,7 @@ export default function Home() {
                               "🎉 Excelente! Superando expectativas" : 
                               "📈 Mejorando continuamente"}
                           </p>
-                        </div>
+                  </div>
 
                         <div className="bg-white/70 rounded-lg p-4">
                           <div className="flex items-center justify-between mb-2">
@@ -1849,7 +1849,7 @@ export default function Home() {
                           <p className="text-xs text-gray-500 mt-1">vs. procesamiento sin memoria</p>
                         </div>
 
-                        {memoryStatus.memory_patterns && memoryStatus.memory_patterns.length > 0 && (
+                  {memoryStatus.memory_patterns && memoryStatus.memory_patterns.length > 0 && (
                           <div className="bg-white/70 rounded-lg p-4">
                             <h4 className="text-sm font-semibold text-gray-800 mb-3">🧠 Patrones Específicos Aprendidos</h4>
                             <div className="space-y-2 text-xs">
@@ -1909,7 +1909,7 @@ export default function Home() {
                           <span>Evolución del Aprendizaje</span>
                         </h3>
                         <div className="space-y-4">
-                          <div>
+                    <div>
                             <div className="flex justify-between mb-2">
                               <span className="text-sm text-gray-600">Madurez del Sistema</span>
                               <span className="text-sm font-medium">{Math.min(Math.round((memoryStatus.summary?.total_processed || 0) * 2), 100)}%</span>
@@ -1953,7 +1953,7 @@ export default function Home() {
                         <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center space-x-2">
                           <DollarSign className="h-5 w-5 text-green-600" />
                           <span>Valor Entregado</span>
-                        </h3>
+                      </h3>
                         <div className="space-y-4">
                           <div className="text-center p-4 bg-green-50 rounded-lg">
                             <p className="text-2xl font-bold text-green-600">€{Math.round((memoryStatus.summary?.total_processed || 0) * 3.7)}</p>
@@ -2369,6 +2369,6 @@ export default function Home() {
       </Dialog>
     </>
   )}
-</div>
+    </div>
   )
 }

@@ -37,7 +37,7 @@ Si no encuentras algún dato, usa "Desconocido" para nombres y "202401" para el 
 
     const response = await anthropic.messages.create({
       model: "claude-3-5-haiku-20241022", // ✅ HAIKU 3.5 CON SOPORTE PDF
-      max_tokens: 500,
+      max_tokens: 4000,
       messages: [
         {
           role: "user",
@@ -134,7 +134,7 @@ ${textContent}`
 
     const response = await anthropic.messages.create({
       model: "claude-3-haiku-20240307",
-      max_tokens: 500,
+      max_tokens: 4000,
       messages: [
         {
           role: "user",

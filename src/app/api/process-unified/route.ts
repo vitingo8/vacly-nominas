@@ -67,7 +67,7 @@ Si no encuentras datos específicos, deduce basándote en el nombre del archivo 
 
     const response = await anthropic.messages.create({
       model: "claude-3-5-haiku-20241022",
-      max_tokens: 300,
+      max_tokens: 4000,
       messages: [
         {
           role: "user",
@@ -220,7 +220,7 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
 
     const response = await anthropic.messages.create({
       model: "claude-3-5-haiku-20241022",
-      max_tokens: 2000,
+      max_tokens: 4000,
       messages: [
         {
           role: "user",
@@ -337,32 +337,51 @@ export async function POST(request: NextRequest) {
     
     const stream = new ReadableStream({
       start(controller) {
+        let streamClosed = false
+        
         const sendProgress = (progress: number, message: string, currentPage?: number, totalPages?: number) => {
-          const data = JSON.stringify({ 
-            progress, 
-            message, 
-            currentPage, 
-            totalPages,
-            type: 'progress' 
-          })
-          controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+          if (streamClosed) return
+          try {
+            const data = JSON.stringify({ 
+              progress, 
+              message, 
+              currentPage, 
+              totalPages,
+              type: 'progress' 
+            })
+            controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+          } catch (error) {
+            console.error('Error sending progress:', error)
+          }
         }
 
         const sendError = (error: string) => {
-          const data = JSON.stringify({ error, type: 'error' })
-          controller.enqueue(encoder.encode(`data: ${data}\n\n`))
-          controller.close()
+          if (streamClosed) return
+          try {
+            streamClosed = true
+            const data = JSON.stringify({ error, type: 'error' })
+            controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+            controller.close()
+          } catch (closeError) {
+            console.error('Error sending error:', closeError)
+          }
         }
 
         const sendComplete = (documents: SplitDocument[]) => {
-          const data = JSON.stringify({ 
-            documents, 
-            type: 'complete',
-            totalDocumentsCreated: documents.length,
-            unified: true
-          })
-          controller.enqueue(encoder.encode(`data: ${data}\n\n`))
-          controller.close()
+          if (streamClosed) return
+          try {
+            streamClosed = true
+            const data = JSON.stringify({ 
+              documents, 
+              type: 'complete',
+              totalDocumentsCreated: documents.length,
+              unified: true
+            })
+            controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+            controller.close()
+          } catch (closeError) {
+            console.error('Error sending completion:', closeError)
+          }
         }
 
         // Start unified processing
@@ -380,9 +399,24 @@ export async function POST(request: NextRequest) {
             sendProgress(10, 'PDF descargado, extrayendo información global...')
             const pdfBuffer = await response.arrayBuffer()
             
-            // PASO 1: Extraer información global del archivo
-            const globalInfo = await extractGlobalFileInfo(filename, Buffer.from(pdfBuffer))
-            console.log('📋 Global file info extracted:', globalInfo)
+            // PASO 1: Extraer información global del archivo con timeout y fallback
+            let globalInfo
+            try {
+              const globalInfoPromise = extractGlobalFileInfo(filename, Buffer.from(pdfBuffer))
+              const timeoutPromise = new Promise<never>((_, reject) => 
+                setTimeout(() => reject(new Error('Global info extraction timeout')), 30000)
+              )
+              
+              globalInfo = await Promise.race([globalInfoPromise, timeoutPromise])
+              console.log('📋 Global file info extracted:', globalInfo)
+            } catch (globalError) {
+              console.error('⚠️ Error extracting global info, using fallback:', globalError)
+              globalInfo = {
+                companyName: filename.replace('.pdf', '').replace(/[^a-zA-Z0-9]/g, '_') || 'Empresa_Desconocida',
+                period: new Date().getFullYear() + String(new Date().getMonth() + 1).padStart(2, '0'),
+                totalPages: 0
+              }
+            }
 
             sendProgress(15, `Archivo global analizado (${globalInfo.companyName}). Dividiendo en páginas...`)
 
@@ -417,8 +451,29 @@ export async function POST(request: NextRequest) {
                 // Save the single-page PDF
                 const pdfBytes = await newPdf.save()
                 
-                // PASO 3: Extraer TODA la información con Haiku 3.5 de una vez
-                const { basicInfo, fullNominaData, textContent } = await processPageWithFullData(pdfBytes, pageNum)
+                // PASO 3: Extraer TODA la información con Haiku 3.5 de una vez (con timeout)
+                let processResult
+                try {
+                  const processPromise = processPageWithFullData(pdfBytes, pageNum)
+                  const timeoutPromise = new Promise<never>((_, reject) => 
+                    setTimeout(() => reject(new Error(`Page ${pageNum} processing timeout`)), 60000)
+                  )
+                  
+                  processResult = await Promise.race([processPromise, timeoutPromise])
+                } catch (processError) {
+                  console.error(`⚠️ Error processing page ${pageNum}, using fallback:`, processError)
+                  processResult = {
+                    basicInfo: {
+                      companyName: globalInfo.companyName,
+                      employeeName: 'Empleado_Desconocido',
+                      period: globalInfo.period
+                    },
+                    fullNominaData: {},
+                    textContent: `Error processing page ${pageNum}: ${processError instanceof Error ? processError.message : 'Unknown error'}`
+                  }
+                }
+                
+                const { basicInfo, fullNominaData, textContent } = processResult
                 
                 // Corregir formato de nombres: "APELLIDOS, NOMBRE" -> "NOMBRE APELLIDOS"
                 const correctedBasicInfo = {
@@ -551,21 +606,28 @@ export async function POST(request: NextRequest) {
                       company_id: companyId,
                       employee_id: employeeId,
                       extracted_text: textContent,
-                      processed_data: fullNominaData, // ✅ CORRECTO: processed_data (NO nomina_data)
+                      processed_data: { ...fullNominaData, page_number: pageNum },
                       processing_status: 'completed',
                       split_pdf_paths: [pagePdfName],
-                      text_file_paths: [textFileName]
+                      text_file_paths: [textFileName],
+                      page_number: pageNum
                     }
 
                     console.log(`💾 Saving processed_documents with data:`, {
                       id: pageId,
                       original_filename: pagePdfName,
+                      page_number: pageNum,
                       hasProcessedData: !!fullNominaData && Object.keys(fullNominaData).length > 0
                     })
 
+                    // ✅ SOLUCIÓN: Usar insert con ON CONFLICT basado en filename + page_number
                     const { error: processedDocError } = await supabase
                       .from('processed_documents')
-                      .upsert(processedDocumentData)
+                      .upsert(processedDocumentData, {
+                        onConflict: 'original_filename,page_number',
+                        ignoreDuplicates: false
+                      })
+                      .select()
 
                     if (!processedDocError) {
                       dbSaved = true
@@ -628,15 +690,20 @@ export async function POST(request: NextRequest) {
                     company_id: companyId,
                     employee_id: employeeId,
                     extracted_text: textContent,
+                    processed_data: { page_number: pageNum },
                     processing_status: 'pending',
                     split_pdf_paths: [pagePdfName],
-                    text_file_paths: [textFileName]
-                    // NO processed_data if no full data extracted
+                    text_file_paths: [textFileName],
+                    page_number: pageNum
                   }
 
                   const { error: processedDocError } = await supabase
                     .from('processed_documents')
-                    .insert(basicProcessedDocumentData)
+                    .upsert(basicProcessedDocumentData, {
+                      onConflict: 'original_filename,page_number',
+                      ignoreDuplicates: false
+                    })
+                    .select()
 
                   if (!processedDocError) {
                     console.log(`✅ Page ${pageNum} saved to processed_documents (tracking only)`)
@@ -680,12 +747,38 @@ export async function POST(request: NextRequest) {
                   } : undefined
                 })
 
+                console.log(`📄 Document created for page ${pageNum}:`, {
+                  id: pageId,
+                  filename: pagePdfName,
+                  processed: Object.keys(fullNominaData).length > 0,
+                  employeeName: correctedBasicInfo.employeeName
+                })
+
                 // Update progress
                 const completedProgress = 20 + Math.round(((i + 1) / pageCount) * 75)
                 sendProgress(completedProgress, `Página ${pageNum} completada (${correctedBasicInfo.employeeName})`, pageNum, pageCount)
 
               } catch (pageError) {
                 console.error(`❌ Error in unified processing for page ${pageNum}:`, pageError)
+                
+                // Even on error, add a basic document entry so we don't lose track of the page
+                const basicErrorDocument: SplitDocument = {
+                  id: pageId,
+                  filename: `error_page_${pageNum}.pdf`,
+                  pageNumber: pageNum,
+                  pdfUrl: '',
+                  textUrl: '',
+                  textContent: `Error processing page ${pageNum}: ${pageError instanceof Error ? pageError.message : 'Unknown error'}`,
+                  claudeProcessed: false,
+                  nominaData: undefined
+                }
+                
+                documents.push(basicErrorDocument)
+                
+                // Continue with progress update even on error
+                const completedProgress = 20 + Math.round(((i + 1) / pageCount) * 75)
+                sendProgress(completedProgress, `⚠️ Error en página ${pageNum}, continuando...`, pageNum, pageCount)
+                
                 // Continue with next page instead of failing completely
               }
             }
@@ -693,8 +786,12 @@ export async function POST(request: NextRequest) {
             sendProgress(100, `¡Procesamiento unificado completado! ${documents.length} documentos procesados`)
             console.log(`🎉 UNIFIED PDF processing completed! Created ${documents.length} documents`)
 
-            // Send completion event
-            sendComplete(documents)
+            // Send completion event with validation
+            if (!streamClosed && documents.length > 0) {
+              sendComplete(documents)
+            } else if (!streamClosed) {
+              sendError('No documents were successfully processed')
+            }
 
           } catch (error) {
             console.error('💥 Critical unified processing error:', error)
