@@ -94,7 +94,7 @@ export default function Home() {
   const [selectedPlan, setSelectedPlan] = useState<'basic' | 'lux' | 'memory'>('basic')
   const [isMounted, setIsMounted] = useState(false)
 
-  // Prevent hydration mismatch
+  // Prevent hydration mismatch - ensure client-side only rendering
   useEffect(() => {
     setIsMounted(true)
   }, [])
@@ -820,39 +820,30 @@ export default function Home() {
   }
 
   const exportToExcel = async () => {
-    const processedDocs = splitDocuments.filter(doc => doc.claudeProcessed && doc.nominaData)
-    
-    if (processedDocs.length === 0) {
-      alert('No hay documentos procesados para exportar')
-      return
-    }
-
     setIsExportingExcel(true)
-
     try {
+      // Only run on client side to avoid hydration mismatch
+      if (typeof window === 'undefined') return
+      
       const response = await fetch('/api/export-excel', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          documents: processedDocs.map(doc => ({
-            filename: doc.filename,
-            pageNumber: doc.pageNumber,
-            nominaData: doc.nominaData
-          }))
-        }),
+        body: JSON.stringify({ documents: splitDocuments }),
       })
 
       if (!response.ok) {
-        throw new Error('Error al exportar a Excel')
+        throw new Error('Error al generar Excel')
       }
 
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `nominas_procesadas_${new Date().toISOString().split('T')[0]}.xlsx`
+      // Use client-side date generation to avoid hydration mismatch
+      const today = new Date().toISOString().split('T')[0]
+      link.download = `nominas_procesadas_${today}.xlsx`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -866,20 +857,20 @@ export default function Home() {
     }
   }
 
+  // Don't render anything until mounted to prevent hydration mismatch
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-600 mx-auto mb-4" />
+          <p className="text-gray-600">Cargando sistema...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Prevent hydration mismatch */}
-      {!isMounted && (
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-600">Cargando sistema...</p>
-          </div>
-        </div>
-      )}
-      
-      {isMounted && (
-        <>
       {/* Header */}
       <header className="bg-white shadow-soft border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1257,7 +1248,7 @@ export default function Home() {
                     >
                         <div className="p-3 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full">
                           <Brain className="h-6 w-6 text-white" />
-                      </div>
+                        </div>
                       <div>
                           <p className="text-base font-semibold text-gray-900">
                             🧠 Procesamiento Memory
@@ -2367,8 +2358,6 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
-    </>
-  )}
     </div>
   )
 }

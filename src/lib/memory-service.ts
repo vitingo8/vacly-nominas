@@ -275,6 +275,19 @@ export class MemoryService {
       // Extract keywords
       const keywords = this.extractDocumentKeywords(documentData)
       
+      // Debug: Log keywords to understand the data structure
+      console.log('🔍 Keywords extracted:', keywords, 'Type:', typeof keywords, 'Is Array:', Array.isArray(keywords))
+      
+      // Validate that keywords is an array of strings
+      if (!Array.isArray(keywords)) {
+        console.error('❌ Keywords is not an array:', keywords)
+        throw new Error('Keywords extraction failed - not an array')
+      }
+      
+      // Ensure all keywords are strings and filter out invalid ones
+      const validKeywords = keywords.filter(k => typeof k === 'string' && k.trim().length > 0)
+      console.log('✅ Valid keywords:', validKeywords)
+      
       // Generate embeddings for summary and patterns
       const [summaryEmbedding] = await this.generateEmbeddings([summary])
       const patternsText = JSON.stringify(patterns)
@@ -317,8 +330,8 @@ export class MemoryService {
         learned_patterns: patternsText, // Keep for compatibility
         learned_patterns_jsonb: patterns,
         patterns_embedding: patternsEmbedding,
-        keywords: keywords.join(','), // Keep for compatibility
-        keywords_array: keywords, // PostgreSQL will handle array conversion
+        keywords: validKeywords.length > 0 ? validKeywords : [], // Store as array since column is array type
+        keywords_array: validKeywords.length > 0 ? validKeywords : [], // Ensure it's always an array
         confidence_score: confidence,
         usage_count: 1,
         processing_model: 'claude-3.5-haiku',

@@ -2,6 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Security: Disable text selection and inspection */
+* {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Allow text selection only for input fields */
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* Disable drag and drop */
+img, video, audio {
+  -webkit-user-drag: none;
+  -moz-user-drag: none;
+  user-drag: none;
+  pointer-events: none;
+}
+
+/* Security: Hide scroll bars that might reveal content structure */
+::-webkit-scrollbar {
+  display: none;
+}
+
+body {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Disable image context menu */
+img {
+  pointer-events: none;
+}
+
+/* Premium styling */
+.shadow-soft {
+  box-shadow: 0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04);
+}
+
+.shadow-premium {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.badge-premium {
+  @apply bg-gradient-to-r from-purple-600 to-blue-600 text-white px-3 py-1 rounded-full text-xs font-semibold;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -109,11 +163,6 @@
     @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
   }
   
-  /* Premium badge */
-  .badge-premium {
-    @apply bg-gradient-to-r from-purple-500 to-blue-500 text-white;
-  }
-  
   /* Glass effect */
   .glass {
     @apply bg-white/80 backdrop-blur-md border border-gray-200/50;
@@ -129,15 +178,6 @@
     50% { transform: translateY(-10px); }
   }
   
-  /* Professional shadows */
-  .shadow-soft {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-  }
-  
-  .shadow-premium {
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  }
-
   /* Lux gradient classes */
   .gradient-lux {
     @apply bg-gradient-to-r from-emerald-600 to-yellow-600;
