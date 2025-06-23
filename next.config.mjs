@@ -7,11 +7,34 @@ const nextConfig = {
   // Disable source maps in production for security
   productionBrowserSourceMaps: false,
   
-  // Security headers
+  // Security headers - ACTUALIZADO para permitir acceso externo a APIs
   async headers() {
     return [
       {
-        source: '/(.*)',
+        // Para rutas de API - permitir acceso externo
+        source: '/api/(.*)',
+        headers: [
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, POST, PUT, DELETE, OPTIONS',
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'Content-Type, Authorization, X-Requested-With',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+        ],
+      },
+      {
+        // Para el resto de rutas - mantener seguridad del código
+        source: '/((?!api).*)',
         headers: [
           {
             key: 'X-Content-Type-Options',

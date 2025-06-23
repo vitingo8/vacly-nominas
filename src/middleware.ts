@@ -5,39 +5,56 @@ export function middleware(request: NextRequest) {
   // Security headers
   const response = NextResponse.next()
   
-  // Add security headers
+  // Add CORS headers for external API access
+  response.headers.set('Access-Control-Allow-Origin', '*')
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+  
+  // Handle preflight requests
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: response.headers })
+  }
+  
+  // Security headers (mantener protección del código)
   response.headers.set('X-DNS-Prefetch-Control', 'off')
   response.headers.set('X-Download-Options', 'noopen')
   response.headers.set('X-Permitted-Cross-Domain-Policies', 'none')
   response.headers.set('X-Powered-By', 'Vacly-Security')
   
-  // Rate limiting check (simple implementation)
-  const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
   const userAgent = request.headers.get('user-agent') || ''
+  const pathname = request.nextUrl.pathname
   
-  // Block suspicious user agents
-  const suspiciousAgents = [
-    'curl', 'wget', 'postman', 'insomnia', 'httpie', 'python-requests',
-    'crawler', 'bot', 'spider', 'scraper'
+  // SOLO bloquear acceso a archivos de código fuente, no a las APIs
+  const protectedPaths = [
+    '/src/', '/.next/', '/pages/', '/components/', '/lib/', '/utils/',
+    '.js', '.ts', '.tsx', '.jsx', '.map', '.env'
   ]
   
-  if (suspiciousAgents.some(agent => userAgent.toLowerCase().includes(agent))) {
-    return new Response('Access Denied', { 
+  // Bloquear solo user agents que intentan acceder a código fuente
+  const codeScrapingAgents = [
+    'wget', 'curl', 'python-requests', 'python', 'crawler', 'bot', 'spider', 'scraper'
+  ]
+  
+  // Proteger archivos de código pero permitir acceso a APIs
+  if (protectedPaths.some(path => pathname.includes(path)) && 
+      codeScrapingAgents.some(agent => userAgent.toLowerCase().includes(agent))) {
+    return new Response('Access Denied - Code Protection', { 
       status: 403,
       headers: {
         'Content-Type': 'text/plain',
-        'X-Block-Reason': 'Suspicious User Agent'
+        'X-Block-Reason': 'Code Protection'
       }
     })
   }
   
-  // Block direct API access without proper referrer for sensitive endpoints
+  // ELIMINAR la restricción de referer/origin para APIs - permitir acceso externo
+  // Comentado el bloqueo anterior:
+  /*
   if (request.nextUrl.pathname.startsWith('/api/process') || 
       request.nextUrl.pathname.startsWith('/api/memory')) {
     const referer = request.headers.get('referer')
     const origin = request.headers.get('origin')
     
-    // Allow same-origin requests
     if (!referer && !origin) {
       return new Response('Access Denied - Invalid Request', { 
         status: 403,
@@ -48,6 +65,7 @@ export function middleware(request: NextRequest) {
       })
     }
   }
+  */
   
   // Add timestamp for request tracking
   response.headers.set('X-Request-Time', Date.now().toString())
