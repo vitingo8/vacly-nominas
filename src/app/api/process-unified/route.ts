@@ -583,6 +583,7 @@ export async function POST(request: NextRequest) {
                       swift_bic: fullNominaData.bank?.swift_bic || null,
                       cost_empresa: costEmpresa,
                       signed: false,
+                      document_name: pagePdfName, // ✅ NUEVO: Guardamos el nombre del archivo PDF dividido
                     }
 
                     // Save to nominas table

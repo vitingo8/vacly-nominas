@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
+import crypto from 'crypto'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -110,6 +111,7 @@ ${document.textContent}`
           swift_bic: processedData.bank?.swift_bic || null,
           cost_empresa: processedData.cost_empresa,
           signed: false,
+          document_name: `batch_process_${document.id}.pdf`, // ✅ NUEVO: Nombre del documento para procesamiento por lotes
         }
 
         // Save to Supabase

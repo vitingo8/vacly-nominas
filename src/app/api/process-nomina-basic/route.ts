@@ -258,6 +258,7 @@ ${textContent}`
       swift_bic: processedData.bank?.swift_bic || null,
       cost_empresa: processedData.cost_empresa,
       signed: false,
+      document_name: `nomina_basic_${documentId}.pdf`, // ✅ NUEVO: Nombre del documento para modo básico
     }
 
     // Save to Supabase

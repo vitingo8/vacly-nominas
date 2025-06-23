@@ -244,6 +244,7 @@ Respon NOMÉS amb un objecte JSON vàlid, sense text addicional, comentaris o fo
       swift_bic: processedData.bank?.swift_bic || null,
       cost_empresa: processedData.cost_empresa,
       signed: false,
+      document_name: `nomina_${documentId}.pdf`, // ✅ NUEVO: Nombre del documento para modo estándar
     }
 
     // Save to Supabase
