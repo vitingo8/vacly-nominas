@@ -34,7 +34,6 @@
     "build:secure": "NODE_ENV=production npm run build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "npm run build:lib",
     "prepublishOnly": "npm run build:lib",
     "prepare-publish": "node scripts/prepare-publish.js",
     "pack": "npm pack",
