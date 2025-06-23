@@ -1,14 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { BasicNominaInfo } from '../types/nominas'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 })
-
-interface BasicNominaInfo {
-  companyName: string
-  employeeName: string
-  period: string // YYYYMM format
-}
 
 /**
  * Extrae información básica de una nómina para generar nombres de archivo

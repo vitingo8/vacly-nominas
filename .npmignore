@@ -1,0 +1,56 @@
+# Build artifacts
+.next/
+node_modules/
+.cache/
+
+# Source files (solo distribuir dist/)
+src/app/
+src/components/
+src/middleware.ts
+public/
+supabase/migrations/
+
+# Development files
+*.log
+*.tgz
+.env*
+.DS_Store
+Thumbs.db
+
+# Config files
+next.config.*
+tailwind.config.*
+postcss.config.*
+tsconfig.json
+.eslintrc.json
+eslint.config.mjs
+components.json
+
+# Documentation (mantener solo README-PACKAGE.md)
+README.md
+GUIA_DE_USO.md
+NAMING_CONVENTION.md
+ERRORES_MEMORIA.md
+
+# Temp files
+temp-*.txt
+mejoras-log.txt
+resumen-final.txt
+improved-prompt.txt
+test-*.js
+test-*.mjs
+pdf-naming-improved.js
+
+# Development scripts and configs
+rollup.config.mjs
+tsconfig.lib.json
+
+# Git
+.git/
+.gitignore
+.cursor/
+.cursorignore
+
+# Build scripts
+*.backup
+*.temp 

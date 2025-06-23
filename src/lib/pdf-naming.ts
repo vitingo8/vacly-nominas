@@ -1,14 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { BasicNominaInfo } from '../types/nominas'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 })
-
-interface BasicNominaInfo {
-  companyName: string
-  employeeName: string
-  period: string // YYYYMM format
-}
 
 /**
  * Extrae información básica de una nómina para generar nombres de archivo
@@ -210,7 +205,7 @@ export function correctNameFormat(name: string): string {
 /**
  * Sanitiza un nombre para usarlo como nombre de archivo
  */
-function sanitizeFileName(name: string): string {
+export function sanitizeFileName(name: string): string {
   return name
     .normalize('NFD') // Normalizar caracteres Unicode
     .replace(/[\u0300-\u036f]/g, '') // Remover acentos y diacríticos
@@ -225,7 +220,7 @@ function sanitizeFileName(name: string): string {
 /**
  * Valida y formatea el período en formato YYYYMM
  */
-function validatePeriod(period: string): string {
+export function validatePeriod(period: string): string {
   // Try to extract YYYYMM from various formats
   const yearMonthRegex = /(\d{4})[-\/]?(\d{1,2})/
   const match = period.match(yearMonthRegex)
