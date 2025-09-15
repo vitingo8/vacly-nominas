@@ -1,15 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileText, Download, Eye, FileImage, Type, Brain, CheckCircle, FileSpreadsheet, Zap, Database, TrendingUp, Clock, Hash, Settings, AlertCircle, Star, Sparkles, Loader2, Shield, Rocket, Users, BarChart3, Lock, Award, ChevronRight, ArrowRight, Gem, Crown, Diamond, Globe, Activity, DollarSign, Building } from 'lucide-react'
+import { Upload, FileText, Download, Eye, Brain, CheckCircle, FileSpreadsheet, Loader2 } from 'lucide-react'
 
 interface NominaData {
   id: string
@@ -51,7 +50,6 @@ interface NominaData {
   iban?: string
   swift_bic?: string
   cost_empresa: number
-  employer_cost?: number
   signed: boolean
 }
 
@@ -60,17 +58,15 @@ interface SplitDocument {
   filename: string
   pageNumber: number
   textContent: string
-  pdfPath: string
-  textPath: string
-  claudeProcessed?: boolean
-  nominaData?: NominaData
   pdfUrl: string
   textUrl: string
+  claudeProcessed?: boolean
+  nominaData?: NominaData
 }
 
 type ViewMode = 'pdf' | 'text'
 
-export default function Home() {
+export default function VaclyNominas() {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [progressMessage, setProgressMessage] = useState('')
@@ -85,2279 +81,497 @@ export default function Home() {
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   const [isExportingExcel, setIsExportingExcel] = useState(false)
   const [batchProgress, setBatchProgress] = useState(0)
-  const [memoryStatus, setMemoryStatus] = useState<any>(null)
-  const [isLoadingMemory, setIsLoadingMemory] = useState(false)
-  const [memoryMode, setMemoryMode] = useState<'basic' | 'lux' | 'memory'>('basic')
-  const [showMemoryConfig, setShowMemoryConfig] = useState(false)
-  const [isDeletingMemory, setIsDeletingMemory] = useState(false)
-  const [showPricing, setShowPricing] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState<'basic' | 'lux' | 'memory'>('basic')
-  const [isMounted, setIsMounted] = useState(false)
-
-  // Prevent hydration mismatch - ensure client-side only rendering
-  useEffect(() => {
-    setIsMounted(true)
-  }, [])
-
-  // Load memory status on component mount
-  useEffect(() => {
-    if (memoryMode === 'memory' || memoryMode === 'lux') {
-      loadMemoryStatus()
-    }
-  }, [memoryMode])
-
-  const loadMemoryStatus = async () => {
-    if (memoryMode !== 'memory' && memoryMode !== 'lux') return
-    
-    setIsLoadingMemory(true)
-    try {
-      const response = await fetch('/api/memory-status')
-      const result = await response.json()
-      
-      if (response.ok) {
-        setMemoryStatus(result.data)
-      } else {
-        console.error('Error loading memory status:', result.error)
-        setMemoryStatus(null)
-      }
-    } catch (error) {
-      console.error('Error loading memory status:', error)
-      setMemoryStatus(null)
-    } finally {
-      setIsLoadingMemory(false)
-    }
-  }
-
-  const deleteMemoryData = async (type: string, patternId?: string) => {
-    const confirmMessages = {
-      'all': '¿Estás seguro de que quieres eliminar TODA la memoria empresarial? Esta acción no se puede deshacer.',
-      'patterns': '¿Quieres eliminar todos los patrones aprendidos? Esto hará que el sistema olvide las estructuras específicas de tus nóminas.',
-      'embeddings': '¿Quieres eliminar el índice de búsqueda semántica? Esto eliminará la capacidad de encontrar documentos similares.',
-      'documents': '¿Quieres eliminar el historial de documentos procesados?'
-    }
-
-    const message = patternId ? 
-      '¿Quieres eliminar este patrón específico de la memoria?' : 
-      confirmMessages[type as keyof typeof confirmMessages]
-
-    if (!confirm(message)) return
-
-    setIsDeletingMemory(true)
-    try {
-      const url = patternId ? 
-        `/api/memory-status?type=pattern&patternId=${patternId}` :
-        `/api/memory-status?type=${type}`
-
-      const response = await fetch(url, {
-        method: 'DELETE'
-      })
-
-      const result = await response.json()
-
-      if (response.ok) {
-        alert('✅ Datos eliminados exitosamente')
-        loadMemoryStatus() // Refresh the data
-      } else {
-        alert(`❌ Error: ${result.error}`)
-      }
-    } catch (error) {
-      console.error('Error deleting memory data:', error)
-      alert('❌ Error al eliminar los datos')
-    } finally {
-      setIsDeletingMemory(false)
-    }
-  }
-
-  // Helper function to generate business insights from memory data
-  const generateBusinessInsights = (memoryStatus: any) => {
-    if (!memoryStatus || !memoryStatus.summary) return []
-
-    const insights = []
-    const patterns = memoryStatus.memory_patterns || []
-    const totalDocs = memoryStatus.summary?.total_processed || 0
-    const totalEmbeddings = memoryStatus.summary?.total_embeddings || 0
-
-    // Company structure insights
-    if (patterns.length > 0) {
-      const companies = patterns
-        .map((p: any) => p.extracted_data?.company?.name)
-        .filter(Boolean)
-      const uniqueCompanies = [...new Set(companies)]
-      if (uniqueCompanies.length > 0) {
-        insights.push({
-          icon: '🏢',
-          title: 'Empresas Reconocidas',
-          description: `Hemos aprendido la estructura de nóminas de ${uniqueCompanies.length} empresa(s)`,
-          details: uniqueCompanies.slice(0, 3).join(', ') + (uniqueCompanies.length > 3 ? '...' : ''),
-          value: `${uniqueCompanies.length} empresa(s)`,
-          type: 'companies'
-        })
-      }
-    }
-
-    // Document processing speed
-    if (totalDocs > 5) {
-      const avgProcessingTime = totalDocs > 10 ? '5-8 segundos' : '8-15 segundos'
-      insights.push({
-        icon: '⚡',
-        title: 'Velocidad de Procesamiento',
-        description: `Cada nuevo documento se procesa en ${avgProcessingTime} gracias a la memoria`,
-        details: 'La velocidad mejora automáticamente con cada documento procesado',
-        value: avgProcessingTime,
-        type: 'speed'
-      })
-    }
-
-    // Pattern recognition
-    if (patterns.length > 0) {
-      const keywords = patterns
-        .flatMap((p: any) => p.keywords || [])
-        .filter(Boolean)
-      const uniqueKeywords = [...new Set(keywords)].slice(0, 5)
-      if (uniqueKeywords.length > 0) {
-        insights.push({
-          icon: '🧠',
-          title: 'Términos Empresariales Aprendidos',
-          description: `Reconocemos automáticamente ${uniqueKeywords.length} términos específicos de tu empresa`,
-          details: uniqueKeywords.join(', '),
-          value: `${uniqueKeywords.length} términos`,
-          type: 'keywords'
-        })
-      }
-    }
-
-    // Document similarity
-    if (totalEmbeddings > 20) {
-      const docsWithEmbeddings = Math.ceil(totalEmbeddings / 7)
-      insights.push({
-        icon: '🔍',
-        title: 'Búsqueda Inteligente',
-        description: `Podemos encontrar documentos similares entre ${docsWithEmbeddings} nóminas procesadas`,
-        details: 'Esto acelera el procesamiento al reutilizar patrones conocidos',
-        value: `${docsWithEmbeddings} documentos indexados`,
-        type: 'search'
-      })
-    }
-
-    // Accuracy improvement
-    const avgConfidence = memoryStatus.summary?.avg_confidence || 0.5
-    if (avgConfidence > 0.7) {
-      insights.push({
-        icon: '🎯',
-        title: 'Precisión Mejorada',
-        description: `La precisión ha mejorado al ${Math.round(avgConfidence * 100)}% gracias al aprendizaje`,
-        details: 'Cada documento procesado mejora la precisión del siguiente',
-        value: `${Math.round(avgConfidence * 100)}% precisión`,
-        type: 'accuracy'
-      })
-    }
-
-    return insights
-  }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (!file || file.type !== 'application/pdf') {
-      alert('Por favor selecciona un archivo PDF')
-      return
-    }
+    if (!file) return
 
-    setIsUploading(true)
+    // Reset state
+    setSplitDocuments([])
+    setSelectedDocument(null)
     setUploadProgress(0)
-    setProgressMessage('Iniciando carga...')
+    setProgressMessage('')
     setCurrentPage(null)
     setTotalPages(null)
 
-    const formData = new FormData()
-    formData.append('pdf', file)
+    setIsUploading(true)
 
     try {
-      // Phase 1: Upload the file (0-20%)
-      setUploadProgress(5)
-      setProgressMessage('Subiendo archivo PDF...')
-      
+      // Upload file to Supabase Storage
+      const formData = new FormData()
+      formData.append('file', file)
+
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       })
 
-      if (!uploadResponse.ok) {
-        throw new Error('Error al subir el archivo')
-      }
-
       const uploadResult = await uploadResponse.json()
-      setUploadProgress(20)
-      setProgressMessage('Archivo subido, iniciando procesamiento...')
-
-      // Try to use the new progress API first
-      let processedSuccessfully = false
-      
-      try {
-        // Phase 2: Process with real-time progress using fetch stream (20-100%)
-        const processResponse = await fetch('/api/process-with-progress', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            filename: uploadResult.filename,
-            url: uploadResult.url 
-          }),
-        })
-
-        if (processResponse.ok) {
-          // Handle the Server-Sent Events stream
-          const reader = processResponse.body?.getReader()
-          const decoder = new TextDecoder()
-
-          if (reader) {
-            let buffer = ''
-            
-            while (true) {
-              const { done, value } = await reader.read()
-              
-              if (done) break
-
-              const chunk = decoder.decode(value, { stream: true })
-              buffer += chunk
-              
-              // Split by double newlines to get complete SSE messages
-              const messages = buffer.split('\n\n')
-              buffer = messages.pop() || '' // Keep the incomplete message in buffer
-
-              for (const message of messages) {
-                const lines = message.split('\n')
-                
-                for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const data = JSON.parse(line.slice(6))
-                      
-                      if (data.type === 'progress') {
-                        setUploadProgress(Math.max(20, data.progress)) // Ensure we don't go below 20%
-                        setProgressMessage(data.message)
-                        if (data.currentPage !== undefined) {
-                          setCurrentPage(data.currentPage)
-                        }
-                        if (data.totalPages !== undefined) {
-                          setTotalPages(data.totalPages)
-                        }
-                      } else if (data.type === 'complete') {
-                        setUploadProgress(100)
-                        setProgressMessage('¡Procesamiento completado!')
-                        setSplitDocuments(data.documents)
-                        processedSuccessfully = true
-                        
-                        // Reset progress after a short delay
-                        setTimeout(() => {
-                          setUploadProgress(0)
-                          setProgressMessage('')
-                          setCurrentPage(null)
-                          setTotalPages(null)
-                        }, 2000)
-                        return // Exit the function successfully
-                      } else if (data.type === 'error') {
-                        throw new Error(data.error)
-                      }
-                    } catch (parseError) {
-                      console.error('Error parsing SSE data:', parseError, 'Line:', line)
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      } catch (progressApiError) {
-        console.warn('Progress API failed, falling back to basic processing:', progressApiError)
-      }
-
-      // Fallback to original API if progress API failed
-      if (!processedSuccessfully) {
-        setProgressMessage('Procesamiento con API básica...')
-        setUploadProgress(50)
-        
-        const fallbackResponse = await fetch('/api/process', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            filename: uploadResult.filename,
-            url: uploadResult.url 
-          }),
-        })
-
-        if (!fallbackResponse.ok) {
-          throw new Error('Error al procesar el archivo con API básica')
-        }
-
-        setUploadProgress(80)
-        const fallbackResult = await fallbackResponse.json()
-        setUploadProgress(100)
-        setProgressMessage('¡Procesamiento completado!')
-        
-        setSplitDocuments(fallbackResult.documents)
-
-        // Reset progress after a short delay
-        setTimeout(() => {
-          setUploadProgress(0)
-          setProgressMessage('')
-          setCurrentPage(null)
-          setTotalPages(null)
-        }, 2000)
-      }
-
-    } catch (error) {
-      console.error('Error:', error)
-      alert('Ocurrió un error durante la carga o procesamiento: ' + (error instanceof Error ? error.message : 'Error desconocido'))
-      
-      // Reset progress on error
-      setUploadProgress(0)
-      setProgressMessage('')
-      setCurrentPage(null)
-      setTotalPages(null)
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  // NEW: Unified Processing with Corrected API
-  const handleUnifiedProcessing = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file || file.type !== 'application/pdf') {
-      alert('Por favor selecciona un archivo PDF')
-      return
-    }
-
-    setIsUploading(true)
-    setUploadProgress(0)
-    setProgressMessage('🚀 Iniciando procesamiento unificado...')
-    setCurrentPage(null)
-    setTotalPages(null)
-
-    const formData = new FormData()
-    formData.append('pdf', file)
-
-    try {
-      // Phase 1: Upload the file (0-10%)
-      setUploadProgress(5)
-      setProgressMessage('⬆️ Subiendo archivo PDF...')
-      
-      const uploadResponse = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      })
 
       if (!uploadResponse.ok) {
-        throw new Error('Error al subir el archivo')
+        throw new Error(uploadResult.error || 'Failed to upload file')
       }
 
-      const uploadResult = await uploadResponse.json()
-      setUploadProgress(10)
-      setProgressMessage('✅ Archivo subido, iniciando procesamiento unificado con IA...')
-
-      // Phase 2: Process with UNIFIED API - CORRECTED VERSION
-      const unifiedResponse = await fetch('/api/process-unified', {
+      // Process with LUX engine
+      const processResponse = await fetch('/api/process-lux', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           filename: uploadResult.filename,
-          url: uploadResult.url 
+          url: uploadResult.url,
         }),
       })
 
-      if (unifiedResponse.ok) {
-        // Handle the Server-Sent Events stream from unified API
-        const reader = unifiedResponse.body?.getReader()
-        const decoder = new TextDecoder()
+      if (!processResponse.ok) {
+        throw new Error('Failed to process PDF')
+      }
 
-        if (reader) {
-          let buffer = ''
-          
-          while (true) {
-            const { done, value } = await reader.read()
-            
-            if (done) break
+      const reader = processResponse.body?.getReader()
+      const decoder = new TextDecoder()
 
-            const chunk = decoder.decode(value, { stream: true })
-            buffer += chunk
-            
-            // Split by double newlines to get complete SSE messages
-            const messages = buffer.split('\n\n')
-            buffer = messages.pop() || '' // Keep the incomplete message in buffer
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
 
-            for (const message of messages) {
-              const lines = message.split('\n')
-              
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  try {
-                    const data = JSON.parse(line.slice(6))
-                    
-                    if (data.type === 'progress') {
-                      setUploadProgress(Math.max(10, data.progress)) // Ensure we don't go below 10%
-                      setProgressMessage(data.message)
-                      if (data.currentPage !== undefined) {
-                        setCurrentPage(data.currentPage)
-                      }
-                      if (data.totalPages !== undefined) {
-                        setTotalPages(data.totalPages)
-                      }
-                    } else if (data.type === 'complete') {
-                      setUploadProgress(100)
-                      setProgressMessage('🎉 ¡Procesamiento unificado completado!')
-                      setSplitDocuments(data.documents)
-                      
-                      // Show success message
-                      alert(`🚀 ¡Procesamiento Unificado Exitoso!\n\n✅ ${data.totalDocumentsCreated} documentos procesados\n🤖 IA: Claude 3.5 Haiku con soporte PDF nativo\n⚡ 3x más rápido que APIs anteriores\n💾 Datos guardados automáticamente en Supabase`)
-                      
-                      // Reset progress after a short delay
-                      setTimeout(() => {
-                        setUploadProgress(0)
-                        setProgressMessage('')
-                        setCurrentPage(null)
-                        setTotalPages(null)
-                      }, 3000)
-                      return // Exit the function successfully
-                    } else if (data.type === 'error') {
-                      throw new Error(data.error)
-                    }
-                  } catch (parseError) {
-                    console.error('Error parsing SSE data:', parseError, 'Line:', line)
-                  }
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n')
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+
+                if (data.type === 'progress') {
+                  setUploadProgress(data.progress)
+                  setProgressMessage(data.message)
+                  if (data.currentPage) setCurrentPage(data.currentPage)
+                  if (data.totalPages) setTotalPages(data.totalPages)
+                } else if (data.type === 'complete') {
+                  setSplitDocuments(data.documents)
+                  setUploadProgress(100)
+                  setProgressMessage(`¡Procesamiento completado! ${data.documents.length} documentos creados`)
+                } else if (data.type === 'error') {
+                  throw new Error(data.error)
                 }
+              } catch (parseError) {
+                console.error('Error parsing SSE data:', parseError)
               }
             }
           }
         }
-      } else {
-        throw new Error(`Error en API unificada: ${unifiedResponse.status} ${unifiedResponse.statusText}`)
       }
-
     } catch (error) {
-      console.error('Error en procesamiento unificado:', error)
-      alert('❌ Error en procesamiento unificado: ' + (error instanceof Error ? error.message : 'Error desconocido'))
-      
-      // Reset progress on error
-      setUploadProgress(0)
-      setProgressMessage('')
-      setCurrentPage(null)
-      setTotalPages(null)
+      console.error('Upload/processing error:', error)
+      setProgressMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsUploading(false)
     }
   }
 
-  const downloadFile = async (url: string, filename: string) => {
-    try {
-      const response = await fetch(url)
-      if (!response.ok) throw new Error('Error al descargar')
-      
-      const blob = await response.blob()
-      const objectUrl = URL.createObjectURL(blob)
-      
-      const link = document.createElement('a')
-      link.href = objectUrl
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      
-      URL.revokeObjectURL(objectUrl)
-    } catch (error) {
-      console.error('Error de descarga:', error)
-      alert('Error al descargar el archivo')
-    }
-  }
-
-  const openViewer = (document: SplitDocument) => {
-    setViewerDocument(document)
-    setIsViewerOpen(true)
-    setViewMode('pdf') // Default to PDF view
-  }
-
-  const processWithClaude = async (document: SplitDocument) => {
-    if (!document.textContent.trim()) {
-      alert('No se encontró contenido de texto en este documento para procesar')
-      return
-    }
-
+  const handleProcessWithClaude = async (document: SplitDocument) => {
     setIsProcessingClaude(document.id)
 
     try {
-      // LÓGICA INTELIGENTE: Decidir qué endpoint usar
-      // Basic: usa procesamiento básico
-      // Lux: usa procesamiento unificado SIN memoria
-      // Memory: usa procesamiento unificado CON memoria
-      
-      // Determinar si debe usar procesamiento avanzado
-      const shouldUseAdvanced = memoryMode === 'memory' || memoryMode === 'lux' || 
-                                 splitDocuments.some(d => d.claudeProcessed && d.nominaData?.id) // Detecta si ya hay docs procesados con unificado
-      
-      const endpoint = shouldUseAdvanced ? '/api/process-nomina' : '/api/process-nomina-basic'
-      
-      console.log(`🔄 Processing document ${document.filename} with ${shouldUseAdvanced ? 'ADVANCED (Haiku 3.5)' : 'BASIC'} processing...`)
-      
-      const response = await fetch(endpoint, {
+      // Use the LUX processing endpoint for individual documents
+      const response = await fetch('/api/process-lux', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           textContent: document.textContent,
-          documentId: document.id
+          documentId: document.id,
         }),
       })
 
       const result = await response.json()
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Error al procesar con Claude')
-      }
-
-      // Update the document with processed data
-      setSplitDocuments(prevDocs => 
-        prevDocs.map(doc => 
-          doc.id === document.id 
-            ? { 
-                ...doc, 
-                claudeProcessed: true, 
-                nominaData: result.data 
-              }
-            : doc
+      if (response.ok) {
+        // Update document with processed data
+        setSplitDocuments(prev =>
+          prev.map(doc =>
+            doc.id === document.id
+              ? {
+                  ...doc,
+                  claudeProcessed: true,
+                  nominaData: result.data.processedData
+                }
+              : doc
+          )
         )
-      )
-
-      // Update viewer document if it's the same one
-      if (viewerDocument?.id === document.id) {
-        setViewerDocument({
-          ...viewerDocument,
-          claudeProcessed: true,
-          nominaData: result.data
-        })
-      }
-
-      // Update selected document if it's the same one
-      if (selectedDocument?.id === document.id) {
-        setSelectedDocument({
-          ...selectedDocument,
-          claudeProcessed: true,
-          nominaData: result.data
-        })
-      }
-
-      // Refresh memory status only if in enterprise mode
-      if (memoryMode === 'memory') {
-        loadMemoryStatus()
-      }
-
-      // Show different success messages based on processing type
-      const processingType = shouldUseAdvanced ? 'AVANZADO (Haiku 3.5)' : 'BÁSICO'
-      const successMessage = shouldUseAdvanced
-        ? `¡Nómina procesada con IA avanzada! 🚀 Procesamiento ${processingType} completado con máxima precisión.`
-        : `¡Nómina procesada exitosamente! ⚡ Procesamiento ${processingType} completado.`
-      
-      if (memoryMode === 'memory') {
-        alert(successMessage + ' 🧠 La memoria empresarial se ha actualizado automáticamente.')
-      } else if (memoryMode === 'lux') {
-        alert(successMessage + ' ✨ Procesamiento premium Lux completado.')
       } else {
-        alert(successMessage)
+        alert(`Error procesando con Claude: ${result.error}`)
       }
-
     } catch (error) {
-      console.error('Error procesando con Claude:', error)
-      alert(`Error: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsProcessingClaude(null)
     }
   }
 
-  const processBatchWithClaude = async () => {
-    const unprocessedDocs = splitDocuments.filter(doc => !doc.claudeProcessed)
-    
-    if (unprocessedDocs.length === 0) {
-      alert('No hay documentos sin procesar')
-      return
-    }
+  const handleBatchProcess = async () => {
+    if (splitDocuments.length === 0) return
 
     setIsBatchProcessing(true)
     setBatchProgress(0)
 
-    try {
-      // LÓGICA INTELIGENTE PARA BATCH: Mismo criterio que procesamiento individual
-      const shouldUseAdvanced = memoryMode === 'memory' || memoryMode === 'lux' || 
-                                 splitDocuments.some(d => d.claudeProcessed && d.nominaData?.id)
-      
-      const endpoint = shouldUseAdvanced ? '/api/process-nomina' : '/api/process-nomina-basic'
-      const processingType = shouldUseAdvanced ? 'AVANZADO (Haiku 3.5)' : 'BÁSICO'
-      
-      console.log(`🚀 Starting BATCH processing with ${processingType} for ${unprocessedDocs.length} documents...`)
-      
-      // Process documents in parallel batches of 3 to avoid overwhelming the API
-      const batchSize = 3
-      const results: any[] = []
-      const errors: any[] = []
+    const unprocessedDocs = splitDocuments.filter(doc => !doc.claudeProcessed)
 
-      for (let i = 0; i < unprocessedDocs.length; i += batchSize) {
-        const batch = unprocessedDocs.slice(i, i + batchSize)
-        setBatchProgress(Math.round((i / unprocessedDocs.length) * 100))
+    for (let i = 0; i < unprocessedDocs.length; i++) {
+      const doc = unprocessedDocs[i]
 
-        // Process batch in parallel
-        const batchPromises = batch.map(async (doc) => {
-          try {
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                textContent: doc.textContent,
-                documentId: doc.id
-              }),
-            })
-
-            const result = await response.json()
-
-            if (response.ok) {
-              return {
-                documentId: doc.id,
-                success: true,
-                data: result.data
-              }
-            } else {
-              return {
-                documentId: doc.id,
-                success: false,
-                filename: doc.filename,
-                error: result.error
-              }
-            }
-          } catch (error) {
-            return {
-              documentId: doc.id,
-              success: false,
-              filename: doc.filename,
-              error: error instanceof Error ? error.message : 'Error desconocido'
-            }
-          }
-        })
-
-        // Wait for all requests in this batch to complete
-        const batchResults = await Promise.all(batchPromises)
-        
-        // Process results
-        batchResults.forEach(result => {
-          if (result.success) {
-            results.push(result)
-            // Update the document immediately
-            setSplitDocuments(prevDocs => 
-              prevDocs.map(prevDoc => 
-                prevDoc.id === result.documentId 
-                  ? { 
-                      ...prevDoc, 
-                      claudeProcessed: true, 
-                      nominaData: result.data 
-                    }
-                  : prevDoc
-              )
-            )
-          } else {
-            errors.push(result)
-          }
-        })
-
-        // Small delay between batches to be respectful to the API
-        if (i + batchSize < unprocessedDocs.length) {
-          await new Promise(resolve => setTimeout(resolve, 500))
-        }
+      try {
+        await handleProcessWithClaude(doc)
+        setBatchProgress(((i + 1) / unprocessedDocs.length) * 100)
+      } catch (error) {
+        console.error(`Error processing document ${doc.id}:`, error)
       }
-
-      setBatchProgress(100)
-
-      // Refresh memory status only if in enterprise mode
-      if (memoryMode === 'memory') {
-        loadMemoryStatus()
-      }
-
-      // Show results with processing type information
-      const successCount = results.length
-      const errorCount = errors.length
-      
-      let message = `✅ Procesamiento ${processingType} completado:\n`
-      message += `- ${successCount} documentos procesados exitosamente\n`
-      
-      if (errorCount > 0) {
-        message += `- ${errorCount} documentos con errores\n\n`
-        message += `Errores:\n`
-        errors.forEach(err => {
-          message += `- ${err.filename}: ${err.error}\n`
-        })
-      }
-
-      if (shouldUseAdvanced) {
-        message += '\n🚀 Procesamiento avanzado con Haiku 3.5 utilizado para máxima precisión.'
-      }
-
-      if (memoryMode === 'memory') {
-        message += '\n🧠 La memoria empresarial se ha actualizado con los nuevos patrones.'
-      } else if (memoryMode === 'lux') {
-        message += '\n✨ Procesamiento premium Lux aplicado sin memoria empresarial.'
-      }
-
-      alert(message)
-
-    } catch (error) {
-      console.error('Error en procesamiento por lotes:', error)
-      alert(`Error: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-    } finally {
-      setIsBatchProcessing(false)
-      setBatchProgress(0)
     }
+
+    setIsBatchProcessing(false)
+    setBatchProgress(100)
   }
 
-  const exportToExcel = async () => {
+  const handleExportExcel = async () => {
     setIsExportingExcel(true)
+
     try {
-      // Only run on client side to avoid hydration mismatch
-      if (typeof window === 'undefined') return
-      
+      const processedDocs = splitDocuments.filter(doc => doc.claudeProcessed && doc.nominaData)
+
+      if (processedDocs.length === 0) {
+        alert('No hay documentos procesados para exportar')
+        return
+      }
+
       const response = await fetch('/api/export-excel', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ documents: splitDocuments }),
+        body: JSON.stringify({
+          documents: processedDocs.map(doc => ({
+            id: doc.id,
+            filename: doc.filename,
+            ...doc.nominaData
+          }))
+        }),
       })
 
-      if (!response.ok) {
-        throw new Error('Error al generar Excel')
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.style.display = 'none'
+        a.href = url
+        a.download = `nominas-export-${new Date().toISOString().split('T')[0]}.xlsx`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+      } else {
+        const error = await response.json()
+        alert(`Error exportando Excel: ${error.error}`)
       }
-
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      // Use client-side date generation to avoid hydration mismatch
-      const today = new Date().toISOString().split('T')[0]
-      link.download = `nominas_procesadas_${today}.xlsx`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-
     } catch (error) {
-      console.error('Error exportando a Excel:', error)
-      alert('Error al exportar a Excel')
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsExportingExcel(false)
     }
   }
 
-  // Don't render anything until mounted to prevent hydration mismatch
-  if (!isMounted) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-600">Cargando sistema...</p>
-        </div>
-      </div>
-    )
+  const openViewer = (document: SplitDocument, mode: ViewMode = 'pdf') => {
+    setViewerDocument(document)
+    setViewMode(mode)
+    setIsViewerOpen(true)
   }
 
+  const processedCount = splitDocuments.filter(doc => doc.claudeProcessed).length
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-soft border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3">
-                <img src="/logo_colapsed.png" alt="Logo" className="h-10 w-auto" />
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Nóminas</h1>
-                  <p className="text-sm text-gray-500">by vacly</p>
-                </div>
-              </div>
-              <Badge variant="secondary" className="text-xs">
-                Sistema Inteligente de Gestión
-              </Badge>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              {/* Memory Mode Toggle */}
-              <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
-                <button
-                  onClick={() => setMemoryMode('basic')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    memoryMode === 'basic' 
-                      ? 'bg-white text-gray-900 shadow-sm' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2">
-                    <Zap className="h-4 w-4" />
-                    <span>Basic</span>
-                  </div>
-                </button>
-                <button
-                  onClick={() => setMemoryMode('lux')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    memoryMode === 'lux' 
-                      ? 'bg-gradient-to-r from-emerald-600 to-yellow-600 text-white shadow-sm' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2">
-                    <Gem className="h-4 w-4" />
-                    <span>Lux</span>
-                  </div>
-                </button>
-                <button
-                  onClick={() => setMemoryMode('memory')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    memoryMode === 'memory' 
-                      ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-sm' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2">
-                    <Brain className="h-4 w-4" />
-                    <span>Memory</span>
-                  </div>
-                </button>
-              </div>
-
-              {memoryMode === 'memory' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowMemoryConfig(!showMemoryConfig)}
-                  className="flex items-center space-x-2"
-                >
-                  <Settings className="h-4 w-4" />
-                  <span>Configurar</span>
-                </Button>
-              )}
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowPricing(true)}
-                className="flex items-center space-x-2"
-              >
-                <Star className="h-4 w-4" />
-                <span>Pricing</span>
-              </Button>
-            </div>
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header Simple */}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            🏢 Vacly Nóminas LUX
+          </h1>
+          <p className="text-xl text-gray-600">
+            Procesamiento avanzado de nóminas con Claude 3.5 Haiku
+          </p>
         </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Mode Switch Notification */}
-        {(memoryMode === 'memory' || memoryMode === 'lux') && splitDocuments.length === 0 && (
-          <div className={`mb-6 ${memoryMode === 'lux' ? 'bg-gradient-to-r from-emerald-50 to-yellow-50 border-emerald-200' : 'bg-blue-50 border-blue-200'} border rounded-lg p-4`}>
-            <div className="flex items-center space-x-3">
-              <div className={`${memoryMode === 'lux' ? 'bg-gradient-to-r from-emerald-100 to-yellow-100' : 'bg-blue-100'} rounded-full p-2`}>
-                {memoryMode === 'lux' ? (
-                  <Gem className="h-5 w-5 text-emerald-600" />
-                ) : (
-                <Brain className="h-5 w-5 text-blue-600" />
-                )}
-              </div>
-              <div className="flex-1">
-                <h3 className={`text-sm font-semibold ${memoryMode === 'lux' ? 'text-emerald-900' : 'text-blue-900'}`}>
-                  {memoryMode === 'lux' ? 'Modo Lux Activado' : 'Modo Memory Activado'}
-                </h3>
-                <p className={`text-sm ${memoryMode === 'lux' ? 'text-emerald-700' : 'text-blue-700'} mt-1`}>
-                  {memoryMode === 'lux' 
-                    ? 'Procesamiento premium con Claude 3.5 Haiku activado. Experiencia de alta calidad sin memoria empresarial.' 
-                    : 'Tu sistema comenzará a aprender automáticamente cuando proceses documentos. Cada nómina mejorará la precisión y velocidad del siguiente procesamiento.'
-                  }
-                </p>
-              </div>
-              <Badge className={memoryMode === 'lux' ? 'bg-gradient-to-r from-emerald-600 to-yellow-600 text-white' : 'bg-blue-600 text-white'}>
-                {memoryMode === 'lux' ? (
-                  <>
-                    <Crown className="h-3 w-3 mr-1" />
-                    LUX
-                  </>
-                ) : (
-                  <>
-                <Sparkles className="h-3 w-3 mr-1" />
-                PREMIUM
-                  </>
-                )}
-              </Badge>
-            </div>
-          </div>
-        )}
-
-        {/* Memory Benefits Banner */}
-        {memoryMode === 'memory' && (
-          <div className="mb-8 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 text-white shadow-premium">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center space-x-3 mb-4">
-                  <Brain className="h-10 w-10" />
-                  <h2 className="text-3xl font-bold">Memoria Empresarial</h2>
-                  <Badge className="badge-premium">PREMIUM</Badge>
-                </div>
-                <p className="text-lg mb-6 text-blue-100">
-                  Tu sistema aprende y mejora con cada nómina procesada. La IA reconoce patrones específicos de tu empresa.
-                </p>
-                
-                {/* Key Benefits */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Rocket className="h-5 w-5" />
-                      <span className="font-semibold">80% más rápido</span>
-                    </div>
-                    <p className="text-sm text-blue-100">Procesamiento acelerado con patrones aprendidos</p>
-                  </div>
-                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Shield className="h-5 w-5" />
-                      <span className="font-semibold">99% precisión</span>
-                    </div>
-                    <p className="text-sm text-blue-100">Reconocimiento exacto de tu estructura</p>
-                  </div>
-                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <TrendingUp className="h-5 w-5" />
-                      <span className="font-semibold">Mejora continua</span>
-                    </div>
-                    <p className="text-sm text-blue-100">Cada documento mejora el sistema</p>
-                  </div>
-                </div>
-
-                {/* Memory Status Summary */}
-                {memoryStatus && (
-                  <div className="flex items-center space-x-6 text-sm">
-                    <div className="flex items-center space-x-2">
-                      <Database className="h-4 w-4" />
-                      <span>{memoryStatus.summary?.total_processed || 0} documentos aprendidos</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Brain className="h-4 w-4" />
-                      <span>{memoryStatus.memory_patterns?.length || 0} patrones reconocidos</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Award className="h-4 w-4" />
-                      <span>{Math.round((memoryStatus.summary?.avg_confidence || 0.5) * 100)}% confianza</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <div className="ml-8 hidden lg:block">
-                <div className="animate-float">
-                  <Brain className="h-32 w-32 text-white/20" />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Lux Benefits Banner */}
-        {memoryMode === 'lux' && (
-          <div className="mb-8 bg-gradient-to-r from-emerald-600 to-yellow-600 rounded-2xl p-8 text-white shadow-premium">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center space-x-3 mb-4">
-                  <Gem className="h-10 w-10" />
-                  <h2 className="text-3xl font-bold">Procesamiento Premium Lux</h2>
-                  <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-3 py-1">
-                    <Crown className="h-3 w-3 mr-1" />
-                    LUX
-                  </Badge>
-                </div>
-                <p className="text-lg mb-6 text-emerald-100">
-                  Experiencia premium de procesamiento con Claude 3.5 Haiku. IA de alta calidad sin memoria empresarial.
-                </p>
-                
-                {/* Key Benefits */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Diamond className="h-5 w-5" />
-                      <span className="font-semibold">95% más rápido</span>
-                    </div>
-                    <p className="text-sm text-emerald-100">Procesamiento ultra-premium instantáneo</p>
-                  </div>
-                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Crown className="h-5 w-5" />
-                      <span className="font-semibold">99% precisión</span>
-                    </div>
-                    <p className="text-sm text-emerald-100">Claude 3.5 Haiku con PDF nativo</p>
-                  </div>
-                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Gem className="h-5 w-5" />
-                      <span className="font-semibold">Experiencia Premium</span>
-                    </div>
-                    <p className="text-sm text-emerald-100">Interfaz y procesamiento de alta calidad</p>
-                  </div>
-                </div>
-
-                {/* No memory status for Lux - just premium messaging */}
-                <div className="flex items-center space-x-6 text-sm">
-                  <div className="flex items-center space-x-2">
-                    <Gem className="h-4 w-4" />
-                    <span>Procesamiento premium activo</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Crown className="h-4 w-4" />
-                    <span>Claude 3.5 Haiku habilitado</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Diamond className="h-4 w-4" />
-                    <span>Experiencia de alta calidad</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="ml-8 hidden lg:block">
-                <div className="animate-float">
-                  <Gem className="h-32 w-32 text-white/20" />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Upload Section */}
-        <Card className="mb-8 shadow-soft card-hover">
-          <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-lg">
-            <CardTitle className="text-2xl flex items-center space-x-3">
-              <Upload className="h-6 w-6 text-blue-600" />
-              <span>Cargar Nóminas</span>
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              Subir y Procesar PDF de Nóminas
             </CardTitle>
-            <CardDescription className="text-base mt-2">
-              Sube tus archivos PDF de nóminas para procesarlos automáticamente
+            <CardDescription>
+              Sube un archivo PDF con nóminas para dividir, extraer texto y procesar con IA
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-8">
-            <div className="space-y-6">
-              {/* Processing Mode Selection */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  {memoryMode === 'basic' ? 'Procesamiento disponible:' : 
-                   memoryMode === 'lux' ? 'Procesamiento Lux disponible:' : 
-                   'Procesamiento Memory disponible:'}
-                </h3>
-                <div className="grid grid-cols-1 gap-4">
-                  
-                  {/* Basic Mode - Only Basic Processing */}
-                  {memoryMode === 'basic' && (
-                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-gray-400 transition-colors">
-                      <Input
-                        type="file"
-                        accept=".pdf"
-                        onChange={handleFileUpload}
-                        disabled={isUploading}
-                        className="hidden"
-                        id="basic-upload"
-                      />
-                      <Label
-                        htmlFor="basic-upload"
-                        className="cursor-pointer flex flex-col items-center space-y-3"
-                      >
-                        <div className="p-3 bg-gray-500 rounded-full">
-                          <Upload className="h-6 w-6 text-white" />
-                        </div>
-                        <div>
-                          <p className="text-base font-medium text-gray-900">
-                            📄 Procesamiento Básico
-                          </p>
-                          <Badge className="mt-1 bg-gray-500 text-white text-xs">
-                            PLAN BASIC
-                          </Badge>
-                          <p className="text-xs text-gray-600 mt-2">
-                            • OCR Básico<br/>
-                            • Claude 3.0 Haiku<br/>
-                            • Proceso IA individual de Nóminas<br/>
-                            • Sin exportación Excel
-                          </p>
-                        </div>
-                      </Label>
-                    </div>
-                  )}
-
-                  {/* Lux Mode - Only Unified Processing (No Memory) */}
-                  {memoryMode === 'lux' && (
-                    <div className="border-2 border-dashed border-emerald-300 rounded-xl p-6 text-center hover:border-emerald-500 transition-colors bg-gradient-to-br from-emerald-50 to-yellow-50">
-                    <Input
-                      type="file"
-                      accept=".pdf"
-                      onChange={handleUnifiedProcessing}
-                      disabled={isUploading}
-                      className="hidden"
-                        id="lux-upload"
-                    />
-                    <Label
-                        htmlFor="lux-upload"
-                      className="cursor-pointer flex flex-col items-center space-y-3"
-                    >
-                        <div className="p-3 bg-gradient-to-r from-emerald-500 to-yellow-500 rounded-full">
-                          <Gem className="h-6 w-6 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-base font-semibold text-gray-900">
-                            💎 Procesamiento Lux
-                        </p>
-                          <Badge className="mt-1 bg-gradient-to-r from-emerald-600 to-yellow-600 text-white text-xs">
-                            <Crown className="h-3 w-3 mr-1" />
-                            PREMIUM
-                        </Badge>
-                        <p className="text-xs text-gray-600 mt-2">
-                          • Claude 3.5 Haiku con PDF nativo<br/>
-                            • Procesamiento unificado automático<br/>
-                            • 3x más rápido que Basic<br/>
-                            • Procesamiento masivo disponible<br/>
-                            • Exportación Excel incluida<br/>
-                            • Sin memoria empresarial
-                        </p>
-                      </div>
-                    </Label>
-                  </div>
-                  )}
-
-                  {/* Memory Mode - Unified Processing with Memory */}
-                  {memoryMode === 'memory' && (
-                    <div className="border-2 border-dashed border-purple-300 rounded-xl p-6 text-center hover:border-purple-500 transition-colors bg-gradient-to-br from-purple-50 to-blue-50">
-                    <Input
-                      type="file"
-                      accept=".pdf"
-                        onChange={handleUnifiedProcessing}
-                      disabled={isUploading}
-                      className="hidden"
-                        id="memory-upload"
-                    />
-                    <Label
-                        htmlFor="memory-upload"
-                      className="cursor-pointer flex flex-col items-center space-y-3"
-                    >
-                        <div className="p-3 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full">
-                          <Brain className="h-6 w-6 text-white" />
-                        </div>
-                      <div>
-                          <p className="text-base font-semibold text-gray-900">
-                            🧠 Procesamiento Memory
-                        </p>
-                          <Badge className="mt-1 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs">
-                            <Sparkles className="h-3 w-3 mr-1" />
-                            INTELIGENTE
-                        </Badge>
-                        <p className="text-xs text-gray-600 mt-2">
-                            • Todo de Lux +<br/>
-                            • Memoria empresarial activa<br/>
-                            • Aprendizaje automático<br/>
-                            • 80% más rápido con patrones<br/>
-                            • 99% precisión empresarial<br/>
-                            • Analytics avanzados
-                        </p>
-                      </div>
-                    </Label>
-                  </div>
-                  )}
-
-                </div>
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="pdf-upload">Seleccionar archivo PDF</Label>
+                <Input
+                  id="pdf-upload"
+                  type="file"
+                  accept="application/pdf"
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                  className="mt-2"
+                />
               </div>
 
-              {uploadProgress > 0 && (
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">
-                      {progressMessage || 'Progreso de carga'}
+              {isUploading && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Progreso</span>
+                    <span className="text-sm text-gray-500">
+                      {currentPage && totalPages ? `${currentPage}/${totalPages} páginas` : ''}
                     </span>
-                    <span className="font-medium">{uploadProgress}%</span>
                   </div>
-                  <Progress value={uploadProgress} className="h-3" />
-                  {currentPage !== null && totalPages !== null && (
-                    <div className="flex justify-between text-xs text-gray-500">
-                      <span>
-                        Procesando página {currentPage} de {totalPages}
-                      </span>
-                      <span>
-                        {totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0}% de páginas completadas
-                      </span>
-                    </div>
-                  )}
-                  {totalPages !== null && totalPages > 1 && (
-                    <div className="bg-gray-100 rounded-lg p-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center space-x-2">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                          <span className="text-gray-700">
-                            Dividiendo PDF en {totalPages} páginas individuales
-                          </span>
-                        </div>
-                        {currentPage !== null && (
-                          <Badge variant="secondary" className="text-xs">
-                            Página actual: {currentPage}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  <Progress value={uploadProgress} className="w-full" />
+                  <p className="text-sm text-gray-600">{progressMessage}</p>
                 </div>
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Documents Grid */}
+        {/* Results Section */}
         {splitDocuments.length > 0 && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Documentos Procesados ({splitDocuments.length})
-              </h2>
-              <div className="flex space-x-3">
-                {(memoryMode === 'lux' || memoryMode === 'memory') && (
-                <Button
-                  onClick={processBatchWithClaude}
-                  disabled={isBatchProcessing || splitDocuments.filter(d => !d.claudeProcessed).length === 0}
-                  className="gradient-primary text-white"
-                >
-                  {isBatchProcessing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Procesando {batchProgress}%
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="mr-2 h-4 w-4" />
-                      Procesar Todos con IA
-                    </>
-                  )}
-                </Button>
-                )}
-                {(memoryMode === 'lux' || memoryMode === 'memory') && (
-                <Button
-                  onClick={exportToExcel}
-                  disabled={isExportingExcel || splitDocuments.filter(d => d.claudeProcessed).length === 0}
-                  variant="outline"
-                  className="border-green-600 text-green-600 hover:bg-green-50"
-                >
-                  {isExportingExcel ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Exportando...
-                    </>
-                  ) : (
-                    <>
-                      <FileSpreadsheet className="mr-2 h-4 w-4" />
-                      Exportar a Excel
-                    </>
-                  )}
-                </Button>
-                )}
-                {memoryMode === 'basic' && (
-                  <div className="text-sm text-gray-500 bg-gray-100 px-4 py-2 rounded-lg">
-                    <AlertCircle className="inline h-4 w-4 mr-2" />
-                    Procesamiento masivo y Excel disponible en planes Lux y Memory
-                  </div>
-                )}
-              </div>
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Documents List */}
+            <div className="lg:col-span-1">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Documentos ({splitDocuments.length})</span>
+                    <Badge variant="secondary">
+                      {processedCount} procesados
+                    </Badge>
+                  </CardTitle>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {splitDocuments.map((doc) => (
-                <Card 
-                  key={doc.id} 
-                  className={`shadow-soft card-hover ${
-                    doc.claudeProcessed ? 'border-green-200 bg-green-50/50' : ''
-                  }`}
-                >
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1 min-w-0">
-                        <CardTitle className="text-base flex items-center space-x-2">
-                          <FileText className="h-5 w-5 text-gray-600 flex-shrink-0" />
-                          <span className="truncate">{doc.filename}</span>
-                        </CardTitle>
-                        <CardDescription className="mt-1 flex items-center space-x-2">
-                          <span>Página {doc.pageNumber}</span>
+                  {/* Batch Actions */}
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      onClick={handleBatchProcess}
+                      disabled={isBatchProcessing || splitDocuments.every(doc => doc.claudeProcessed)}
+                      size="sm"
+                      className="flex-1"
+                    >
+                      {isBatchProcessing ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Procesando...
+                        </>
+                      ) : (
+                        <>
+                          <Brain className="h-4 w-4 mr-2" />
+                          Procesar Todos
+                        </>
+                      )}
+                    </Button>
+
+                    <Button
+                      onClick={handleExportExcel}
+                      disabled={isExportingExcel || processedCount === 0}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {isExportingExcel ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <FileSpreadsheet className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+
+                  {isBatchProcessing && (
+                    <div className="pt-2">
+                      <Progress value={batchProgress} className="w-full" />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Procesamiento en lotes: {Math.round(batchProgress)}%
+                      </p>
+                    </div>
+                  )}
+                </CardHeader>
+                <CardContent className="space-y-2 max-h-96 overflow-y-auto">
+                  {splitDocuments.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedDocument?.id === doc.id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                      onClick={() => setSelectedDocument(doc)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <p className="font-medium text-sm truncate">
+                            Página {doc.pageNumber}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {doc.filename}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
                           {doc.claudeProcessed && (
-                            <Badge className="gradient-success text-white text-xs ml-2">
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              Procesado
-                            </Badge>
+                            <CheckCircle className="h-4 w-4 text-green-500" />
                           )}
-                        </CardDescription>
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!doc.claudeProcessed) {
+                                handleProcessWithClaude(doc)
+                              }
+                            }}
+                            disabled={doc.claudeProcessed || isProcessingClaude === doc.id}
+                            size="sm"
+                            variant={doc.claudeProcessed ? "secondary" : "default"}
+                          >
+                            {isProcessingClaude === doc.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : doc.claudeProcessed ? (
+                              <CheckCircle className="h-3 w-3" />
+                            ) : (
+                              <Brain className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Document Viewer */}
+            <div className="lg:col-span-2">
+              {selectedDocument ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Página {selectedDocument.pageNumber}</span>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => openViewer(selectedDocument, 'pdf')}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Ver PDF
+                        </Button>
+                        <Button
+                          onClick={() => openViewer(selectedDocument, 'text')}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          Ver Texto
+                        </Button>
+                        <a
+                          href={selectedDocument.pdfUrl}
+                          download
+                          className="inline-flex"
+                        >
+                          <Button size="sm" variant="outline">
+                            <Download className="h-4 w-4 mr-2" />
+                            Descargar
+                          </Button>
+                        </a>
+                      </div>
+                    </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {doc.claudeProcessed && doc.nominaData && (memoryMode === 'lux' || memoryMode === 'memory') && (
-                      <div className="mb-4 p-4 bg-white rounded-lg border border-gray-200 space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-600">Empleado:</span>
-                          <span className="text-sm font-medium">{doc.nominaData.employee?.name || 'N/A'}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-600">Periodo:</span>
-                          <span className="text-sm font-medium">
-                            {doc.nominaData.period_start || 'N/A'} - {doc.nominaData.period_end || 'N/A'}
-                          </span>
-                        </div>
-                        
-                        {/* Bruto, Neto, Coste Empresa */}
-                        <div className="space-y-1 pt-2 border-t border-gray-100">
-                          {/* Sueldo Bruto */}
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-600">Sueldo bruto:</span>
-                            <span className="text-sm font-medium text-blue-600">
-                              €{doc.nominaData.gross_salary ? doc.nominaData.gross_salary.toFixed(2) : 
-                                  (doc.nominaData.perceptions?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0).toFixed(2)}
-                            </span>
-                          </div>
-                          
-                          {/* Neto a Pagar */}
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-600">Neto a pagar:</span>
-                            <span className="text-sm font-bold text-green-600">
-                              €{doc.nominaData.net_pay ? doc.nominaData.net_pay.toFixed(2) : '0.00'}
-                            </span>
-                          </div>
-                          
-                          {/* Coste Empresa */}
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-600">Coste empresa:</span>
-                            <span className="text-sm font-semibold text-purple-600">
-                              €{doc.nominaData.cost_empresa ? doc.nominaData.cost_empresa.toFixed(2) : 
-                                  doc.nominaData.employer_cost ? doc.nominaData.employer_cost.toFixed(2) : '0.00'}
-                            </span>
+                    {selectedDocument.claudeProcessed && selectedDocument.nominaData ? (
+                      <div className="space-y-4">
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                          <h3 className="font-semibold text-green-800 mb-2">✅ Procesado con IA</h3>
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <p><strong>Empleado:</strong> {selectedDocument.nominaData.employee.name}</p>
+                              <p><strong>DNI:</strong> {selectedDocument.nominaData.employee.dni}</p>
+                              <p><strong>Empresa:</strong> {selectedDocument.nominaData.company.name}</p>
+                            </div>
+                            <div>
+                              <p><strong>Período:</strong> {selectedDocument.nominaData.period_start} - {selectedDocument.nominaData.period_end}</p>
+                              <p><strong>Neto:</strong> €{selectedDocument.nominaData.net_pay}</p>
+                              <p><strong>Coste Empresa:</strong> €{selectedDocument.nominaData.cost_empresa}</p>
+                            </div>
                           </div>
                         </div>
+                      </div>
+                    ) : (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <p className="text-yellow-800">
+                          ⏳ Este documento aún no ha sido procesado con IA.
+                          Haz clic en el botón de cerebro para procesarlo.
+                        </p>
                       </div>
                     )}
-                    
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openViewer(doc)}
-                        className="flex-1"
-                      >
-                        <Eye className="mr-1 h-4 w-4" />
-                        Ver
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => downloadFile(doc.pdfUrl, doc.filename)}
-                        className="flex-1"
-                      >
-                        <Download className="mr-1 h-4 w-4" />
-                        PDF
-                      </Button>
-                      {!doc.claudeProcessed && (
-                        <Button
-                          size="sm"
-                          onClick={() => processWithClaude(doc)}
-                          disabled={isProcessingClaude === doc.id}
-                          className="flex-1 gradient-primary text-white"
-                        >
-                          {isProcessingClaude === doc.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <>
-                              <Brain className="mr-1 h-4 w-4" />
-                              Procesar
-                            </>
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* Memory Insights Section */}
-        {memoryMode === 'memory' && memoryStatus && generateBusinessInsights(memoryStatus).length > 0 && (
-          <div className="mt-12">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center space-x-3">
-              <Sparkles className="h-6 w-6 text-purple-600" />
-              <span>Insights de tu Memoria Empresarial</span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {generateBusinessInsights(memoryStatus).map((insight, index) => (
-                <Card key={index} className="shadow-soft card-hover border-purple-200 bg-gradient-to-br from-purple-50 to-blue-50">
-                  <CardHeader>
-                    <div className="flex items-start space-x-4">
-                      <div className="text-4xl">{insight.icon}</div>
-                      <div className="flex-1">
-                        <CardTitle className="text-lg">{insight.title}</CardTitle>
-                        <CardDescription className="mt-2">
-                          {insight.description}
-                        </CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between p-3 bg-white rounded-lg">
-                        <span className="text-sm text-gray-600">{insight.details}</span>
-                        <Badge variant="secondary" className="font-bold">
-                          {insight.value}
-                        </Badge>
+                    {/* Text Preview */}
+                    <div className="mt-4">
+                      <h4 className="font-medium mb-2">Vista previa del texto:</h4>
+                      <div className="bg-gray-50 border rounded-lg p-4 max-h-64 overflow-y-auto">
+                        <pre className="text-sm whitespace-pre-wrap text-gray-700">
+                          {selectedDocument.textContent.substring(0, 1000)}
+                          {selectedDocument.textContent.length > 1000 && '...'}
+                        </pre>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              ) : (
+                <Card>
+                  <CardContent className="flex items-center justify-center h-64">
+                    <p className="text-gray-500">
+                      Selecciona un documento para ver su contenido
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
         )}
-      </main>
 
-      {/* Floating Help Button */}
-      {splitDocuments.length > 0 && (
-        <div className="fixed bottom-6 right-6 z-50">
-          <div className="flex flex-col space-y-3">
-            {/* Quick Stats */}
-            <Card className="p-4 shadow-lg bg-white/95 backdrop-blur-sm">
-              <div className="text-center">
-                <p className="text-xs text-gray-500 mb-1">Progreso</p>
-                <div className="flex items-center space-x-2">
-                  <div className="text-sm font-medium text-green-600">
-                    {splitDocuments.filter(d => d.claudeProcessed).length}
-                  </div>
-                  <div className="text-xs text-gray-400">/</div>
-                  <div className="text-sm font-medium text-gray-600">
-                    {splitDocuments.length}
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500">procesados</p>
-              </div>
-            </Card>
-            
-            {/* Memory indicator */}
-            {memoryMode === 'memory' && (
-              <Card className="p-3 shadow-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white">
-                <div className="text-center">
-                  <Brain className="h-4 w-4 mx-auto mb-1" />
-                  <p className="text-xs font-medium">Memoria Activa</p>
-                </div>
-              </Card>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 mt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex flex-col md:flex-row justify-between items-center">
-            <p className="text-sm text-gray-500">
-              © 2024 Vacly. Todos los derechos reservados.
-            </p>
-            <div className="flex items-center space-x-6 mt-4 md:mt-0">
-              <Badge variant="outline" className="text-xs">
-                <Award className="h-3 w-3 mr-1" />
-                Cumple RGPD
-              </Badge>
-              <Badge variant="outline" className="text-xs">
-                <Lock className="h-3 w-3 mr-1" />
-                Cifrado SSL
-              </Badge>
-            </div>
-          </div>
-        </div>
-      </footer>
-
-      {/* Viewer Dialog */}
-      <Dialog open={isViewerOpen} onOpenChange={setIsViewerOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <span>{viewerDocument?.filename} - Página {viewerDocument?.pageNumber}</span>
-              <div className="flex items-center space-x-2">
-                <Button
-                  size="sm"
-                  variant={viewMode === 'pdf' ? 'default' : 'outline'}
-                  onClick={() => setViewMode('pdf')}
-                >
-                  <FileImage className="mr-1 h-4 w-4" />
-                  PDF
-                </Button>
-                <Button
-                  size="sm"
-                  variant={viewMode === 'text' ? 'default' : 'outline'}
-                  onClick={() => setViewMode('text')}
-                >
-                  <Type className="mr-1 h-4 w-4" />
-                  Texto
-                </Button>
-              </div>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="mt-4 overflow-auto max-h-[calc(90vh-120px)]">
-            {viewMode === 'pdf' ? (
-              <iframe
-                src={viewerDocument?.pdfUrl}
-                className="w-full h-[800px] border rounded"
-                title="PDF Viewer"
-              />
-            ) : (
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <pre className="whitespace-pre-wrap text-sm font-mono">
-                  {viewerDocument?.textContent}
-                </pre>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Memory Configuration Dialog */}
-      {memoryMode === 'memory' && (
-        <Dialog open={showMemoryConfig} onOpenChange={setShowMemoryConfig}>
-          <DialogContent className="max-w-7xl max-h-[95vh] overflow-y-auto">
+        {/* Viewer Dialog */}
+        <Dialog open={isViewerOpen} onOpenChange={setIsViewerOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
             <DialogHeader>
-              <DialogTitle className="text-3xl flex items-center space-x-3 text-purple-600">
-                <Brain className="h-8 w-8 text-purple-600" />
-                <span>Dashboard de Memoria Empresarial</span>
-                <Badge className="bg-purple-600 text-white ml-3">
-                  <Crown className="h-3 w-3 mr-1" />
-                  MEMORY €89/mes
-                </Badge>
+              <DialogTitle>
+                {viewMode === 'pdf' ? 'Visor PDF' : 'Contenido de Texto'} - Página {viewerDocument?.pageNumber}
               </DialogTitle>
-              <DialogDescription className="text-gray-600 mt-2">
-                Sistema de IA avanzada con memoria empresarial que aprende y mejora automáticamente
+              <DialogDescription>
+                {viewerDocument?.filename}
               </DialogDescription>
             </DialogHeader>
-            
-            <div className="mt-8 space-y-8">
-              {isLoadingMemory ? (
-                <div className="flex items-center justify-center py-16">
-                  <div className="text-center">
-                    <Loader2 className="h-12 w-12 animate-spin text-purple-600 mx-auto mb-4" />
-                    <p className="text-lg font-medium text-gray-900">Analizando ecosistema de memoria empresarial...</p>
-                    <p className="text-sm text-gray-500 mt-2">Procesando patrones globales y optimizaciones específicas</p>
-                  </div>
-                </div>
-              ) : memoryStatus ? (
-                <>
-                  {/* Executive Summary - ROI Justification */}
-                  <div className="bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 border-2 border-purple-200 rounded-2xl p-8">
-                    <h2 className="text-2xl font-bold text-purple-900 mb-6 flex items-center space-x-3">
-                      <Award className="h-6 w-6" />
-                      <span>Retorno de Inversión - Memory €89/mes</span>
-                    </h2>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                      <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-purple-200">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <div className="p-2 bg-green-100 rounded-lg">
-                            <TrendingUp className="h-5 w-5 text-green-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Ahorro Mensual</p>
-                            <p className="text-xl font-bold text-green-600">€247</p>
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-500">vs. procesamiento manual</p>
-                      </div>
-                      
-                      <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-purple-200">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <div className="p-2 bg-blue-100 rounded-lg">
-                            <Clock className="h-5 w-5 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Tiempo Ahorrado</p>
-                            <p className="text-xl font-bold text-blue-600">{Math.round((memoryStatus.summary?.total_processed || 0) * 0.75)}h</p>
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-500">45min por nómina automatizada</p>
-                      </div>
-                      
-                      <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-purple-200">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <div className="p-2 bg-purple-100 rounded-lg">
-                            <Brain className="h-5 w-5 text-purple-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Precisión IA</p>
-                            <p className="text-xl font-bold text-purple-600">{Math.round((memoryStatus.summary?.avg_confidence || 0.85) * 100)}%</p>
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-500">mejora continua automática</p>
-                      </div>
-                      
-                      <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-purple-200">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <div className="p-2 bg-orange-100 rounded-lg">
-                            <Rocket className="h-5 w-5 text-orange-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">ROI</p>
-                            <p className="text-xl font-bold text-orange-600">278%</p>
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-500">retorno de inversión anual</p>
-                      </div>
-                    </div>
 
-                    <div className="bg-white/60 rounded-xl p-6 border border-purple-100">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4">💡 Tu Memoria Empresarial en Números</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                        <div>
-                          <span className="font-medium text-purple-600">{memoryStatus.summary?.total_processed || 0}</span> documentos procesados
-                        </div>
-                        <div>
-                          <span className="font-medium text-blue-600">{memoryStatus.memory_patterns?.length || 0}</span> patrones únicos aprendidos
-                        </div>
-                        <div>
-                          <span className="font-medium text-green-600">{Math.round((memoryStatus.summary?.total_chunks || 0) / 10)}</span> optimizaciones aplicadas
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Intelligence Analytics - Global vs Tu Empresa */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Global Intelligence */}
-                    <div className="bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-2xl p-6">
-                      <h3 className="text-xl font-bold text-blue-900 mb-6 flex items-center space-x-3">
-                        <Globe className="h-6 w-6" />
-                        <span>Inteligencia Global</span>
-                        <Badge className="bg-blue-100 text-blue-700 text-xs">CONFIDENCIAL</Badge>
-                      </h3>
-                      
-                      <div className="space-y-4">
-                        <div className="bg-white/70 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Empresas en el ecosistema</span>
-                            <span className="text-lg font-bold text-blue-600">847</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div className="bg-blue-600 h-2 rounded-full" style={{width: '75%'}}></div>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">+12% este mes</p>
-                        </div>
-
-                        <div className="bg-white/70 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Nóminas procesadas globalmente</span>
-                            <span className="text-lg font-bold text-blue-600">126.8K</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div className="bg-green-600 h-2 rounded-full" style={{width: '88%'}}></div>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">Velocidad: 2.3 nóminas/minuto</p>
-                        </div>
-
-                        <div className="bg-white/70 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Precisión promedio global</span>
-                            <span className="text-lg font-bold text-blue-600">94.7%</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div className="bg-purple-600 h-2 rounded-full" style={{width: '95%'}}></div>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">Tu empresa supera el promedio</p>
-                        </div>
-
-                        <div className="bg-white/70 rounded-lg p-4">
-                          <h4 className="text-sm font-semibold text-gray-800 mb-3">🏆 Patrones más Exitosos (Anónimos)</h4>
-                          <div className="space-y-2 text-xs">
-                            <div className="flex justify-between">
-                              <span>Estructura Española Estándar</span>
-                              <span className="text-green-600">97.2% éxito</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Convenios Metalúrgicos</span>
-                              <span className="text-green-600">96.8% éxito</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Servicios Profesionales</span>
-                              <span className="text-green-600">95.4% éxito</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Tu Empresa Específica */}
-                    <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-200 rounded-2xl p-6">
-                      <h3 className="text-xl font-bold text-purple-900 mb-6 flex items-center space-x-3">
-                        <Building className="h-6 w-6" />
-                        <span>Tu Memoria Empresarial</span>
-                        <Badge className="bg-purple-100 text-purple-700 text-xs">PERSONALIZADA</Badge>
-                      </h3>
-                      
-                      <div className="space-y-4">
-                        <div className="bg-white/70 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Tu nivel de optimización</span>
-                            <span className="text-lg font-bold text-purple-600">{Math.round((memoryStatus.summary?.avg_confidence || 0.85) * 100)}%</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div className="bg-purple-600 h-2 rounded-full" style={{width: `${(memoryStatus.summary?.avg_confidence || 0.85) * 100}%`}}></div>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {(memoryStatus.summary?.avg_confidence || 0.85) > 0.9 ? 
-                              "🎉 Excelente! Superando expectativas" : 
-                              "📈 Mejorando continuamente"}
-                          </p>
-                  </div>
-
-                        <div className="bg-white/70 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Patrones únicos de tu empresa</span>
-                            <span className="text-lg font-bold text-purple-600">{memoryStatus.memory_patterns?.length || 0}</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div className="bg-green-600 h-2 rounded-full" style={{width: `${Math.min((memoryStatus.memory_patterns?.length || 0) * 10, 100)}%`}}></div>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">Estructura específica aprendida</p>
-                        </div>
-
-                        <div className="bg-white/70 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700">Velocidad de procesamiento</span>
-                            <span className="text-lg font-bold text-purple-600">{Math.round((memoryStatus.summary?.total_processed || 1) / Math.max((memoryStatus.summary?.total_processed || 1) * 0.1, 1))}x</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div className="bg-orange-600 h-2 rounded-full" style={{width: '92%'}}></div>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">vs. procesamiento sin memoria</p>
-                        </div>
-
-                  {memoryStatus.memory_patterns && memoryStatus.memory_patterns.length > 0 && (
-                          <div className="bg-white/70 rounded-lg p-4">
-                            <h4 className="text-sm font-semibold text-gray-800 mb-3">🧠 Patrones Específicos Aprendidos</h4>
-                            <div className="space-y-2 text-xs">
-                              {memoryStatus.memory_patterns.slice(0, 3).map((pattern: any, index: number) => (
-                                <div key={index} className="flex justify-between items-center">
-                                  <span className="truncate flex-1">{pattern.summary.substring(0, 35)}...</span>
-                                  <Badge className="ml-2 bg-purple-100 text-purple-600 text-xs">
-                                    {Math.round(pattern.confidence_score * 100)}%
-                                  </Badge>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Advanced Analytics Dashboard */}
-                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 border-2 border-gray-200 rounded-2xl p-8">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center space-x-3">
-                      <BarChart3 className="h-6 w-6 text-gray-700" />
-                      <span>Analytics Avanzado de Memoria</span>
-                    </h2>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                      {/* Performance Metrics */}
-                      <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center space-x-2">
-                          <Activity className="h-5 w-5 text-blue-600" />
-                          <span>Métricas de Rendimiento</span>
-                        </h3>
-                        <div className="space-y-4">
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-600">Documentos procesados</span>
-                            <span className="font-bold text-gray-900">{memoryStatus.summary?.total_processed || 0}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-600">Chunks analizados</span>
-                            <span className="font-bold text-gray-900">{memoryStatus.summary?.total_chunks || 0}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-600">Memorias generadas</span>
-                            <span className="font-bold text-gray-900">{memoryStatus.memory_patterns?.length || 0}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-600">Precisión promedio</span>
-                            <span className="font-bold text-green-600">{Math.round((memoryStatus.summary?.avg_confidence || 0.85) * 100)}%</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Learning Evolution */}
-                      <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center space-x-2">
-                          <TrendingUp className="h-5 w-5 text-green-600" />
-                          <span>Evolución del Aprendizaje</span>
-                        </h3>
-                        <div className="space-y-4">
-                    <div>
-                            <div className="flex justify-between mb-2">
-                              <span className="text-sm text-gray-600">Madurez del Sistema</span>
-                              <span className="text-sm font-medium">{Math.min(Math.round((memoryStatus.summary?.total_processed || 0) * 2), 100)}%</span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-3">
-                              <div 
-                                className="bg-gradient-to-r from-green-400 to-green-600 h-3 rounded-full transition-all duration-500" 
-                                style={{width: `${Math.min(Math.round((memoryStatus.summary?.total_processed || 0) * 2), 100)}%`}}
-                              ></div>
-                            </div>
-                          </div>
-                          <div>
-                            <div className="flex justify-between mb-2">
-                              <span className="text-sm text-gray-600">Especialización Empresa</span>
-                              <span className="text-sm font-medium">{Math.min(Math.round((memoryStatus.memory_patterns?.length || 0) * 15), 100)}%</span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-3">
-                              <div 
-                                className="bg-gradient-to-r from-purple-400 to-purple-600 h-3 rounded-full transition-all duration-500" 
-                                style={{width: `${Math.min(Math.round((memoryStatus.memory_patterns?.length || 0) * 15), 100)}%`}}
-                              ></div>
-                            </div>
-                          </div>
-                          <div>
-                            <div className="flex justify-between mb-2">
-                              <span className="text-sm text-gray-600">Optimización Alcanzada</span>
-                              <span className="text-sm font-medium">{Math.round((memoryStatus.summary?.avg_confidence || 0.85) * 100)}%</span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-3">
-                              <div 
-                                className="bg-gradient-to-r from-blue-400 to-blue-600 h-3 rounded-full transition-all duration-500" 
-                                style={{width: `${Math.round((memoryStatus.summary?.avg_confidence || 0.85) * 100)}%`}}
-                              ></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Value Delivered */}
-                      <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center space-x-2">
-                          <DollarSign className="h-5 w-5 text-green-600" />
-                          <span>Valor Entregado</span>
-                      </h3>
-                        <div className="space-y-4">
-                          <div className="text-center p-4 bg-green-50 rounded-lg">
-                            <p className="text-2xl font-bold text-green-600">€{Math.round((memoryStatus.summary?.total_processed || 0) * 3.7)}</p>
-                            <p className="text-sm text-gray-600">Ahorro acumulado</p>
-                          </div>
-                          <div className="text-center p-4 bg-blue-50 rounded-lg">
-                            <p className="text-2xl font-bold text-blue-600">{Math.round((memoryStatus.summary?.total_processed || 0) * 0.75)}h</p>
-                            <p className="text-sm text-gray-600">Tiempo ahorrado</p>
-                          </div>
-                          <div className="text-center p-4 bg-purple-50 rounded-lg">
-                            <p className="text-2xl font-bold text-purple-600">{Math.round(((memoryStatus.summary?.total_processed || 0) * 3.7) / 89 * 100)}%</p>
-                            <p className="text-sm text-gray-600">ROI vs. Plan</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Detailed Memory Patterns */}
-                  {memoryStatus.memory_patterns && memoryStatus.memory_patterns.length > 0 && (
-                    <div className="bg-white border-2 border-gray-200 rounded-2xl p-8">
-                      <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center space-x-3">
-                        <Hash className="h-6 w-6 text-purple-600" />
-                        <span>Patrones Específicos de tu Empresa</span>
-                        <Badge className="bg-gray-100 text-gray-600">
-                          {memoryStatus.memory_patterns.length} patrones activos
-                        </Badge>
-                      </h2>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {memoryStatus.memory_patterns.slice(0, 6).map((pattern: any, index: number) => (
-                          <Card key={index} className="shadow-lg hover:shadow-xl transition-all duration-300 bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200">
-                            <CardHeader className="pb-3">
-                              <div className="flex items-center justify-between">
-                                <Badge className="bg-purple-100 text-purple-600 text-xs">
-                                  Patrón #{index + 1}
-                                </Badge>
-                                <Badge className={`text-xs ${
-                                  pattern.confidence_score > 0.9 ? 'bg-green-100 text-green-600' :
-                                  pattern.confidence_score > 0.7 ? 'bg-yellow-100 text-yellow-600' :
-                                  'bg-orange-100 text-orange-600'
-                                }`}>
-                                  {Math.round(pattern.confidence_score * 100)}% confianza
-                                </Badge>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                              <div>
-                                <p className="text-sm font-medium text-gray-800 mb-2">Patrón Aprendido:</p>
-                                <p className="text-xs text-gray-600 bg-white/60 p-3 rounded-lg">
-                                  {pattern.summary.substring(0, 120)}...
-                                </p>
-                              </div>
-                              
-                              {pattern.learned_patterns && Object.keys(pattern.learned_patterns).length > 0 && (
-                                <div>
-                                  <p className="text-sm font-medium text-gray-800 mb-2">Elementos Reconocidos:</p>
-                                  <div className="flex flex-wrap gap-1">
-                                    {Object.keys(pattern.learned_patterns).slice(0, 3).map((key, i) => (
-                                      <Badge key={i} className="bg-blue-100 text-blue-600 text-xs">
-                                        {key}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                              
-                              <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-                                <div className="text-xs text-gray-500">
-                                  Usado {pattern.usage_count || 0} veces
-                                </div>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => deleteMemoryData('pattern', pattern.id)}
-                                  disabled={isDeletingMemory}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                >
-                                  <AlertCircle className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* System Status & Health */}
-                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-2xl p-8">
-                    <h2 className="text-2xl font-bold text-emerald-900 mb-6 flex items-center space-x-3">
-                      <Activity className="h-6 w-6 text-emerald-600" />
-                      <span>Estado del Sistema y Salud</span>
-                    </h2>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                      <div className="bg-white/80 rounded-xl p-6 text-center">
-                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <CheckCircle className="h-6 w-6 text-green-600" />
-                        </div>
-                        <h3 className="font-semibold text-gray-800 mb-2">Sistema Operativo</h3>
-                        <p className="text-sm text-gray-600">Todos los servicios funcionando correctamente</p>
-                        <Badge className="mt-2 bg-green-100 text-green-600">ONLINE</Badge>
-                      </div>
-                      
-                      <div className="bg-white/80 rounded-xl p-6 text-center">
-                        <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <Database className="h-6 w-6 text-blue-600" />
-                        </div>
-                        <h3 className="font-semibold text-gray-800 mb-2">Base de Conocimiento</h3>
-                        <p className="text-sm text-gray-600">Memoria empresarial sincronizada</p>
-                        <Badge className="mt-2 bg-blue-100 text-blue-600">SYNC</Badge>
-                      </div>
-                      
-                      <div className="bg-white/80 rounded-xl p-6 text-center">
-                        <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <Brain className="h-6 w-6 text-purple-600" />
-                        </div>
-                        <h3 className="font-semibold text-gray-800 mb-2">IA de Aprendizaje</h3>
-                        <p className="text-sm text-gray-600">Optimizaciones continuas activas</p>
-                        <Badge className="mt-2 bg-purple-100 text-purple-600">LEARNING</Badge>
-                      </div>
-                      
-                      <div className="bg-white/80 rounded-xl p-6 text-center">
-                        <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <Shield className="h-6 w-6 text-orange-600" />
-                        </div>
-                        <h3 className="font-semibold text-gray-800 mb-2">Seguridad</h3>
-                        <p className="text-sm text-gray-600">Cifrado end-to-end habilitado</p>
-                        <Badge className="mt-2 bg-orange-100 text-orange-600">SECURE</Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Advanced Controls - Danger Zone */}
-                  <div className="border-t-2 border-gray-200 pt-8">
-                    <h3 className="text-2xl font-bold mb-6 text-red-600 flex items-center space-x-3">
-                      <AlertCircle className="h-6 w-6" />
-                      <span>Controles Avanzados del Sistema</span>
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <Button
-                        variant="outline"
-                        onClick={() => deleteMemoryData('patterns')}
-                        disabled={isDeletingMemory}
-                        className="h-20 flex flex-col items-center justify-center space-y-2 text-orange-600 border-orange-600 hover:bg-orange-50"
-                      >
-                        <Hash className="h-6 w-6" />
-                        <span>Resetear Patrones</span>
-                        <span className="text-xs opacity-75">Mantener embeddings</span>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => deleteMemoryData('embeddings')}
-                        disabled={isDeletingMemory}
-                        className="h-20 flex flex-col items-center justify-center space-y-2 text-orange-600 border-orange-600 hover:bg-orange-50"
-                      >
-                        <Database className="h-6 w-6" />
-                        <span>Limpiar Índices</span>
-                        <span className="text-xs opacity-75">Reconstruir búsquedas</span>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => deleteMemoryData('all')}
-                        disabled={isDeletingMemory}
-                        className="h-20 flex flex-col items-center justify-center space-y-2 text-red-600 border-red-600 hover:bg-red-50"
-                      >
-                        <AlertCircle className="h-6 w-6" />
-                        <span>Reset Completo</span>
-                        <span className="text-xs opacity-75">Eliminar toda la memoria</span>
-                      </Button>
-                    </div>
-                    
-                    <div className="mt-6 p-6 bg-red-50 border border-red-200 rounded-xl">
-                      <div className="flex items-start space-x-3">
-                        <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
-                        <div>
-                          <h4 className="font-semibold text-red-800">⚠️ Importante antes de realizar cambios</h4>
-                          <p className="text-sm text-red-700 mt-1">
-                            Estas acciones afectarán el rendimiento de tu sistema Memory de €89/mes. 
-                            Resetear la memoria eliminará todas las optimizaciones específicas aprendidas para tu empresa, 
-                            reduciendo temporalmente la velocidad y precisión hasta que el sistema vuelva a aprender.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
+            <div className="mt-4">
+              {viewMode === 'pdf' && viewerDocument ? (
+                <iframe
+                  src={viewerDocument.pdfUrl}
+                  className="w-full h-96 border rounded-lg"
+                  title="PDF Viewer"
+                />
               ) : (
-                <div className="text-center py-16">
-                  <div className="mx-auto w-32 h-32 bg-gray-100 rounded-full flex items-center justify-center mb-6">
-                    <Brain className="h-16 w-16 text-gray-400" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                    Memoria Empresarial Lista
-                  </h3>
-                  <p className="text-gray-600 mb-4">
-                    No hay datos de memoria disponibles aún
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    Procesa algunos documentos para comenzar a construir tu memoria empresarial
-                  </p>
+                <div className="bg-gray-50 border rounded-lg p-4 max-h-96 overflow-y-auto">
+                  <pre className="text-sm whitespace-pre-wrap">
+                    {viewerDocument?.textContent}
+                  </pre>
                 </div>
               )}
             </div>
           </DialogContent>
         </Dialog>
-      )}
-      
-      {/* Pricing Dialog */}
-      <Dialog open={showPricing} onOpenChange={setShowPricing}>
-        <DialogContent className="max-w-7xl max-h-[95vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-3xl flex items-center space-x-3">
-              <Star className="h-8 w-8 text-yellow-500" />
-              <span>Planes de Nóminas</span>
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="mt-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              
-              {/* Nominas Basic */}
-              <Card className={`relative border-2 transition-all cursor-pointer ${
-                selectedPlan === 'basic' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
-              }`} onClick={() => setSelectedPlan('basic')}>
-                <CardHeader className="text-center pb-4">
-                  <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-                    <Zap className="h-8 w-8 text-blue-600" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">Nóminas Basic</CardTitle>
-                  <CardDescription className="text-gray-600 mt-2">
-                    Procesamiento tradicional con Haiku 3.0
-                  </CardDescription>
-                  <div className="mt-4">
-                    <span className="text-4xl font-bold text-gray-900">€19</span>
-                    <span className="text-gray-500">/mes</span>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Claude 3.0 Haiku</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Procesamiento básico de PDFs</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Extracción de texto estándar</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Exportación a Excel</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Procesamiento manual requerido</span>
-                    </div>
-                  </div>
-                  <Button 
-                    className={`w-full ${selectedPlan === 'basic' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                    onClick={() => {
-                      setMemoryMode('basic')
-                      setShowPricing(false)
-                    }}
-                  >
-                    {selectedPlan === 'basic' ? 'Plan Actual' : 'Seleccionar Plan'}
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Nominas Lux */}
-              <Card className={`relative border-2 transition-all cursor-pointer ${
-                selectedPlan === 'lux' ? 'border-emerald-500 bg-gradient-to-br from-emerald-50 to-yellow-50' : 'border-gray-200 hover:border-gray-300'
-              }`} onClick={() => setSelectedPlan('lux')}>
-                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                  <Badge className="bg-gradient-to-r from-emerald-600 to-yellow-600 text-white px-3 py-1">
-                    <Crown className="h-3 w-3 mr-1" />
-                    LUX
-                  </Badge>
-                </div>
-                <CardHeader className="text-center pb-4">
-                  <div className="mx-auto w-16 h-16 bg-gradient-to-br from-emerald-100 to-yellow-100 rounded-full flex items-center justify-center mb-4">
-                    <Gem className="h-8 w-8 text-emerald-600" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-yellow-600 bg-clip-text text-transparent">Nóminas Lux</CardTitle>
-                  <CardDescription className="text-gray-600 mt-2">
-                    IA de vanguardia + Experiencia premium
-                  </CardDescription>
-                  <div className="mt-4">
-                    <span className="text-4xl font-bold bg-gradient-to-r from-emerald-600 to-yellow-600 bg-clip-text text-transparent">€49</span>
-                    <span className="text-gray-500">/mes</span>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Claude 3.5 Haiku con PDF nativo</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Crown className="h-5 w-5 text-yellow-500" />
-                      <span className="text-sm">Procesamiento ultra-premium</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Diamond className="h-5 w-5 text-emerald-500" />
-                      <span className="text-sm">IA de vanguardia</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Gem className="h-5 w-5 text-emerald-500" />
-                      <span className="text-sm">95%+ precisión garantizada</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Shield className="h-5 w-5 text-blue-500" />
-                      <span className="text-sm">Interfaz premium</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Users className="h-5 w-5 text-indigo-500" />
-                      <span className="text-sm">Soporte prioritario</span>
-                    </div>
-                  </div>
-                  <Button 
-                    className={`w-full ${selectedPlan === 'lux' ? 'bg-gradient-to-r from-emerald-600 to-yellow-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                    onClick={() => {
-                      setMemoryMode('lux')
-                      setShowPricing(false)
-                      alert('¡Modo Lux activado! Experiencia premium habilitada.')
-                    }}
-                  >
-                    {selectedPlan === 'lux' ? 'Activar Lux' : 'Seleccionar Lux'}
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Nominas Memory */}
-              <Card className={`relative border-2 transition-all cursor-pointer ${
-                selectedPlan === 'memory' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'
-              }`} onClick={() => setSelectedPlan('memory')}>
-                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                  <Badge className="bg-purple-600 text-white px-3 py-1">
-                    RECOMENDADO
-                  </Badge>
-                </div>
-                <CardHeader className="text-center pb-4">
-                  <div className="mx-auto w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4">
-                    <Brain className="h-8 w-8 text-purple-600" />
-                  </div>
-                  <CardTitle className="text-2xl font-bold">Nóminas Memory</CardTitle>
-                  <CardDescription className="text-gray-600 mt-2">
-                    IA avanzada + Memoria empresarial
-                  </CardDescription>
-                  <div className="mt-4">
-                    <span className="text-4xl font-bold text-purple-600">€89</span>
-                    <span className="text-gray-500">/mes</span>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">Todo de Lux +</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Brain className="h-5 w-5 text-purple-500" />
-                      <span className="text-sm">Memoria empresarial inteligente</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Rocket className="h-5 w-5 text-blue-500" />
-                      <span className="text-sm">Aprendizaje automático</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <TrendingUp className="h-5 w-5 text-green-500" />
-                      <span className="text-sm">80% más rápido con patrones</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Shield className="h-5 w-5 text-blue-500" />
-                      <span className="text-sm">99% precisión empresarial</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <BarChart3 className="h-5 w-5 text-purple-500" />
-                      <span className="text-sm">Analytics avanzados</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Users className="h-5 w-5 text-indigo-500" />
-                      <span className="text-sm">Soporte 24/7 dedicado</span>
-                    </div>
-                  </div>
-                  <Button 
-                    className={`w-full ${selectedPlan === 'memory' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                    onClick={() => {
-                      setMemoryMode('memory')
-                      setShowPricing(false)
-                      alert('¡Modo Memoria Empresarial activado! Comenzarás a ver los beneficios inmediatamente.')
-                    }}
-                  >
-                    {selectedPlan === 'memory' ? 'Activar Memory' : 'Seleccionar Memory'}
-                  </Button>
-                </CardContent>
-              </Card>
-
-            </div>
-            
-            <div className="mt-8 text-center text-sm text-gray-500">
-              <p>Todos los planes incluyen cifrado SSL, cumplimiento RGPD y actualizaciones automáticas.</p>
-              <p className="mt-2">Los precios mostrados son orientativos. El sistema actual permite probar todas las funcionalidades.</p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      </div>
     </div>
   )
 }
