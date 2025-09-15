@@ -455,6 +455,7 @@ async function processFullPDF(filename: string, url: string) {
   console.log('🚀 Starting UNIFIED PDF processing (CORRECTED VERSION)...')
   console.log('📄 Processing file:', filename, 'from URL:', url)
 
+  try {
     // Get document type ID for nomina
     const { data: documentType, error: docTypeError } = await supabase
       .from('document_types')
