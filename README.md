@@ -106,7 +106,6 @@ import {
   extractBasicNominaInfo,
   generateSplitFileName,
   parsePDF,
-  memoryService 
 } from '@vacly/nominas-processor/lib';
 
 // Extraer información específica
@@ -117,10 +116,6 @@ const filename = generateSplitFileName("Ana López", "202401", 1);
 
 // Procesar PDF
 const text = await parsePDF(pdfBuffer);
-
-// Usar servicio de memoria
-await memoryService.storeDocumentChunks(docId, companyId, chunks, docTypeId);
-```
 
 ## 📊 Tipos TypeScript
 

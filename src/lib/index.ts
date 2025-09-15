@@ -1,5 +1,5 @@
 // ============================================================================
-// VACLY NOMINAS PROCESSOR - Librería Principal
+// VACLY NOMINAS LUX - Librería Principal
 // ============================================================================
 
 // Importar las funciones para usar internamente
@@ -10,7 +10,7 @@ import {
 } from './pdf-naming';
 
 // Exportar funciones de procesamiento de PDFs
-export { 
+export {
   extractBasicNominaInfo,
   extractBasicNominaInfoFromText,
   generateSplitFileName,
@@ -30,22 +30,6 @@ export {
   parsePDF
 } from './pdf-utils';
 
-// Exportar servicios de memoria y embeddings
-export {
-  memoryService,
-  MemoryService
-} from './memory-service';
-
-export {
-  storeDocumentEmbeddings,
-  updateMemory
-} from './memory-rag';
-
-export {
-  generateEmbedding,
-  generateEmbeddings
-} from './embeddings';
-
 // Exportar utilidades generales
 export {
   cn
@@ -57,11 +41,7 @@ export type {
   ProcessingOptions,
   NominaData,
   SplitDocument,
-  MemoryContext,
-  EmbeddingResult,
-  ProcessingResult,
-  VaclyConfig,
-  ApiResponse
+  ProcessingResult
 } from '../types/nominas';
 
 // Exportar constantes y configuraciones
@@ -70,19 +50,18 @@ export const SUPPORTED_FORMATS = ['pdf'] as const;
 export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 export const DEFAULT_PAGE_LIMIT = 50;
 
-// Función de configuración fácil
+// Función de configuración simplificada para procesamiento LUX
 export function createNominaProcessor(config: {
   supabaseUrl: string;
   supabaseServiceKey: string;
   anthropicApiKey: string;
-  voyageApiKey?: string;
 }) {
   return {
-    extractBasicInfo: (content: string | Buffer) => 
-      typeof content === 'string' 
+    extractBasicInfo: (content: string | Buffer) =>
+      typeof content === 'string'
         ? _extractBasicNominaInfoFromText(content)
         : _extractBasicNominaInfo(content),
-    
+
     generateFileName: (employeeName: string, period: string, pageNumber: number) =>
       _generateSplitFileName(employeeName, period, pageNumber),
 

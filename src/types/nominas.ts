@@ -15,11 +15,8 @@ export interface ProcessingOptions {
     serviceKey: string;
   };
   anthropicApiKey: string;
-  voyageApiKey?: string;
   options?: {
     maxPages?: number;
-    enableMemory?: boolean;
-    enableEmbeddings?: boolean;
   };
 }
 
@@ -95,18 +92,6 @@ export interface SplitDocument {
   nominaData?: NominaData;
 }
 
-export interface MemoryContext {
-  companyId: string;
-  documentTypeId: string;
-  conversationId: string;
-  employeeId?: string;
-}
-
-export interface EmbeddingResult {
-  embedding: number[];
-  text: string;
-  metadata?: Record<string, any>;
-}
 
 export interface ProcessingResult {
   success: boolean;
@@ -125,25 +110,11 @@ export interface ProcessingResult {
   };
 }
 
-export interface MemoryPattern {
-  id: string;
-  pattern: string;
-  confidence: number;
-  usage_count: number;
-  company_id: string;
-  document_type_id: string;
-  employee_id?: string;
-  metadata?: Record<string, any>;
-}
-
 export interface VaclyConfig {
   supabaseUrl: string;
   supabaseServiceKey: string;
   anthropicApiKey: string;
-  voyageApiKey?: string;
   options?: {
-    enableMemory?: boolean;
-    enableEmbeddings?: boolean;
     maxFileSize?: number;
     maxPages?: number;
   };
@@ -178,6 +149,4 @@ export interface ProcessorInstance {
   processDocument: (file: File | Buffer, options?: Partial<ProcessingOptions>) => Promise<ProcessingResult>;
   extractBasicInfo: (content: string | Buffer) => Promise<BasicNominaInfo>;
   generateFileName: (employeeName: string, period: string, pageNumber: number) => string;
-  searchMemory: (query: string, context: MemoryContext) => Promise<MemoryPattern[]>;
-  storeEmbeddings: (text: string, metadata: Record<string, any>) => Promise<void>;
 } 
