@@ -304,16 +304,156 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('🚀 Starting UNIFIED PDF processing (CORRECTED VERSION)...')
-    
-    const { filename, url } = await request.json()
-    
-    if (!filename || !url) {
-      console.error('❌ Missing filename or URL:', { filename, url })
-      return NextResponse.json({ error: 'Filename and URL are required' }, { status: 400 })
+    const body = await request.json()
+
+    // Handle two cases: full processing (filename + url) or individual document processing (textContent + documentId)
+    if (body.textContent && body.documentId) {
+      // Individual document processing with Claude
+      return await processIndividualDocument(body.textContent, body.documentId)
+    } else if (body.filename && body.url) {
+      // Full PDF processing with streaming
+      return await processFullPDF(body.filename, body.url)
+    } else {
+      return NextResponse.json({ error: 'Either (textContent + documentId) or (filename + url) are required' }, { status: 400 })
+    }
+  } catch (error) {
+    console.error('💥 Critical processing error:', error)
+    return NextResponse.json({
+      error: 'Processing failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
+  }
+}
+
+async function processIndividualDocument(textContent: string, documentId: string) {
+  console.log('🧠 Processing individual document with Claude LUX...')
+
+  try {
+    // Use Claude 3.5 Haiku to process the document
+    const prompt = `Eres un experto en análisis de nóminas españolas. Analiza este documento PDF y extrae TODA la información con máxima precisión:
+
+🎯 OBJETIVO: Extraer información estructurada completa de la nómina
+
+📋 INFORMACIÓN BÁSICA:
+1. Nombre de la empresa (buscar en cabecera del documento)
+2. Nombre del empleado completo (convertir "APELLIDOS, NOMBRE" a "NOMBRE APELLIDOS")
+3. Período en formato YYYYMM (deducir de fechas del documento)
+
+📊 DATOS DEL EMPLEADO:
+- name: Nombre completo normalizado
+- dni: DNI/NIF (buscar patrones: 12345678A, 12.345.678-A)
+- nss: Número Seguridad Social/Afiliación (buscar "NSS", "Afiliación", "Núm. SS")
+- category: Categoría profesional
+- code: Código empleado si existe
+
+🏢 DATOS DE LA EMPRESA:
+- name: Nombre completo de la empresa
+- cif: CIF empresarial (formato: A12345678)
+- address: Dirección completa
+- center_code: Código del centro de trabajo
+
+💰 ANÁLISIS FINANCIERO DETALLADO:
+- period_start/period_end: Fechas exactas del período (YYYY-MM-DD)
+- perceptions: TODAS las percepciones con código, concepto y cantidad
+- deductions: TODAS las deducciones (IRPF, Seg. Social empleado, etc.)
+- contributions: SOLO contribuciones EMPRESARIALES (NO del empleado)
+- base_ss: Base de cotización a la Seguridad Social
+- net_pay: Líquido a percibir/cobrar
+- gross_salary: Salario bruto (suma percepciones principales)
+
+🔍 CÁLCULO CRÍTICO - COSTE EMPRESA:
+1. Identificar contribuciones empresariales: "CC Empresa", "Desempleo Empresa", "FP Empresa", "FOGASA"
+2. Fórmula: cost_empresa = gross_salary + suma_contribuciones_empresariales
+3. Validar que cost_empresa >= gross_salary
+
+🏦 DATOS BANCARIOS:
+- iban: Número IBAN completo si aparece
+- swift_bic: Código SWIFT/BIC si disponible
+
+⚠️ VALIDACIONES:
+- Verificar que todos los números sean positivos
+- Comprobar coherencia entre gross_salary, net_pay y deducciones
+- Asegurar formato correcto de fechas y DNI
+
+Responde ÚNICAMENTE con un objeto JSON válido con esta estructura:
+{
+  "employee": {
+    "name": "nombre completo",
+    "dni": "DNI",
+    "nss": "NSS",
+    "category": "categoría",
+    "code": "código empleado"
+  },
+  "company": {
+    "name": "nombre empresa",
+    "cif": "CIF",
+    "address": "dirección",
+    "center_code": "código centro"
+  },
+  "period_start": "YYYY-MM-DD",
+  "period_end": "YYYY-MM-DD",
+  "perceptions": [
+    {"concept": "concepto", "code": "código", "amount": cantidad}
+  ],
+  "deductions": [
+    {"concept": "concepto", "code": "código", "amount": cantidad}
+  ],
+  "contributions": [
+    {"concept": "concepto", "base": base, "rate": tasa, "employer_contribution": contribución_empresa}
+  ],
+  "base_ss": base_seguridad_social,
+  "net_pay": neto_a_pagar,
+  "gross_salary": sueldo_bruto,
+  "cost_empresa": coste_empresa_total,
+  "iban": "IBAN si disponible",
+  "swift_bic": "SWIFT/BIC si disponible",
+  "signed": false
+}`
+
+    const response = await anthropic.messages.create({
+      model: "claude-3-5-haiku-20241022",
+      max_tokens: 4000,
+      messages: [
+        {
+          role: "user",
+          content: prompt + "\n\nTexto del documento:\n" + textContent
+        }
+      ]
+    })
+
+    const responseText = response.content[0].type === 'text' ? response.content[0].text : ''
+    console.log('Claude response:', responseText)
+
+    // Parse JSON response
+    let processedData
+    try {
+      processedData = JSON.parse(responseText)
+    } catch (parseError) {
+      console.error('Error parsing Claude response:', parseError)
+      throw new Error('Invalid JSON response from Claude')
     }
 
-    console.log('📄 Processing file:', filename, 'from URL:', url)
+    return NextResponse.json({
+      success: true,
+      data: {
+        processedData,
+        documentId,
+        mode: 'lux'
+      }
+    })
+
+  } catch (error) {
+    console.error('Error processing individual document:', error)
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
+  }
+}
+
+async function processFullPDF(filename: string, url: string) {
+  console.log('🚀 Starting UNIFIED PDF processing (CORRECTED VERSION)...')
+  console.log('📄 Processing file:', filename, 'from URL:', url)
 
     // Get document type ID for nomina
     const { data: documentType, error: docTypeError } = await supabase

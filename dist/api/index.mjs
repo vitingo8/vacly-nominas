@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
-export { g as generateSplitFileName, b as generateTextFileName, s as sanitizeFileName } from '../pdf-naming-Deylrkw1.js';
+export { g as generateSplitFileName, b as generateTextFileName, s as sanitizeFileName } from '../pdf-naming-D0WJmqZ5.js';
 
 // ============================================================================
 // VACLY NOMINAS PROCESSOR - API FUNCTIONS

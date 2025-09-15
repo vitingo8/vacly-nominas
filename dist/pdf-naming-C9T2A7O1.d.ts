@@ -1,9 +1,9 @@
-export interface BasicNominaInfo {
+interface BasicNominaInfo {
     companyName: string;
     employeeName: string;
     period: string;
 }
-export interface ProcessingOptions {
+interface ProcessingOptions {
     file: File | Buffer;
     supabaseConfig: {
         url: string;
@@ -14,7 +14,7 @@ export interface ProcessingOptions {
         maxPages?: number;
     };
 }
-export interface Employee {
+interface Employee {
     name?: string;
     dni?: string;
     nss?: string;
@@ -23,29 +23,29 @@ export interface Employee {
     social_security_number?: string;
     social_security?: string;
 }
-export interface Company {
+interface Company {
     name?: string;
     cif?: string;
     address?: string;
     center_code?: string;
 }
-export interface PerceptionDeduction {
+interface PerceptionDeduction {
     code?: string;
     concept?: string;
     amount?: number;
 }
-export interface Contribution {
+interface Contribution {
     concept?: string;
     base?: number;
     rate?: number;
     employer_contribution?: number;
     amount?: number;
 }
-export interface BankInfo {
+interface BankInfo {
     iban?: string;
     swift_bic?: string;
 }
-export interface NominaData {
+interface NominaData {
     id?: string;
     nominaId?: string;
     period_start?: string;
@@ -67,7 +67,7 @@ export interface NominaData {
     bank?: BankInfo;
     document_name?: string;
 }
-export interface SplitDocument {
+interface SplitDocument {
     id: string;
     filename: string;
     pageNumber: number;
@@ -79,7 +79,7 @@ export interface SplitDocument {
     claudeProcessed?: boolean;
     nominaData?: NominaData;
 }
-export interface ProcessingResult {
+interface ProcessingResult {
     success: boolean;
     documents: SplitDocument[];
     errors?: Array<{
@@ -95,7 +95,7 @@ export interface ProcessingResult {
         totalPages: number;
     };
 }
-export interface VaclyConfig {
+interface VaclyConfig {
     supabaseUrl: string;
     supabaseServiceKey: string;
     anthropicApiKey: string;
@@ -104,28 +104,48 @@ export interface VaclyConfig {
         maxPages?: number;
     };
 }
-export interface ApiResponse<T = any> {
+interface ApiResponse<T = any> {
     success: boolean;
     data?: T;
     error?: string;
     details?: string;
     message?: string;
 }
-export interface ProgressInfo {
-    progress: number;
-    message: string;
-    currentPage?: number;
-    totalPages?: number;
-    stage?: 'uploading' | 'splitting' | 'processing' | 'saving' | 'complete';
-}
-export interface UnifiedProcessingOptions extends ProcessingOptions {
-    onProgress?: (info: ProgressInfo) => void;
-    onError?: (error: string) => void;
-    onComplete?: (result: ProcessingResult) => void;
-}
-export interface ProcessorInstance {
-    processDocument: (file: File | Buffer, options?: Partial<ProcessingOptions>) => Promise<ProcessingResult>;
-    extractBasicInfo: (content: string | Buffer) => Promise<BasicNominaInfo>;
-    generateFileName: (employeeName: string, period: string, pageNumber: number) => string;
-}
-//# sourceMappingURL=nominas.d.ts.map
+
+/**
+ * Extrae información básica de una nómina para generar nombres de archivo
+ * ACTUALIZADO: Usa Claude 3.5 Haiku con soporte PDF nativo
+ */
+declare function extractBasicNominaInfo(pdfBuffer: Buffer): Promise<BasicNominaInfo>;
+/**
+ * DEPRECATED: Función antigua que usa texto OCR
+ * Mantenida para compatibilidad hacia atrás
+ */
+declare function extractBasicNominaInfoFromText(textContent: string): Promise<BasicNominaInfo>;
+/**
+ * Corrige el formato de nombres de "APELLIDOS, NOMBRE" a "NOMBRE APELLIDOS"
+ */
+declare function correctNameFormat(name: string): string;
+/**
+ * Sanitiza un nombre para usarlo como nombre de archivo
+ */
+declare function sanitizeFileName(name: string): string;
+/**
+ * Valida y formatea el período en formato YYYYMM
+ */
+declare function validatePeriod(period: string): string;
+/**
+ * Genera el nombre del archivo global
+ */
+declare function generateGlobalFileName(companyName: string, period: string): string;
+/**
+ * Genera el nombre del archivo split
+ */
+declare function generateSplitFileName(employeeName: string, period: string, pageNumber: number): string;
+/**
+ * Genera el nombre del archivo de texto
+ */
+declare function generateTextFileName(employeeName: string, period: string, pageNumber: number): string;
+
+export { extractBasicNominaInfoFromText as a, generateTextFileName as b, generateGlobalFileName as c, correctNameFormat as d, extractBasicNominaInfo as e, generateSplitFileName as g, sanitizeFileName as s, validatePeriod as v };
+export type { ApiResponse as A, BasicNominaInfo as B, NominaData as N, ProcessingOptions as P, SplitDocument as S, VaclyConfig as V, ProcessingResult as f };

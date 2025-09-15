@@ -99,7 +99,7 @@ export default function VaclyNominas() {
     try {
       // Upload file to Supabase Storage
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('pdf', file)
 
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
