@@ -65,7 +65,7 @@ export interface Expense {
   method?: string
   notes?: string | null
   image?: string | null
-  date?: string  // Alias para expense_date
+  date?: string  // Alias para expense_date (siempre presente después de transformación)
   conceptos?: {
     items?: ReceiptItem[]
     taxes?: ReceiptTaxes | null

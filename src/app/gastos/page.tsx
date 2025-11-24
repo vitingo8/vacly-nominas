@@ -865,7 +865,7 @@ export default function GastosPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-center text-sm text-slate-600">
-                        {formatDate(expense.date)}
+                        {formatDate(expense.date || expense.expense_date || '')}
                       </TableCell>
                       <TableCell className="text-center text-sm text-slate-600">
                         {expense.method}
