@@ -133,7 +133,7 @@ export function ExpenseCard({
             </span>
             <span className="text-slate-300">•</span>
             <span className="text-xs text-slate-500">
-              {formatDate(expense.date)}
+              {formatDate(expense.date || expense.expense_date || '')}
             </span>
           </div>
         </div>
@@ -274,7 +274,7 @@ export function ExpenseCard({
           </div>
           <div className="flex items-center gap-1.5 text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">
             <Calendar className="w-3.5 h-3.5 text-slate-500" />
-            <span>{formatDate(expense.date)}</span>
+            <span>{formatDate(expense.date || expense.expense_date || '')}</span>
           </div>
         </div>
       </div>

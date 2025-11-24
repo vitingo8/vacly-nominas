@@ -1193,7 +1193,7 @@ export default function GastosPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <p className="text-xs text-slate-500 uppercase font-medium">Fecha</p>
-                          <p className="text-sm font-semibold text-slate-800">{formatDate(selectedExpense.date)}</p>
+                          <p className="text-sm font-semibold text-slate-800">{formatDate(selectedExpense.date || selectedExpense.expense_date || '')}</p>
                         </div>
                         <div>
                           <p className="text-xs text-slate-500 uppercase font-medium">Método de Pago</p>
