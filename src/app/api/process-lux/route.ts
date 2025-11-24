@@ -906,11 +906,34 @@ async function processFullPDF(filename: string, url: string) {
                     console.error(`❌ Error uploading split PDF page ${pageNum}:`, pdfUploadError)
                   }
 
-                  // Get PDF URL
-                  const { data: pdfUrlData } = supabase
-                    .storage
-                    .from('split-pdfs')
-                    .getPublicUrl(pagePdfName)
+                  // Get PDF URL - usar signed URL para producción (evita problemas de políticas)
+                  let pdfUrl = ''
+                  try {
+                    const { data: signedUrlData, error: signedError } = await supabase
+                      .storage
+                      .from('split-pdfs')
+                      .createSignedUrl(pagePdfName, 3600) // 1 hora de validez
+                    
+                    if (signedError || !signedUrlData) {
+                      // Fallback a public URL si falla la signed
+                      const { data: publicUrlData } = supabase
+                        .storage
+                        .from('split-pdfs')
+                        .getPublicUrl(pagePdfName)
+                      pdfUrl = publicUrlData.publicUrl
+                    } else {
+                      pdfUrl = signedUrlData.signedUrl
+                    }
+                  } catch (urlError) {
+                    // Fallback a public URL en caso de error
+                    const { data: publicUrlData } = supabase
+                      .storage
+                      .from('split-pdfs')
+                      .getPublicUrl(pagePdfName)
+                    pdfUrl = publicUrlData.publicUrl
+                  }
+                  
+                  const pdfUrlData = { publicUrl: pdfUrl }
 
                   // Upload text content
                   const { error: textUploadError } = await supabase
@@ -929,11 +952,34 @@ async function processFullPDF(filename: string, url: string) {
                     logWithTime(`Archivos de página ${pageNum} subidos a Storage`, storageStart)
                   }
 
-                  // Get text URL
-                  const { data: textUrlData } = supabase
-                    .storage
-                    .from('text-files')
-                    .getPublicUrl(textFileName)
+                  // Get text URL - usar signed URL para producción
+                  let textUrl = ''
+                  try {
+                    const { data: signedTextUrlData, error: signedTextError } = await supabase
+                      .storage
+                      .from('text-files')
+                      .createSignedUrl(textFileName, 3600) // 1 hora de validez
+                    
+                    if (signedTextError || !signedTextUrlData) {
+                      // Fallback a public URL si falla la signed
+                      const { data: publicTextUrlData } = supabase
+                        .storage
+                        .from('text-files')
+                        .getPublicUrl(textFileName)
+                      textUrl = publicTextUrlData.publicUrl
+                    } else {
+                      textUrl = signedTextUrlData.signedUrl
+                    }
+                  } catch (urlError) {
+                    // Fallback a public URL en caso de error
+                    const { data: publicTextUrlData } = supabase
+                      .storage
+                      .from('text-files')
+                      .getPublicUrl(textFileName)
+                    textUrl = publicTextUrlData.publicUrl
+                  }
+                  
+                  const textUrlData = { publicUrl: textUrl }
 
                   // PASO 4: Guardar directamente en las tablas correctas si tenemos datos completos
                   let dbSaved = false

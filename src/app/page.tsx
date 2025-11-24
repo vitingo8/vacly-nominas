@@ -443,6 +443,81 @@ export default function VaclyNominas() {
     setIsViewerOpen(true)
   }
 
+  // Función para abrir visor desde historial de nóminas
+  const openViewerFromHistorial = async (nomina: any) => {
+    try {
+      // Buscar el documento procesado relacionado con esta nómina
+      const { getSupabaseClient } = await import('@/lib/supabase')
+      const supabase = getSupabaseClient()
+      
+      // Buscar en processed_documents usando el document_name de la nómina
+      let pdfUrl = ''
+      let textUrl = ''
+      
+      if (nomina.document_name) {
+        try {
+          // Intentar obtener signed URL para producción
+          const { data: signedPdfData } = await supabase
+            .storage
+            .from('split-pdfs')
+            .createSignedUrl(nomina.document_name, 3600)
+          
+          if (signedPdfData) {
+            pdfUrl = signedPdfData.signedUrl
+          } else {
+            // Fallback a public URL
+            const { data: publicPdfData } = supabase
+              .storage
+              .from('split-pdfs')
+              .getPublicUrl(nomina.document_name)
+            pdfUrl = publicPdfData.publicUrl
+          }
+        } catch (urlError) {
+          console.error('[FRONTEND] Error obteniendo URL del PDF:', urlError)
+          const { data: publicPdfData } = supabase
+            .storage
+            .from('split-pdfs')
+            .getPublicUrl(nomina.document_name)
+          pdfUrl = publicPdfData.publicUrl
+        }
+      }
+
+      // Crear un SplitDocument desde la nómina del historial
+      const document: SplitDocument = {
+        id: nomina.id,
+        filename: nomina.document_name || `nomina_${nomina.id}.pdf`,
+        pageNumber: 1,
+        textContent: '',
+        pdfUrl: pdfUrl,
+        textUrl: textUrl,
+        claudeProcessed: true,
+        nominaData: {
+          id: nomina.id,
+          nominaId: nomina.id,
+          period_start: nomina.period_start,
+          period_end: nomina.period_end,
+          employee: nomina.employee,
+          company: nomina.company,
+          perceptions: nomina.perceptions,
+          deductions: nomina.deductions,
+          contributions: nomina.contributions,
+          base_ss: nomina.base_ss,
+          net_pay: nomina.net_pay,
+          gross_salary: nomina.gross_salary,
+          iban: nomina.iban,
+          swift_bic: nomina.swift_bic,
+          cost_empresa: nomina.cost_empresa,
+          signed: nomina.signed,
+          employee_avatar: nomina.employee_avatar
+        }
+      }
+      openViewer(document)
+    } catch (error) {
+      console.error('[FRONTEND] Error abriendo visor desde historial:', error)
+      alert('Error al abrir el documento. Por favor, intenta de nuevo.')
+    }
+  }
+
   const processedCount = splitDocuments.filter(doc => doc.claudeProcessed).length
   const pendingCount = splitDocuments.length - processedCount
 
@@ -790,8 +865,18 @@ export default function VaclyNominas() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              onClick={() => openViewerFromHistorial(nomina)}
+                              className="h-7 w-7 p-0 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                              title="Ver detalles"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => deleteNomina(nomina.id)}
                               className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                              title="Eliminar"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>
