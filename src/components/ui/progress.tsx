@@ -35,7 +35,7 @@ const Progress = React.forwardRef<
         style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
       />
       {/* Shimmer effect when loading */}
-      {value !== undefined && value < 100 && value > 0 && (
+      {value != null && value < 100 && value > 0 && (
         <div 
           className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"
           style={{ 

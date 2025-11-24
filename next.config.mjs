@@ -8,8 +8,7 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Enable production optimizations
-  swcMinify: true,
+  // Enable production optimizations (SWC minify is default in Next.js 13+)
   compress: true,
   
   // Disable source maps in production for security
@@ -96,11 +95,6 @@ const nextConfig = {
   //   return config;
   // },
   
-  // Experimental features for additional security
-  experimental: {
-    // Enable modern bundling
-    esmExternals: 'loose',
-  },
 };
 
 export default nextConfig; 
