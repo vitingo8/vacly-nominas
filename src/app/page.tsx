@@ -345,8 +345,8 @@ export default function VaclyNominas() {
   const processedCount = splitDocuments.filter(doc => doc.claudeProcessed).length
 
   return (
-    <div className="min-h-screen bg-[#f6f8fa] p-4 md:p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-[#f6f8fa]">
+      <div className="w-full mx-auto px-6 py-8">
         {/* Upload Section */}
         <Card className="mb-6 border-none shadow-lg bg-white mt-0">
           <CardHeader className="bg-gradient-to-r from-[#1B2A41] to-[#2d4057] text-white rounded-t-lg">
