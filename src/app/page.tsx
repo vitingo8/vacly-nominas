@@ -189,9 +189,20 @@ export default function VaclyNominas() {
   }
 
   const handleProcessWithClaude = async (document: SplitDocument) => {
+    // Skip if already processed
+    if (document.claudeProcessed) {
+      console.log('⏭️ Document already processed, skipping')
+      return
+    }
+
     setIsProcessingClaude(document.id)
 
     try {
+      // Validar que tengamos el contenido necesario
+      if (!document.textContent || !document.id) {
+        throw new Error('Faltan datos del documento: textContent o id no disponible')
+      }
+
       // Use the LUX processing endpoint for individual documents
       const response = await fetch('/api/process-lux', {
         method: 'POST',
@@ -204,9 +215,14 @@ export default function VaclyNominas() {
         }),
       })
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
+      }
+
       const result = await response.json()
 
-      if (response.ok) {
+      if (result.success && result.data?.processedData) {
         // Update document with processed data
         setSplitDocuments(prev =>
           prev.map(doc =>
@@ -219,11 +235,14 @@ export default function VaclyNominas() {
               : doc
           )
         )
+        console.log('✅ Documento procesado exitosamente')
       } else {
-        alert(`Error procesando con Claude: ${result.error}`)
+        throw new Error(result.error || 'Sin datos en la respuesta')
       }
     } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const errorMsg = error instanceof Error ? error.message : 'Error desconocido'
+      console.error('❌ Error procesando con Claude:', errorMsg)
+      alert(`Error procesando con Claude: ${errorMsg}`)
     } finally {
       setIsProcessingClaude(null)
     }
