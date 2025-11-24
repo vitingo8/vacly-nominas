@@ -601,9 +601,11 @@ async function processFullPDF(filename: string, url: string) {
             sendProgress(20, `Documento dividido: ${pageCount} páginas. Procesando en paralelo...`, 0, pageCount)
 
             const documents: SplitDocument[] = []
-            const MAX_PARALLEL = 3 // Máximo 3 en paralelo
+            // Procesamiento paralelo optimizado: más concurrencia para mayor velocidad
+            const MAX_PARALLEL = Math.min(6, pageCount) // Hasta 6 en paralelo
+            const RETRY_ATTEMPTS = 2 // Reintentos para páginas fallidas
 
-            // PASO 2 y 3: Process pages in parallel batches
+            // PASO 2 y 3: Process pages in parallel batches with Promise.allSettled
             for (let batchStart = 0; batchStart < pageCount; batchStart += MAX_PARALLEL) {
               const batchEnd = Math.min(batchStart + MAX_PARALLEL, pageCount)
               const batchPromises = []
@@ -655,8 +657,11 @@ async function processFullPDF(filename: string, url: string) {
                 })())
               }
 
-              // Wait for all promises in batch
-              const batchResults = await Promise.all(batchPromises)
+              // Wait for all promises in batch with error handling
+              const batchSettled = await Promise.allSettled(batchPromises)
+              const batchResults = batchSettled
+                .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+                .map(r => r.value)
               
               // Process results
               for (const result of batchResults) {

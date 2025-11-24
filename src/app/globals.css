@@ -178,6 +178,48 @@ img {
     50% { transform: translateY(-10px); }
   }
   
+  /* Pulse glow animation */
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite;
+  }
+  
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.3); }
+    50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.6); }
+  }
+  
+  /* Shimmer effect for loading */
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    background-size: 200% 100%;
+  }
+  
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  
+  /* Scale in animation */
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out;
+  }
+  
+  @keyframes scaleIn {
+    0% { transform: scale(0.95); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  
+  /* Slide up animation */
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out;
+  }
+  
+  @keyframes slideUp {
+    0% { transform: translateY(20px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+  
   /* Lux gradient classes */
   .gradient-lux {
     @apply bg-gradient-to-r from-emerald-600 to-yellow-600;
@@ -193,5 +235,77 @@ img {
   
   .shadow-lux {
     box-shadow: 0 25px 50px -12px rgba(16, 185, 129, 0.25), 0 0 0 1px rgba(16, 185, 129, 0.05);
+  }
+  
+  /* Premium card styles */
+  .card-premium {
+    @apply relative overflow-hidden rounded-2xl bg-white border border-slate-200;
+    @apply transition-all duration-300 ease-out;
+    @apply hover:shadow-2xl hover:border-slate-300 hover:-translate-y-1;
+  }
+  
+  .card-premium::before {
+    content: '';
+    @apply absolute inset-0 opacity-0 transition-opacity duration-300;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.03) 0%, rgba(245, 158, 11, 0.03) 100%);
+  }
+  
+  .card-premium:hover::before {
+    @apply opacity-100;
+  }
+  
+  /* KPI card styles */
+  .kpi-card {
+    @apply relative overflow-hidden rounded-xl p-4;
+    @apply transition-all duration-200 ease-out;
+    @apply hover:scale-[1.02];
+  }
+  
+  /* Tabular numbers for financial data */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  
+  /* Progress bar custom styles */
+  .progress-gradient {
+    background: linear-gradient(90deg, #10b981, #14b8a6, #06b6d4);
+    background-size: 200% 100%;
+    animation: progressShimmer 2s ease infinite;
+  }
+  
+  @keyframes progressShimmer {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  
+  /* Badge animations */
+  .badge-pulse {
+    animation: badgePulse 2s ease-in-out infinite;
+  }
+  
+  @keyframes badgePulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  
+  /* Scrollbar for content areas (not hidden) */
+  .scrollbar-thin::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
   }
 }
