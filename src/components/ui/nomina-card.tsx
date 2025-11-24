@@ -172,6 +172,16 @@ export function NominaCard({
       )
     }
 
+    // Get employee avatar from nominaData if available
+    const employeeAvatar = nominaData.employee_avatar
+    console.log(`[NOMINA_CARD] Renderizando card compacta:`, {
+      documentId: document.id,
+      employeeName: nominaData.employee?.name,
+      dni: nominaData.employee?.dni,
+      employee_avatar: employeeAvatar,
+      tieneAvatar: !!employeeAvatar
+    })
+
     return (
       <div
         onClick={onSelect}
@@ -181,9 +191,17 @@ export function NominaCard({
           isSelected ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200"
         )}
       >
-        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-          <User className="w-5 h-5 text-white" />
-        </div>
+        {employeeAvatar ? (
+          <img
+            src={employeeAvatar}
+            alt={nominaData.employee?.name || 'Avatar'}
+            className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-slate-200"
+          />
+        ) : (
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
+            <User className="w-5 h-5 text-white" />
+          </div>
+        )}
         
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">

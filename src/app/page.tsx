@@ -118,15 +118,27 @@ export default function VaclyNominas() {
   const loadHistorial = async (page = 0) => {
     setIsLoadingHistorial(true)
     try {
+      console.log(`[FRONTEND] 🔄 Cargando historial página ${page}`)
       const response = await fetch(`/api/nominas?limit=${HISTORIAL_LIMIT}&offset=${page * HISTORIAL_LIMIT}`)
       const data = await response.json()
+      console.log(`[FRONTEND] Historial recibido:`, {
+        success: data.success,
+        total: data.total,
+        count: data.data?.length,
+        nominas: data.data?.map((n: any) => ({
+          id: n.id,
+          dni: n.dni || n.employee?.dni,
+          employee_avatar: n.employee_avatar,
+          tieneAvatar: !!n.employee_avatar
+        }))
+      })
       if (data.success) {
         setHistorialNominas(data.data || [])
         setHistorialTotal(data.total || 0)
         setHistorialPage(page)
       }
     } catch (error) {
-      console.error('Error cargando historial:', error)
+      console.error('[FRONTEND] ❌ Error cargando historial:', error)
     } finally {
       setIsLoadingHistorial(false)
     }
@@ -328,10 +340,22 @@ export default function VaclyNominas() {
 
       if (result.success && result.data?.processedData) {
         console.log(`[FRONTEND] ✅ Documento procesado en ${processDuration.toFixed(0)}ms`)
+        console.log(`[FRONTEND] processedData recibido:`, {
+          employee: result.data.processedData.employee,
+          employee_avatar: result.data.processedData.employee_avatar,
+          dni: result.data.processedData.employee?.dni
+        })
         setSplitDocuments(prev =>
           prev.map(doc =>
             doc.id === document.id
-              ? { ...doc, claudeProcessed: true, nominaData: result.data.processedData }
+              ? { 
+                  ...doc, 
+                  claudeProcessed: true, 
+                  nominaData: {
+                    ...result.data.processedData,
+                    employee_avatar: result.data.processedData.employee_avatar
+                  }
+                }
               : doc
           )
         )
@@ -717,10 +741,10 @@ export default function VaclyNominas() {
                               <img 
                                 src={nomina.employee_avatar} 
                                 alt={nomina.employee?.name || 'Avatar'}
-                                className="w-8 h-8 rounded-lg object-cover flex-shrink-0"
+                                className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-slate-200"
                               />
                             ) : (
-                              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
                                 <User className="w-4 h-4 text-white" />
                               </div>
                             )}

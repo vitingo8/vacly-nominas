@@ -515,11 +515,79 @@ Responde ÚNICAMENTE con este JSON válido:
       throw new Error('Invalid JSON response from Claude')
     }
 
+      // Buscar avatar del empleado en la tabla employees por DNI y company_id
+      let employeeAvatar = null
+      const dni = processedData?.employee?.dni
+      console.log(`[PROCESS_LUX] 🔍 Buscando avatar para documento ${documentId}`)
+      console.log(`[PROCESS_LUX] DNI extraído:`, dni)
+      console.log(`[PROCESS_LUX] processedData.employee:`, processedData?.employee)
+      
+      // Obtener company_id del documento procesado
+      let companyId = null
+      try {
+        const supabase = getSupabaseClient()
+        const { data: document } = await supabase
+          .from('processed_documents')
+          .select('company_id')
+          .eq('id', documentId)
+          .maybeSingle()
+        
+        companyId = document?.company_id || null
+        console.log(`[PROCESS_LUX] company_id obtenido del documento:`, companyId)
+      } catch (docError) {
+        console.error(`[PROCESS_LUX] Error obteniendo company_id:`, docError)
+      }
+      
+      if (dni && companyId) {
+        try {
+          const supabase = getSupabaseClient()
+          const dniLimpio = dni.trim().toUpperCase()
+          console.log(`[PROCESS_LUX] Buscando en employees.nif = "${dniLimpio}" y company_id = "${companyId}"`)
+          const { data: employee, error } = await supabase
+            .from('employees')
+            .select('nif, image_url, company_id')
+            .eq('nif', dniLimpio)
+            .eq('company_id', companyId)
+            .maybeSingle()
+          
+          console.log(`[PROCESS_LUX] Resultado búsqueda:`, {
+            dniBuscado: dniLimpio,
+            companyId: companyId,
+            encontrado: !!employee,
+            employeeNif: employee?.nif,
+            employeeCompanyId: employee?.company_id,
+            imageUrl: employee?.image_url,
+            error: error?.message
+          })
+          
+          employeeAvatar = employee?.image_url || null
+          if (employeeAvatar) {
+            console.log(`[PROCESS_LUX] ✅ Avatar encontrado para DNI ${dniLimpio} y company ${companyId}:`, employeeAvatar)
+          } else {
+            console.warn(`[PROCESS_LUX] ⚠️ No se encontró avatar para DNI ${dniLimpio} y company ${companyId}`)
+          }
+        } catch (avatarError) {
+          console.error(`[PROCESS_LUX] ❌ Error buscando avatar:`, avatarError)
+        }
+      } else {
+        if (!dni) {
+          console.warn(`[PROCESS_LUX] ⚠️ No hay DNI disponible en processedData`)
+        }
+        if (!companyId) {
+          console.warn(`[PROCESS_LUX] ⚠️ No hay company_id disponible`)
+        }
+      }
+      
+      console.log(`[PROCESS_LUX] Avatar final asignado:`, employeeAvatar)
+
       logWithTime(`✅ Documento individual procesado completamente`, startTime)
       return NextResponse.json({
         success: true,
         data: {
-          processedData,
+          processedData: {
+            ...processedData,
+            employee_avatar: employeeAvatar
+          },
           documentId,
           mode: 'lux'
         }
