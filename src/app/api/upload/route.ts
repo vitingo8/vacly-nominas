@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabase'
 import { v4 as uuidv4 } from 'uuid'
 import { extractBasicNominaInfo, generateGlobalFileName } from '@/lib/pdf-naming'
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 export async function POST(request: NextRequest) {
   try {
+    const supabase = getSupabaseClient()
     const data = await request.formData()
     const file: File | null = data.get('pdf') as unknown as File
 

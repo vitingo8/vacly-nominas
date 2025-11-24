@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabase'
 import { parsePDF } from '@/lib/pdf-utils'
 import { extractBasicNominaInfo, generateSplitFileName, generateTextFileName } from '@/lib/pdf-naming'
 
@@ -15,14 +15,9 @@ interface SplitDocument {
   claudeProcessed: boolean
 }
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 export async function POST(request: NextRequest) {
   try {
+    const supabase = getSupabaseClient()
     console.log('🔄 Starting PDF processing...')
     
     const { filename, url } = await request.json()

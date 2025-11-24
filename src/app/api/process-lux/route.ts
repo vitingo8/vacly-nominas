@@ -10,14 +10,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabase'
 import { parsePDF } from '@/lib/pdf-utils'
 import { extractBasicNominaInfo, generateSplitFileName, generateTextFileName, correctNameFormat, generateGlobalFileName } from '@/lib/pdf-naming'
 import Anthropic from '@anthropic-ai/sdk'
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-})
 
 interface SplitDocument {
   id: string
@@ -36,17 +32,15 @@ interface GlobalFileInfo {
   totalPages: number
 }
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 /**
  * Extrae información del archivo global usando Haiku 3.5
  */
 async function extractGlobalFileInfo(filename: string, pdfBuffer: Buffer): Promise<GlobalFileInfo> {
   try {
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY!,
+    })
+    
     const prompt = `Analiza este nombre de archivo PDF y el contenido del documento para extraer información global:
 
 Nombre del archivo: "${filename}"
@@ -64,8 +58,9 @@ Responde ÚNICAMENTE con un objeto JSON:
 
 Si no encuentras datos específicos, deduce basándote en el nombre del archivo o usa valores por defecto.`
 
+    const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001"
     const response = await anthropic.messages.create({
-      model: "claude-3-5-haiku-20241022",
+      model: MODEL,
       max_tokens: 4000,
       messages: [
         {
@@ -140,6 +135,10 @@ async function processPageWithFullData(pdfBytes: Uint8Array, pageNum: number): P
   textContent: string
 }> {
   try {
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY!,
+    })
+    
     // Extract text content for storage
     const textContent = await parsePDF(Buffer.from(pdfBytes))
     
@@ -217,8 +216,9 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
   }
 }`
 
+    const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001"
     const response = await anthropic.messages.create({
-      model: "claude-3-5-haiku-20241022",
+      model: MODEL,
       max_tokens: 4000,
       messages: [
         {
@@ -349,6 +349,10 @@ async function processIndividualDocument(textContent: string, documentId: string
   console.log('🧠 Processing individual document with Claude LUX...')
 
   try {
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY!,
+    })
+    
     // Use Claude 3.5 Haiku to process the document
     const prompt = `TAREA: Analizar nómina española y extraer datos estructurados con máxima precisión.
 
@@ -431,8 +435,9 @@ Responde ÚNICAMENTE con este JSON válido:
   "signed": false
 }`
 
+    const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001"
     const response = await anthropic.messages.create({
-      model: "claude-3-5-haiku-20241022",
+      model: MODEL,
       max_tokens: 4000,
       messages: [
         {
@@ -477,6 +482,8 @@ async function processFullPDF(filename: string, url: string) {
   console.log('📄 Processing file:', filename, 'from URL:', url)
 
   try {
+    const supabase = getSupabaseClient()
+    
     // Get document type ID for nomina (with fallback)
     let documentTypeId = 'nomina-type-id'
     const { data: documentType, error: docTypeError } = await supabase
