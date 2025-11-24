@@ -58,6 +58,7 @@ interface NominaData {
   swift_bic?: string
   cost_empresa: number
   signed: boolean
+  employee_avatar?: string | null
 }
 
 interface SplitDocument {
