@@ -8,6 +8,10 @@ export function middleware(request: NextRequest) {
   // Agregar headers básicos de seguridad (no restrictivos)
   response.headers.set('X-Content-Type-Options', 'nosniff')
   
+  // Permitir que se cargue en iframe desde cualquier origen
+  response.headers.set('X-Frame-Options', 'ALLOWALL')
+  response.headers.set('Content-Security-Policy', "frame-ancestors *;")
+  
   return response
 }
 
