@@ -306,15 +306,35 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
+    console.log('📥 Endpoint process-lux recibió:', {
+      hasTextContent: !!body.textContent,
+      textLength: body.textContent?.length || 0,
+      hasDocumentId: !!body.documentId,
+      hasFilename: !!body.filename,
+      hasUrl: !!body.url
+    })
+
     // Handle two cases: full processing (filename + url) or individual document processing (textContent + documentId)
     if (body.textContent && body.documentId) {
+      console.log('✅ Procesando documento individual con Claude')
       // Individual document processing with Claude
       return await processIndividualDocument(body.textContent, body.documentId)
     } else if (body.filename && body.url) {
+      console.log('✅ Procesando PDF completo con streaming')
       // Full PDF processing with streaming
       return await processFullPDF(body.filename, body.url)
     } else {
-      return NextResponse.json({ error: 'Either (textContent + documentId) or (filename + url) are required' }, { status: 400 })
+      console.error('❌ Parámetros inválidos:', { body })
+      return NextResponse.json({ 
+        error: 'Parámetros inválidos',
+        details: 'Se requiere (textContent + documentId) para documento individual o (filename + url) para PDF completo',
+        received: {
+          hasTextContent: !!body.textContent,
+          hasDocumentId: !!body.documentId,
+          hasFilename: !!body.filename,
+          hasUrl: !!body.url
+        }
+      }, { status: 400 })
     }
   } catch (error) {
     console.error('💥 Critical processing error:', error)

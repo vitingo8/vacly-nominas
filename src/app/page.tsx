@@ -189,19 +189,36 @@ export default function VaclyNominas() {
   }
 
   const handleProcessWithClaude = async (document: SplitDocument) => {
-    // Skip if already processed
-    if (document.claudeProcessed) {
-      console.log('⏭️ Document already processed, skipping')
+    // Skip if already successfully processed
+    if (document.claudeProcessed && document.nominaData) {
+      console.log('⏭️ Document already successfully processed, skipping')
       return
     }
 
     setIsProcessingClaude(document.id)
 
     try {
-      // Validar que tengamos el contenido necesario
-      if (!document.textContent || !document.id) {
-        throw new Error('Faltan datos del documento: textContent o id no disponible')
+      // Validar que tengamos ID
+      if (!document.id) {
+        throw new Error('Documento sin ID válido')
       }
+
+      // Si no tiene textContent, intentar usar el filename/URL para reprocesar el PDF
+      let textContent = document.textContent
+      let requestBody: any = { documentId: document.id }
+
+      if (!textContent) {
+        console.warn('⚠️ Documento sin textContent, intentando reprocesar desde PDF...')
+        // Si no tenemos textContent, no podemos procesar como individual
+        // Esto requeriría re-descargar el PDF completo, lo cual no es ideal
+        throw new Error(
+          'No hay contenido de texto disponible. Por favor, vuelve a subir el PDF completo.'
+        )
+      }
+
+      requestBody.textContent = textContent
+
+      console.log('📨 Enviando documento a Claude:', { documentId: document.id, textLength: textContent.length })
 
       // Use the LUX processing endpoint for individual documents
       const response = await fetch('/api/process-lux', {
@@ -209,15 +226,13 @@ export default function VaclyNominas() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          textContent: document.textContent,
-          documentId: document.id,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
+        const errorMsg = errorData.error || errorData.details || `HTTP ${response.status}`
+        throw new Error(errorMsg)
       }
 
       const result = await response.json()
@@ -235,14 +250,19 @@ export default function VaclyNominas() {
               : doc
           )
         )
-        console.log('✅ Documento procesado exitosamente')
+        console.log('✅ Documento procesado exitosamente:', result.data.processedData)
       } else {
-        throw new Error(result.error || 'Sin datos en la respuesta')
+        console.warn('⚠️ Respuesta inesperada:', result)
+        throw new Error(result.error || 'Sin datos en la respuesta de Claude')
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Error desconocido'
-      console.error('❌ Error procesando con Claude:', errorMsg)
-      alert(`Error procesando con Claude: ${errorMsg}`)
+      console.error('❌ Error procesando con Claude:', {
+        documentId: document.id,
+        error: errorMsg,
+        hasTextContent: !!document.textContent
+      })
+      alert(`Error procesando documento:\n\n${errorMsg}\n\nIntenta cargar el PDF nuevamente.`)
     } finally {
       setIsProcessingClaude(null)
     }
@@ -328,7 +348,7 @@ export default function VaclyNominas() {
     <div className="min-h-screen bg-[#f6f8fa] p-4 md:p-6">
       <div className="max-w-7xl mx-auto">
         {/* Upload Section */}
-        <Card className="mb-6 border-none shadow-lg bg-white">
+        <Card className="mb-6 border-none shadow-lg bg-white mt-0">
           <CardHeader className="bg-gradient-to-r from-[#1B2A41] to-[#2d4057] text-white rounded-t-lg">
             <CardTitle className="flex items-center gap-2 text-xl">
               <Upload className="h-6 w-6" />
@@ -482,18 +502,10 @@ export default function VaclyNominas() {
                         <Button
                           onClick={() => openViewer(selectedDocument)}
                           size="sm"
-                          variant="outline"
+                          className="bg-[#C6A664] hover:bg-[#B8964A] text-white"
                         >
                           <Eye className="h-4 w-4 mr-2" />
-                          Ver PDF
-                        </Button>
-                        <Button
-                          onClick={() => openViewer(selectedDocument)}
-                          size="sm"
-                          variant="outline"
-                        >
-                          <FileText className="h-4 w-4 mr-2" />
-                          Ver Texto
+                          Ver Documento Completo
                         </Button>
                         <a
                           href={selectedDocument.pdfUrl}
@@ -520,24 +532,17 @@ export default function VaclyNominas() {
 
                         {/* Tab: Resumen */}
                         <TabsContent value="resumen" className="space-y-4">
-                          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                            <h3 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
-                              <CheckCircle className="h-5 w-5" />
-                              Documento Procesado con IA
-                            </h3>
-                          </div>
-
                           {/* Cards de Estadísticas */}
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <Card className="border-none shadow-md bg-gradient-to-br from-blue-50 to-blue-100">
                               <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-[#1B2A41]">
+                                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-[#1B2A41]" style={{fontFamily: 'Inter'}}>
                                   <DollarSign className="h-5 w-5 text-blue-600" />
                                   Salario Bruto
                                 </CardTitle>
                               </CardHeader>
                               <CardContent>
-                                <div className="text-3xl font-bold text-blue-700">
+                                <div className="text-3xl font-bold text-blue-700" style={{fontFamily: 'Inter'}}>
                                   €{(selectedDocument.nominaData.gross_salary || 0).toFixed(2)}
                                 </div>
                               </CardContent>
@@ -545,13 +550,13 @@ export default function VaclyNominas() {
 
                             <Card className="border-none shadow-md bg-gradient-to-br from-green-50 to-emerald-100">
                               <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-[#1B2A41]">
+                                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-[#1B2A41]" style={{fontFamily: 'Inter'}}>
                                   <CreditCard className="h-5 w-5 text-green-600" />
                                   Salario Neto
                                 </CardTitle>
                               </CardHeader>
                               <CardContent>
-                                <div className="text-3xl font-bold text-green-700">
+                                <div className="text-3xl font-bold text-green-700" style={{fontFamily: 'Inter'}}>
                                   €{selectedDocument.nominaData.net_pay.toFixed(2)}
                                 </div>
                               </CardContent>
@@ -559,13 +564,13 @@ export default function VaclyNominas() {
 
                             <Card className="border-none shadow-md bg-gradient-to-br from-amber-50 to-yellow-100">
                               <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-[#1B2A41]">
+                                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-[#1B2A41]" style={{fontFamily: 'Inter'}}>
                                   <TrendingUp className="h-5 w-5 text-[#C6A664]" />
                                   Coste Empresa
                                 </CardTitle>
                               </CardHeader>
                               <CardContent>
-                                <div className="text-3xl font-bold text-[#C6A664]">
+                                <div className="text-3xl font-bold text-[#C6A664]" style={{fontFamily: 'Inter'}}>
                                   €{selectedDocument.nominaData.cost_empresa.toFixed(2)}
                                 </div>
                               </CardContent>
@@ -573,13 +578,13 @@ export default function VaclyNominas() {
 
                             <Card className="border-none shadow-md bg-gradient-to-br from-slate-50 to-gray-100">
                               <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-[#1B2A41]">
+                                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-[#1B2A41]" style={{fontFamily: 'Inter'}}>
                                   <Building2 className="h-5 w-5 text-[#1B2A41]" />
                                   Base SS
                                 </CardTitle>
                               </CardHeader>
                               <CardContent>
-                                <div className="text-3xl font-bold text-[#1B2A41]">
+                                <div className="text-3xl font-bold text-[#1B2A41]" style={{fontFamily: 'Inter'}}>
                                   €{selectedDocument.nominaData.base_ss.toFixed(2)}
                                 </div>
                               </CardContent>
@@ -590,22 +595,22 @@ export default function VaclyNominas() {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                             <Card>
                               <CardHeader>
-                                <CardTitle className="text-base">Datos del Empleado</CardTitle>
+                                <CardTitle className="text-base" style={{fontFamily: 'Inter'}}>Datos del Empleado</CardTitle>
                               </CardHeader>
                               <CardContent className="space-y-2">
-                                <div className="flex justify-between">
+                                <div className="flex justify-between" style={{fontFamily: 'Inter'}}>
                                   <span className="text-sm font-medium">Nombre:</span>
                                   <span className="text-sm">{selectedDocument.nominaData.employee.name || 'N/A'}</span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div className="flex justify-between" style={{fontFamily: 'Inter'}}>
                                   <span className="text-sm font-medium">DNI:</span>
                                   <span className="text-sm">{selectedDocument.nominaData.employee.dni || 'N/A'}</span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div className="flex justify-between" style={{fontFamily: 'Inter'}}>
                                   <span className="text-sm font-medium">NSS:</span>
                                   <span className="text-sm">{selectedDocument.nominaData.employee.nss || 'N/A'}</span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div className="flex justify-between" style={{fontFamily: 'Inter'}}>
                                   <span className="text-sm font-medium">Categoría:</span>
                                   <span className="text-sm">{selectedDocument.nominaData.employee.category || 'N/A'}</span>
                                 </div>
@@ -614,22 +619,22 @@ export default function VaclyNominas() {
 
                             <Card>
                               <CardHeader>
-                                <CardTitle className="text-base">Datos de la Empresa</CardTitle>
+                                <CardTitle className="text-base" style={{fontFamily: 'Inter'}}>Datos de la Empresa</CardTitle>
                               </CardHeader>
                               <CardContent className="space-y-2">
-                                <div className="flex justify-between">
+                                <div className="flex justify-between" style={{fontFamily: 'Inter'}}>
                                   <span className="text-sm font-medium">Empresa:</span>
                                   <span className="text-sm">{selectedDocument.nominaData.company.name || 'N/A'}</span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div className="flex justify-between" style={{fontFamily: 'Inter'}}>
                                   <span className="text-sm font-medium">CIF:</span>
                                   <span className="text-sm">{selectedDocument.nominaData.company.cif || 'N/A'}</span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div className="flex justify-between" style={{fontFamily: 'Inter'}}>
                                   <span className="text-sm font-medium">Período:</span>
                                   <span className="text-sm">{selectedDocument.nominaData.period_start} - {selectedDocument.nominaData.period_end}</span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div className="flex justify-between" style={{fontFamily: 'Inter'}}>
                                   <span className="text-sm font-medium">IBAN:</span>
                                   <span className="text-sm text-xs">{selectedDocument.nominaData.iban || 'N/A'}</span>
                                 </div>
