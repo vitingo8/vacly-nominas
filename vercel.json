@@ -10,12 +10,12 @@
       "maxDuration": 300
     }
   },
-  "env": [
-    "NEXT_PUBLIC_SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "ANTHROPIC_API_KEY",
-    "CLAUDE_MODEL"
-  ],
+  "env": {
+    "NEXT_PUBLIC_SUPABASE_URL": "@next_public_supabase_url",
+    "SUPABASE_SERVICE_ROLE_KEY": "@supabase_service_role_key",
+    "ANTHROPIC_API_KEY": "@anthropic_api_key",
+    "CLAUDE_MODEL": "@claude_model"
+  },
   "git": {
     "deploymentEnabled": {
       "main": true
