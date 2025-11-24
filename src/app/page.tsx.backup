@@ -707,7 +707,7 @@ export default function Home() {
           <div className="flex justify-between items-center py-6">
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <FileSpreadsheet className="h-8 w-8 text-blue-600" />
+                <FileSpreadsheet className="h-8 w-8 text-primary" />
                 <h1 className="text-2xl font-bold text-gray-900">Vacly Nóminas</h1>
               </div>
               <Badge variant="secondary" className="text-xs">
@@ -735,7 +735,7 @@ export default function Home() {
                   onClick={() => setMemoryMode('enterprise')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                     memoryMode === 'enterprise' 
-                      ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-sm' 
+                      ? 'bg-gradient-to-r from-purple-600 to-primary text-white shadow-sm' 
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
@@ -766,21 +766,21 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Mode Switch Notification */}
         {memoryMode === 'enterprise' && splitDocuments.length === 0 && (
-          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="mb-6 bg-primary/10 border border-primary/100 rounded-lg p-4">
             <div className="flex items-center space-x-3">
-              <div className="bg-blue-100 rounded-full p-2">
-                <Brain className="h-5 w-5 text-blue-600" />
+              <div className="bg-primary/10 rounded-full p-2">
+                <Brain className="h-5 w-5 text-primary" />
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-blue-900">
+                <h3 className="text-sm font-semibold text-primary">
                   Modo Memoria Empresarial Activado
                 </h3>
-                <p className="text-sm text-blue-700 mt-1">
+                <p className="text-sm text-primary mt-1">
                   Tu sistema comenzará a aprender automáticamente cuando proceses documentos. 
                   Cada nómina mejorará la precisión y velocidad del siguiente procesamiento.
                 </p>
               </div>
-              <Badge className="bg-blue-600 text-white">
+              <Badge className="bg-primary text-white">
                 <Sparkles className="h-3 w-3 mr-1" />
                 PREMIUM
               </Badge>
@@ -790,7 +790,7 @@ export default function Home() {
 
         {/* Memory Benefits Banner */}
         {memoryMode === 'enterprise' && (
-          <div className="mb-8 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 text-white shadow-premium">
+          <div className="mb-8 bg-gradient-to-r from-purple-600 to-primary rounded-2xl p-8 text-white shadow-premium">
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <div className="flex items-center space-x-3 mb-4">
@@ -798,7 +798,7 @@ export default function Home() {
                   <h2 className="text-3xl font-bold">Memoria Empresarial Activa</h2>
                   <Badge className="badge-premium">PREMIUM</Badge>
                 </div>
-                <p className="text-lg mb-6 text-blue-100">
+                <p className="text-lg mb-6 text-primary/10">
                   Tu sistema aprende y mejora con cada nómina procesada. La IA reconoce patrones específicos de tu empresa.
                 </p>
                 
@@ -809,21 +809,21 @@ export default function Home() {
                       <Rocket className="h-5 w-5" />
                       <span className="font-semibold">80% más rápido</span>
                     </div>
-                    <p className="text-sm text-blue-100">Procesamiento acelerado con patrones aprendidos</p>
+                    <p className="text-sm text-primary/10">Procesamiento acelerado con patrones aprendidos</p>
                   </div>
                   <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
                     <div className="flex items-center space-x-2 mb-2">
                       <Shield className="h-5 w-5" />
                       <span className="font-semibold">99% precisión</span>
                     </div>
-                    <p className="text-sm text-blue-100">Reconocimiento exacto de tu estructura</p>
+                    <p className="text-sm text-primary/10">Reconocimiento exacto de tu estructura</p>
                   </div>
                   <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
                     <div className="flex items-center space-x-2 mb-2">
                       <TrendingUp className="h-5 w-5" />
                       <span className="font-semibold">Mejora continua</span>
                     </div>
-                    <p className="text-sm text-blue-100">Cada documento mejora el sistema</p>
+                    <p className="text-sm text-primary/10">Cada documento mejora el sistema</p>
                   </div>
                 </div>
 
@@ -857,9 +857,9 @@ export default function Home() {
 
         {/* Upload Section */}
         <Card className="mb-8 shadow-soft card-hover">
-          <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-lg">
+          <CardHeader className="bg-gradient-to-r from-primary/10 to-indigo-50 rounded-t-lg">
             <CardTitle className="text-2xl flex items-center space-x-3">
-              <Upload className="h-6 w-6 text-blue-600" />
+              <Upload className="h-6 w-6 text-primary" />
               <span>Cargar Nóminas</span>
             </CardTitle>
             <CardDescription className="text-base mt-2">
@@ -868,7 +868,7 @@ export default function Home() {
           </CardHeader>
           <CardContent className="p-8">
             <div className="space-y-6">
-              <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 transition-colors">
+              <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-primary/100 transition-colors">
                 <Input
                   type="file"
                   accept=".pdf"
@@ -881,8 +881,8 @@ export default function Home() {
                   htmlFor="file-upload"
                   className="cursor-pointer flex flex-col items-center space-y-4"
                 >
-                  <div className="p-4 bg-blue-100 rounded-full">
-                    <Upload className="h-8 w-8 text-blue-600" />
+                  <div className="p-4 bg-primary/10 rounded-full">
+                    <Upload className="h-8 w-8 text-primary" />
                   </div>
                   <div>
                     <p className="text-lg font-medium text-gray-900">
@@ -921,7 +921,7 @@ export default function Home() {
                     <div className="bg-gray-100 rounded-lg p-3">
                       <div className="flex items-center justify-between text-sm">
                         <div className="flex items-center space-x-2">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
                           <span className="text-gray-700">
                             Dividiendo PDF en {totalPages} páginas individuales
                           </span>
@@ -1106,7 +1106,7 @@ export default function Home() {
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {generateBusinessInsights(memoryStatus).map((insight, index) => (
-                <Card key={index} className="shadow-soft card-hover border-purple-200 bg-gradient-to-br from-purple-50 to-blue-50">
+                <Card key={index} className="shadow-soft card-hover border-purple-200 bg-gradient-to-br from-purple-50 to-primary/10">
                   <CardHeader>
                     <div className="flex items-start space-x-4">
                       <div className="text-4xl">{insight.icon}</div>
@@ -1158,7 +1158,7 @@ export default function Home() {
             
             {/* Memory indicator */}
             {memoryMode === 'enterprise' && (
-              <Card className="p-3 shadow-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white">
+              <Card className="p-3 shadow-lg bg-gradient-to-r from-purple-500 to-primary text-white">
                 <div className="text-center">
                   <Brain className="h-4 w-4 mx-auto mb-1" />
                   <p className="text-xs font-medium">Memoria Activa</p>
@@ -1176,7 +1176,7 @@ export default function Home() {
             {/* Company Info */}
             <div className="col-span-1 md:col-span-2">
               <div className="flex items-center space-x-2 mb-4">
-                <FileSpreadsheet className="h-8 w-8 text-blue-600" />
+                <FileSpreadsheet className="h-8 w-8 text-primary" />
                 <h3 className="text-xl font-bold text-gray-900">Vacly Nóminas</h3>
               </div>
               <p className="text-gray-600 mb-4">
@@ -1184,7 +1184,7 @@ export default function Home() {
                 datos de nóminas de forma automática y precisa.
               </p>
               <div className="flex space-x-4">
-                <Badge className="bg-blue-100 text-blue-800">
+                <Badge className="bg-primary/10 text-primary">
                   <Shield className="h-3 w-3 mr-1" />
                   Seguro
                 </Badge>
@@ -1311,14 +1311,14 @@ export default function Home() {
                 <>
                   {/* Summary Stats */}
                   <div className="grid grid-cols-3 gap-4">
-                    <Card className="bg-gradient-to-br from-blue-50 to-indigo-50">
+                    <Card className="bg-gradient-to-br from-primary/10 to-indigo-50">
                       <CardHeader className="pb-3">
                         <CardTitle className="text-sm font-medium text-gray-600">
                           Documentos Procesados
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <p className="text-2xl font-bold text-blue-600">
+                        <p className="text-2xl font-bold text-primary">
                           {memoryStatus.summary?.total_processed || 0}
                         </p>
                       </CardContent>

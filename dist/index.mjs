@@ -1,7 +1,6 @@
-import { g as generateSplitFileName, e as extractBasicNominaInfoFromText, a as extractBasicNominaInfo$1 } from './pdf-naming-D0WJmqZ5.js';
-export { d as correctNameFormat, c as generateGlobalFileName, b as generateTextFileName, s as sanitizeFileName, v as validatePeriod } from './pdf-naming-D0WJmqZ5.js';
+import { g as generateSplitFileName, e as extractBasicNominaInfoFromText, a as extractBasicNominaInfo$1 } from './pdf-naming-C3XDu2Yg.js';
+export { d as correctNameFormat, c as generateGlobalFileName, b as generateTextFileName, s as sanitizeFileName, v as validatePeriod } from './pdf-naming-C3XDu2Yg.js';
 import Anthropic from '@anthropic-ai/sdk';
-import pdf from 'pdf-parse';
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -103,30 +102,6 @@ function validatePeriod(period) {
     // If no valid format found, return current YYYYMM
     const currentDate = new Date();
     return `${currentDate.getFullYear()}${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-}
-
-async function parsePDF(pdfBuffer) {
-    try {
-        // Convert ArrayBuffer to Buffer if needed
-        const buffer = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
-        // Parse PDF and extract text
-        const data = await pdf(buffer);
-        return data.text.trim();
-    }
-    catch (error) {
-        console.error('Error parsing PDF:', error);
-        // Handle specific test file errors
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('test/data/05-versions-space.pdf') ||
-            errorMessage.includes('ENOENT') ||
-            errorMessage.includes('no such file or directory')) {
-            console.warn('Test file error caught, returning empty string');
-            return '';
-        }
-        // For other errors, still return empty string to prevent build failures
-        console.warn('PDF parsing failed, returning empty string:', errorMessage);
-        return '';
-    }
 }
 
 function r(e){var t,f,n="";if("string"==typeof e||"number"==typeof e)n+=e;else if("object"==typeof e)if(Array.isArray(e)){var o=e.length;for(t=0;t<o;t++)e[t]&&(f=r(e[t]))&&(n&&(n+=" "),n+=f);}else for(f in e)e[f]&&(n&&(n+=" "),n+=f);return n}function clsx(){for(var e,t,f=0,n="",o=arguments.length;f<o;f++)(e=arguments[f])&&(t=r(e))&&(n&&(n+=" "),n+=t);return n}
@@ -3113,4 +3088,4 @@ function createNominaProcessor(config) {
     };
 }
 
-export { DEFAULT_PAGE_LIMIT, MAX_FILE_SIZE, SUPPORTED_FORMATS, VACLY_VERSION, cn, createNominaProcessor, extractBasicNominaInfo$1 as extractBasicNominaInfo, extractBasicNominaInfoFromText, extractBasicNominaInfo as extractBasicNominaInfoImproved, generateSplitFileName, parsePDF };
+export { DEFAULT_PAGE_LIMIT, MAX_FILE_SIZE, SUPPORTED_FORMATS, VACLY_VERSION, cn, createNominaProcessor, extractBasicNominaInfo$1 as extractBasicNominaInfo, extractBasicNominaInfoFromText, extractBasicNominaInfo as extractBasicNominaInfoImproved, generateSplitFileName };

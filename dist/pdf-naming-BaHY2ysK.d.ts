@@ -131,7 +131,7 @@ interface ApiResponse<T = any> {
 
 /**
  * Extrae información básica de una nómina para generar nombres de archivo
- * ACTUALIZADO: Usa Claude 3.5 Haiku con soporte PDF nativo
+ * ACTUALIZADO: Usa Claude 4.5 Haiku con soporte PDF nativo
  */
 declare function extractBasicNominaInfo(pdfBuffer: Buffer): Promise<BasicNominaInfo>;
 /**

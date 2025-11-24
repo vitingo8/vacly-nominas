@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
-import { parsePDF } from '@/lib/pdf-utils'
 import { extractBasicNominaInfo, generateGlobalFileName } from '@/lib/pdf-naming'
 
 // Initialize Supabase client
@@ -39,29 +38,8 @@ export async function POST(request: NextRequest) {
       finalFilename = generateGlobalFileName(basicInfo.companyName, basicInfo.period)
       console.log('📛 Generated filename:', finalFilename)
     } catch (namingError) {
-      console.error('❌ Error extracting info with Haiku 3.5, trying fallback:', namingError)
-      
-      // Fallback to text extraction if PDF direct processing fails
-      try {
-        console.log('🔄 Fallback: Extracting text for naming...')
-        const textContent = await parsePDF(buffer)
-        
-        if (textContent && textContent.length > 50) {
-          console.log('🔍 Extracting basic nomina info from text...')
-          // Use the deprecated text-based function as fallback
-          const { extractBasicNominaInfoFromText } = await import('@/lib/pdf-naming')
-          const basicInfo = await extractBasicNominaInfoFromText(textContent)
-          console.log('✅ Basic info extracted from text fallback:', basicInfo)
-          
-          finalFilename = generateGlobalFileName(basicInfo.companyName, basicInfo.period)
-          console.log('📛 Generated filename (fallback):', finalFilename)
-        } else {
-          console.warn('⚠️ Insufficient text content for naming, using fallback')
-        }
-      } catch (fallbackError) {
-        console.error('❌ Both PDF and text extraction failed:', fallbackError)
-        // Continue with UUID fallback filename
-      }
+      console.error('❌ Error extracting info with Claude, using UUID fallback:', namingError)
+      // Continue with UUID fallback filename
     }
 
     // Upload to Supabase Storage with the new name

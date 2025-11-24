@@ -1,13 +1,11 @@
-import { B as BasicNominaInfo } from './pdf-naming-C9T2A7O1.js';
-export { N as NominaData, P as ProcessingOptions, f as ProcessingResult, S as SplitDocument, d as correctNameFormat, e as extractBasicNominaInfo, a as extractBasicNominaInfoFromText, c as generateGlobalFileName, g as generateSplitFileName, b as generateTextFileName, s as sanitizeFileName, v as validatePeriod } from './pdf-naming-C9T2A7O1.js';
+import { B as BasicNominaInfo } from './pdf-naming-D4vpOmx8.js';
+export { N as NominaData, P as ProcessingOptions, f as ProcessingResult, S as SplitDocument, d as correctNameFormat, e as extractBasicNominaInfo, a as extractBasicNominaInfoFromText, c as generateGlobalFileName, g as generateSplitFileName, b as generateTextFileName, s as sanitizeFileName, v as validatePeriod } from './pdf-naming-D4vpOmx8.js';
 import { ClassValue } from 'clsx';
 
 /**
  * Extrae información básica de una nómina para generar nombres de archivo
  */
 declare function extractBasicNominaInfo(textContent: string): Promise<BasicNominaInfo>;
-
-declare function parsePDF(pdfBuffer: Buffer | ArrayBuffer): Promise<string>;
 
 declare function cn(...inputs: ClassValue[]): string;
 
@@ -25,4 +23,4 @@ declare function createNominaProcessor(config: {
     processDocument: (file: File | Buffer) => Promise<never>;
 };
 
-export { BasicNominaInfo, DEFAULT_PAGE_LIMIT, MAX_FILE_SIZE, SUPPORTED_FORMATS, VACLY_VERSION, cn, createNominaProcessor, extractBasicNominaInfo as extractBasicNominaInfoImproved, parsePDF };
+export { BasicNominaInfo, DEFAULT_PAGE_LIMIT, MAX_FILE_SIZE, SUPPORTED_FORMATS, VACLY_VERSION, cn, createNominaProcessor, extractBasicNominaInfo as extractBasicNominaInfoImproved };

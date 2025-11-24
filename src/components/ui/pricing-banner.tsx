@@ -65,7 +65,7 @@ export function PricingBanner({ onUpgrade, currentPlan = 'basic' }: PricingBanne
       <div className="max-w-7xl mx-auto">
         {/* Hero Section */}
         <div className="text-center mb-12">
-          <Badge className="mb-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white border-0">
+          <Badge className="mb-4 bg-gradient-to-r from-purple-600 to-primary text-white border-0">
             <Sparkles className="h-3 w-3 mr-1" />
             OFERTA ESPECIAL
           </Badge>
@@ -81,10 +81,10 @@ export function PricingBanner({ onUpgrade, currentPlan = 'basic' }: PricingBanne
         {/* Benefits Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
           {benefits.map((benefit, index) => (
-            <Card key={index} className="border-2 hover:border-blue-200 transition-all hover:shadow-lg">
+            <Card key={index} className="border-2 hover:border-primary/100 transition-all hover:shadow-lg">
               <CardHeader>
                 <div className="flex items-start space-x-3">
-                  <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+                  <div className="p-2 bg-primary/10 rounded-lg text-primary">
                     {benefit.icon}
                   </div>
                   <div>
@@ -119,7 +119,7 @@ export function PricingBanner({ onUpgrade, currentPlan = 'basic' }: PricingBanne
                     <th className="text-center p-4">
                       <div className="flex flex-col items-center">
                         <span className="font-medium text-gray-900">Memoria Empresarial</span>
-                        <Badge className="mt-1 bg-gradient-to-r from-purple-600 to-blue-600 text-white">
+                        <Badge className="mt-1 bg-gradient-to-r from-purple-600 to-primary text-white">
                           PREMIUM
                         </Badge>
                       </div>
@@ -149,7 +149,7 @@ export function PricingBanner({ onUpgrade, currentPlan = 'basic' }: PricingBanne
                             <span className="text-gray-400">—</span>
                           )
                         ) : (
-                          <span className="font-medium text-blue-600">{item.enterprise}</span>
+                          <span className="font-medium text-primary">{item.enterprise}</span>
                         )}
                       </td>
                     </tr>
@@ -161,18 +161,18 @@ export function PricingBanner({ onUpgrade, currentPlan = 'basic' }: PricingBanne
         </Card>
 
         {/* CTA Section */}
-        <div className="text-center bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 text-white">
+        <div className="text-center bg-gradient-to-r from-purple-600 to-primary rounded-2xl p-8 text-white">
           <h3 className="text-3xl font-bold mb-4">
             ¿Listo para revolucionar tu gestión de nóminas?
           </h3>
-          <p className="text-lg mb-6 text-blue-100">
+          <p className="text-lg mb-6 text-primary/10">
             Únete a cientos de empresas que ya confían en nuestra tecnología
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Button 
               size="lg" 
               onClick={onUpgrade}
-              className="bg-white text-blue-600 hover:bg-gray-100 font-semibold px-8"
+              className="bg-white text-primary hover:bg-gray-100 font-semibold px-8"
             >
               Activar Memoria Empresarial
               <ArrowRight className="ml-2 h-5 w-5" />

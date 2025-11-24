@@ -2,9 +2,11 @@ import Anthropic from '@anthropic-ai/sdk';
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
 });
+// Model configuration
+const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 /**
  * Extrae información básica de una nómina para generar nombres de archivo
- * ACTUALIZADO: Usa Claude 3.5 Haiku con soporte PDF nativo
+ * ACTUALIZADO: Usa Claude 4.5 Haiku con soporte PDF nativo
  */
 export async function extractBasicNominaInfo(pdfBuffer) {
     try {
@@ -26,7 +28,7 @@ Responde ÚNICAMENTE con un objeto JSON en este formato exacto:
 
 Si no encuentras algún dato, usa "Desconocido" para nombres y "202401" para el período.`;
         const response = await anthropic.messages.create({
-            model: "claude-3-5-haiku-20241022", // ✅ HAIKU 3.5 CON SOPORTE PDF
+            model: MODEL,
             max_tokens: 4000,
             messages: [
                 {

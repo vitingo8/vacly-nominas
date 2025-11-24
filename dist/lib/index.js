@@ -1,9 +1,8 @@
 'use strict';
 
-var pdfNaming = require('../pdf-naming-DkaV7Je3.js');
+var pdfNaming = require('../pdf-naming-K_SFIDRH.js');
 var index = require('../index.js');
 require('@anthropic-ai/sdk');
-require('pdf-parse');
 
 
 
@@ -22,4 +21,3 @@ exports.VACLY_VERSION = index.VACLY_VERSION;
 exports.cn = index.cn;
 exports.createNominaProcessor = index.createNominaProcessor;
 exports.extractBasicNominaInfoImproved = index.extractBasicNominaInfoImproved;
-exports.parsePDF = index.parsePDF;

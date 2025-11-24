@@ -2,7 +2,7 @@
 
 var supabaseJs = require('@supabase/supabase-js');
 var Anthropic = require('@anthropic-ai/sdk');
-var pdfNaming = require('../pdf-naming-DkaV7Je3.js');
+var pdfNaming = require('../pdf-naming-K_SFIDRH.js');
 
 // ============================================================================
 // VACLY NOMINAS PROCESSOR - API FUNCTIONS

@@ -1,10 +1,10 @@
-'use strict';
-
-var Anthropic = require('@anthropic-ai/sdk');
+import Anthropic from '@anthropic-ai/sdk';
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
 });
+// Model configuration
+const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 /**
  * Extrae información básica de una nómina para generar nombres de archivo
  * ACTUALIZADO: Usa Claude 4.5 Haiku con soporte PDF nativo
@@ -29,7 +29,7 @@ Responde ÚNICAMENTE con un objeto JSON en este formato exacto:
 
 Si no encuentras algún dato, usa "Desconocido" para nombres y "202401" para el período.`;
         const response = await anthropic.messages.create({
-            model: "claude-haiku-4-5-20251001", // ✅ HAIKU 3.5 CON SOPORTE PDF
+            model: MODEL,
             max_tokens: 4000,
             messages: [
                 {
@@ -227,11 +227,4 @@ function generateTextFileName(employeeName, period, pageNumber) {
     return `${period}_${employeeName}.txt`;
 }
 
-exports.correctNameFormat = correctNameFormat;
-exports.extractBasicNominaInfo = extractBasicNominaInfo;
-exports.extractBasicNominaInfoFromText = extractBasicNominaInfoFromText;
-exports.generateGlobalFileName = generateGlobalFileName;
-exports.generateSplitFileName = generateSplitFileName;
-exports.generateTextFileName = generateTextFileName;
-exports.sanitizeFileName = sanitizeFileName;
-exports.validatePeriod = validatePeriod;
+export { extractBasicNominaInfo as a, generateTextFileName as b, generateGlobalFileName as c, correctNameFormat as d, extractBasicNominaInfoFromText as e, generateSplitFileName as g, sanitizeFileName as s, validatePeriod as v };

@@ -61,35 +61,34 @@ const nextConfig = {
     ];
   },
   
-  // Webpack configuration for additional security
-  webpack: (config, { isServer, dev }) => {
-    if (!dev) {
-      // Production optimizations
-      config.optimization = {
-        ...config.optimization,
-        minimize: true,
-        // Additional obfuscation
-        usedExports: true,
-        sideEffects: false,
-      };
-      
-      // Remove console logs in production
-      config.module.rules.push({
-        test: /\.(js|jsx|ts|tsx)$/,
-        exclude: /node_modules/,
-        use: {
-          loader: 'babel-loader',
-          options: {
-            plugins: [
-              ['transform-remove-console', { exclude: ['error', 'warn'] }]
-            ]
-          }
-        }
-      });
-    }
-    
-    return config;
-  },
+  // Webpack configuration - DESACTIVADO para permitir console en desarrollo
+  // webpack: (config, { isServer, dev }) => {
+  //   if (!dev) {
+  //     // Production optimizations
+  //     config.optimization = {
+  //       ...config.optimization,
+  //       minimize: true,
+  //       usedExports: true,
+  //       sideEffects: false,
+  //     };
+  //     
+  //     // Remove console logs in production - DESACTIVADO
+  //     // config.module.rules.push({
+  //     //   test: /\.(js|jsx|ts|tsx)$/,
+  //     //   exclude: /node_modules/,
+  //     //   use: {
+  //     //     loader: 'babel-loader',
+  //     //     options: {
+  //     //       plugins: [
+  //     //         ['transform-remove-console', { exclude: ['error', 'warn'] }]
+  //     //       ]
+  //     //     }
+  //     //   }
+  //     // });
+  //   }
+  //   
+  //   return config;
+  // },
   
   // Experimental features for additional security
   experimental: {

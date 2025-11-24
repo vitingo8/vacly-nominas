@@ -5,7 +5,7 @@ const anthropic = new Anthropic({
 });
 /**
  * Extrae información básica de una nómina para generar nombres de archivo
- * ACTUALIZADO: Usa Claude 3.5 Haiku con soporte PDF nativo
+ * ACTUALIZADO: Usa Claude 4.5 Haiku con soporte PDF nativo
  */
 async function extractBasicNominaInfo(pdfBuffer) {
     try {
@@ -27,7 +27,7 @@ Responde ÚNICAMENTE con un objeto JSON en este formato exacto:
 
 Si no encuentras algún dato, usa "Desconocido" para nombres y "202401" para el período.`;
         const response = await anthropic.messages.create({
-            model: "claude-3-5-haiku-20241022", // ✅ HAIKU 3.5 CON SOPORTE PDF
+            model: "claude-haiku-4-5-20251001", // ✅ HAIKU 3.5 CON SOPORTE PDF
             max_tokens: 4000,
             messages: [
                 {

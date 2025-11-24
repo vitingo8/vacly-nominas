@@ -25,10 +25,7 @@ export {
   extractBasicNominaInfo as extractBasicNominaInfoImproved
 } from './pdf-naming-improved';
 
-// Exportar utilidades de PDF
-export {
-  parsePDF
-} from './pdf-utils';
+// Note: parsePDF is deprecated - Claude handles PDFs natively via its document API
 
 // Exportar utilidades generales
 export {

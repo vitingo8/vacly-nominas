@@ -53,7 +53,7 @@ img {
 }
 
 .badge-premium {
-  @apply bg-gradient-to-r from-purple-600 to-blue-600 text-white px-3 py-1 rounded-full text-xs font-semibold;
+  @apply bg-gradient-to-r from-purple-600 to-primary text-white px-3 py-1 rounded-full text-xs font-semibold;
 }
 
 @layer base {
@@ -147,7 +147,7 @@ img {
 @layer components {
   /* Custom gradient backgrounds */
   .gradient-primary {
-    @apply bg-gradient-to-r from-blue-600 to-blue-500;
+    @apply bg-gradient-to-r from-primary to-primary;
   }
   
   .gradient-success {
@@ -155,7 +155,7 @@ img {
   }
   
   .gradient-premium {
-    @apply bg-gradient-to-br from-purple-600 via-blue-600 to-blue-500;
+    @apply bg-gradient-to-br from-purple-600 via-primary to-primary;
   }
   
   /* Card hover effects */

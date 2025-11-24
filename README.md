@@ -1,34 +1,40 @@
 # @vacly/nominas-processor
 
-Procesador inteligente de nóminas con IA para extracción y análisis de datos de documentos PDF.
+Procesador inteligente y simplificado de nóminas con Claude 4.5 Haiku para extracción y análisis de datos de documentos PDF.
+
+**Versión LUX**: Sin dependencias OCR, sin middleware restrictivo, optimizado para producción.
 
 ## 🚀 Instalación
 
 ```bash
-npm install @vacly/nominas-processor
+# Desarrollo local
+npm install
+npm run dev
+
+# Producción (Vercel)
+git push origin main
+# Deploy automático
 ```
 
 ## 📋 Requisitos
 
 - Node.js 18+
-- Cuenta de Supabase
-- API Key de Anthropic Claude
-- (Opcional) API Key de Voyage AI para embeddings
+- Cuenta de Supabase (gratis)
+- API Key de Anthropic Claude (muy económico con Haiku)
+- Vercel account (opcional, para hosting)
 
 ## 🔧 Configuración Básica
 
-```typescript
-import { createNominaProcessor, VaclyConfig } from '@vacly/nominas-processor';
+Crea un archivo `.env.local`:
 
-const config: VaclyConfig = {
-  supabaseUrl: 'your-supabase-url',
-  supabaseServiceKey: 'your-service-key',
-  anthropicApiKey: 'your-anthropic-key',
-  voyageApiKey: 'your-voyage-key', // opcional
-};
-
-const processor = createNominaProcessor(config);
+```bash
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+ANTHROPIC_API_KEY=your-anthropic-key
+CLAUDE_MODEL=claude-haiku-4-5-20251001  # opcional
 ```
+
+Luego accede a `http://localhost:3003`
 
 ## 📖 Uso
 
