@@ -1167,10 +1167,10 @@ export default function GastosPage() {
               {selectedExpense.image ? (
                 <DigitalTicket
                   amount={selectedExpense.amount}
-                  concept={selectedExpense.concept}
+                  concept={selectedExpense.concept || ''}
                   subcategory={selectedExpense.subcategory}
                   merchant={parseExpenseNotes(selectedExpense)?.merchant}
-                  date={selectedExpense.date}
+                  date={selectedExpense.date || selectedExpense.expense_date || ''}
                   confidence={parseExpenseNotes(selectedExpense)?.confidence}
                   visionAnalysis={parseExpenseNotes(selectedExpense)?.text}
                   paymentMethod={selectedExpense.method}
