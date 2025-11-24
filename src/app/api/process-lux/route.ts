@@ -330,52 +330,53 @@ async function processIndividualDocument(textContent: string, documentId: string
 
   try {
     // Use Claude 3.5 Haiku to process the document
-    const prompt = `Eres un experto en análisis de nóminas españolas. Analiza este documento PDF y extrae TODA la información con máxima precisión:
+    const prompt = `TAREA: Analizar nómina española y extraer datos estructurados con máxima precisión.
 
-🎯 OBJETIVO: Extraer información estructurada completa de la nómina
+✅ INSTRUCCIONES CRÍTICAS:
+1. Responder SOLO con JSON válido, sin explicaciones adicionales
+2. Si no encuentras un campo, usa null o [] según el tipo
+3. Nunca dejar comillas sin cerrar
+4. Validar que gross_salary >= net_pay
+5. Incluir TODOS los campos incluso si están vacíos
 
-📋 INFORMACIÓN BÁSICA:
-1. Nombre de la empresa (buscar en cabecera del documento)
-2. Nombre del empleado completo (convertir "APELLIDOS, NOMBRE" a "NOMBRE APELLIDOS")
-3. Período en formato YYYYMM (deducir de fechas del documento)
-
-📊 DATOS DEL EMPLEADO:
-- name: Nombre completo normalizado
-- dni: DNI/NIF (buscar patrones: 12345678A, 12.345.678-A)
-- nss: Número Seguridad Social/Afiliación (buscar "NSS", "Afiliación", "Núm. SS")
+📋 DATOS OBLIGATORIOS DEL EMPLEADO:
+- name: "APELLIDOS, NOMBRE" → convertir a "NOMBRE APELLIDOS" 
+- dni: Buscar DNI/NIF (patrones: 12345678A, 12.345.678-A, etc)
+- nss: Número Seguridad Social (buscar en "NSS", "Afiliación", "Núm. SS")
 - category: Categoría profesional
-- code: Código empleado si existe
+- code: Código del empleado si existe
 
-🏢 DATOS DE LA EMPRESA:
+🏢 DATOS OBLIGATORIOS DE LA EMPRESA:
 - name: Nombre completo de la empresa
-- cif: CIF empresarial (formato: A12345678)
+- cif: CIF (formato: A12345678)
 - address: Dirección completa
-- center_code: Código del centro de trabajo
+- center_code: Código del centro si existe
 
-💰 ANÁLISIS FINANCIERO DETALLADO:
-- period_start/period_end: Fechas exactas del período (YYYY-MM-DD)
-- perceptions: TODAS las percepciones con código, concepto y cantidad
-- deductions: TODAS las deducciones (IRPF, Seg. Social empleado, etc.)
-- contributions: SOLO contribuciones EMPRESARIALES (NO del empleado)
-- base_ss: Base de cotización a la Seguridad Social
-- net_pay: Líquido a percibir/cobrar
-- gross_salary: Salario bruto (suma percepciones principales)
+📅 PERÍODO:
+- period_start: Fecha inicio (YYYY-MM-DD) - buscar "Del" o primera fecha
+- period_end: Fecha fin (YYYY-MM-DD) - buscar "Al" o última fecha
 
-🔍 CÁLCULO CRÍTICO - COSTE EMPRESA:
-1. Identificar contribuciones empresariales: "CC Empresa", "Desempleo Empresa", "FP Empresa", "FOGASA"
-2. Fórmula: cost_empresa = gross_salary + suma_contribuciones_empresariales
-3. Validar que cost_empresa >= gross_salary
+💰 CONCEPTOS FINANCIEROS - MUY IMPORTANTE:
+PERCEPCIONES: Todos los ingresos (salario base, pluses, horas extra)
+DEDUCCIONES: IRPF, Seg. Social empleado, descuentos voluntarios
+CONTRIBUCIONES: SOLO aportes de la EMPRESA (CC Empresa, Desempleo Empresa, FP Empresa)
 
-🏦 DATOS BANCARIOS:
-- iban: Número IBAN completo si aparece
-- swift_bic: Código SWIFT/BIC si disponible
+Fórmula clave:
+- gross_salary = suma de percepciones principales
+- net_pay = gross_salary - deducciones del empleado
+- cost_empresa = gross_salary + contribuciones empresariales
 
-⚠️ VALIDACIONES:
-- Verificar que todos los números sean positivos
-- Comprobar coherencia entre gross_salary, net_pay y deducciones
-- Asegurar formato correcto de fechas y DNI
+🏦 DATOS OPCIONALES:
+- iban: Si aparece número de cuenta IBAN
+- swift_bic: Si aparece código SWIFT/BIC
 
-Responde ÚNICAMENTE con un objeto JSON válido con esta estructura:
+⚠️ SI ALGO NO ESTÁ CLARO:
+- Para números: usar 0
+- Para texto: usar ""
+- Para arrays: usar []
+- NUNCA dejar valores undefined o faltantes
+
+Responde ÚNICAMENTE con este JSON válido:
 {
   "employee": {
     "name": "nombre completo",
