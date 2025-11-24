@@ -28,17 +28,10 @@
   },
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "npm run build:lib && next build",
-    "build:lib": "tsc --project tsconfig.lib.json && npm run build:bundle",
-    "build:bundle": "rollup -c rollup.config.mjs",
-    "build:secure": "NODE_ENV=production npm run build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "prepublishOnly": "npm run build:lib",
-    "prepare-publish": "node scripts/prepare-publish.js",
-    "pack": "npm pack",
-    "test": "echo 'Tests will be added'",
-    "clean": "rm -rf dist/"
+    "clean": "rm -rf dist/ .next/"
   },
   "keywords": [
     "nominas",

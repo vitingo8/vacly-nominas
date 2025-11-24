@@ -35,6 +35,12 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Build outputs
+/dist/
+/lib/api/
+*.tgz
+*.tar.gz
+
 # Uploaded files
 /public/uploads/*
 /public/split-pdfs/*
