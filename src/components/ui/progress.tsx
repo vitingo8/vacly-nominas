@@ -8,13 +8,14 @@ import { cn } from "@/lib/utils"
 const Progress = React.forwardRef<
   React.ElementRef<typeof ProgressPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root> & {
-    variant?: 'default' | 'gradient' | 'success'
+    variant?: 'default' | 'gradient' | 'success' | 'gold'
   }
 >(({ className, value, variant = 'default', ...props }, ref) => {
   const indicatorClass = {
     default: "bg-primary",
     gradient: "bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500",
-    success: "bg-gradient-to-r from-green-500 to-emerald-500"
+    success: "bg-gradient-to-r from-green-500 to-emerald-500",
+    gold: "bg-[#C6A664]"
   }[variant]
 
   return (

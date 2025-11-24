@@ -22,9 +22,33 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
+    // Buscar avatares de empleados por DNI en employees.nif
+    const nominasConAvatar = await Promise.all(
+      (nominas || []).map(async (nomina) => {
+        const dni = nomina.dni || nomina.employee?.dni
+        if (dni) {
+          // Buscar empleado por nif (DNI)
+          const { data: employee } = await supabase
+            .from('employees')
+            .select('avatar_url, image_url')
+            .eq('nif', dni)
+            .single()
+          
+          // Usar avatar_url si existe, sino image_url como fallback
+          const avatarUrl = employee?.avatar_url || employee?.image_url || null
+          
+          return {
+            ...nomina,
+            employee_avatar: avatarUrl
+          }
+        }
+        return { ...nomina, employee_avatar: null }
+      })
+    )
+
     return NextResponse.json({
       success: true,
-      data: nominas,
+      data: nominasConAvatar,
       total: count,
       limit: parseInt(limit),
       offset: parseInt(offset)

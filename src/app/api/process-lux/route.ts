@@ -33,9 +33,26 @@ interface GlobalFileInfo {
 }
 
 /**
+ * Helper para logs con timestamp y duración
+ */
+function logWithTime(label: string, startTime?: number) {
+  const now = Date.now()
+  const timestamp = new Date(now).toISOString()
+  if (startTime) {
+    const duration = now - startTime
+    console.log(`[${timestamp}] ⏱️ ${label} - Duración: ${duration}ms`)
+    return duration
+  } else {
+    console.log(`[${timestamp}] 🚀 ${label}`)
+    return now
+  }
+}
+
+/**
  * Extrae información del archivo global usando Haiku 3.5
  */
 async function extractGlobalFileInfo(filename: string, pdfBuffer: Buffer): Promise<GlobalFileInfo> {
+  const startTime = logWithTime(`Extrayendo información global del archivo: ${filename}`)
   try {
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -104,6 +121,7 @@ Si no encuentras datos específicos, deduce basándote en el nombre del archivo 
     }
     
     const globalInfo = JSON.parse(cleanedResponse)
+    logWithTime(`Información global extraída: ${globalInfo.companyName}`, startTime)
     
     return {
       companyName: globalInfo.companyName || 'Empresa_Desconocida',
@@ -112,6 +130,7 @@ Si no encuentras datos específicos, deduce basándote en el nombre del archivo 
     }
 
   } catch (error) {
+    logWithTime(`ERROR extrayendo información global`, startTime)
     console.error('Error extracting global file info:', error)
     
     // Fallback: extract from filename
@@ -134,15 +153,19 @@ async function processPageWithFullData(pdfBytes: Uint8Array, pageNum: number): P
   fullNominaData: any,
   textContent: string
 }> {
+  const startTime = logWithTime(`Procesando página ${pageNum} con Claude`)
   try {
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY!,
     })
     
     // Extract text content for storage
+    const parseStart = logWithTime(`Extrayendo texto de página ${pageNum}`)
     const textContent = await parsePDF(Buffer.from(pdfBytes))
+    logWithTime(`Texto extraído de página ${pageNum}`, parseStart)
     
     // Use Haiku 3.5 to extract ALL information at once
+    const claudeStart = logWithTime(`Enviando página ${pageNum} a Claude API`)
     const prompt = `Analiza este documento PDF de nómina y extrae TODA la información de forma completa:
 
 INFORMACIÓN BÁSICA PARA NOMBRES:
@@ -246,8 +269,9 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
     }
 
     let cleanedResponse = response.content[0].text.trim()
+    const claudeDuration = logWithTime(`Claude API respondió para página ${pageNum}`, claudeStart)
     
-    // Clean the response
+    // Clean the response - más robusto
     if (cleanedResponse.includes('```json')) {
       cleanedResponse = cleanedResponse.replace(/```json\s*/g, '').replace(/```\s*$/g, '')
     } else if (cleanedResponse.includes('```')) {
@@ -257,11 +281,22 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
     const firstBrace = cleanedResponse.indexOf('{')
     const lastBrace = cleanedResponse.lastIndexOf('}')
     
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1)
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      console.error(`❌ JSON inválido recibido para página ${pageNum}:`, cleanedResponse.substring(0, 200))
+      throw new Error(`Invalid JSON response from Claude for page ${pageNum}`)
     }
     
-    const result = JSON.parse(cleanedResponse)
+    cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1)
+    
+    let result
+    try {
+      result = JSON.parse(cleanedResponse)
+    } catch (parseError) {
+      console.error(`❌ Error parseando JSON para página ${pageNum}:`, cleanedResponse.substring(0, 500))
+      throw new Error(`JSON parse error for page ${pageNum}: ${parseError instanceof Error ? parseError.message : 'Unknown'}`)
+    }
+    
+    logWithTime(`Página ${pageNum} procesada completamente`, startTime)
     
     return {
       basicInfo: result.basicInfo || {
@@ -274,6 +309,7 @@ Responde ÚNICAMENTE con un objeto JSON en este formato:
     }
 
   } catch (error) {
+    logWithTime(`ERROR procesando página ${pageNum}`, startTime)
     console.error(`Error processing page ${pageNum} with full data:`, error)
     
     // Fallback to basic extraction
@@ -346,15 +382,30 @@ export async function POST(request: NextRequest) {
 }
 
 async function processIndividualDocument(textContent: string, documentId: string) {
-  console.log('🧠 Processing individual document with Claude LUX...')
+  const startTime = logWithTime(`🧠 Procesando documento individual: ${documentId}`)
+  console.log(`📝 Longitud del texto: ${textContent.length} caracteres`)
 
-  try {
-    const anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY!,
-    })
+  // Validar que el texto tenga suficiente contenido
+  if (!textContent || textContent.trim().length < 100) {
+    logWithTime(`ERROR: Texto insuficiente (${textContent.length} caracteres)`, startTime)
+    return NextResponse.json({
+      success: false,
+      error: 'Texto insuficiente para procesar',
+      details: `El documento tiene solo ${textContent.length} caracteres. Se requiere al menos 100 caracteres. Por favor, vuelve a subir el PDF completo.`
+    }, { status: 400 })
+  }
+
+  const RETRY_ATTEMPTS = 3
+  const RETRY_DELAY_BASE = 3000
+
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    try {
+      const anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY!,
+      })
     
-    // Use Claude 3.5 Haiku to process the document
-    const prompt = `TAREA: Analizar nómina española y extraer datos estructurados con máxima precisión.
+      // Use Claude 3.5 Haiku to process the document
+      const prompt = `TAREA: Analizar nómina española y extraer datos estructurados con máxima precisión.
 
 ✅ INSTRUCCIONES CRÍTICAS:
 1. Responder SOLO con JSON válido, sin explicaciones adicionales
@@ -436,6 +487,7 @@ Responde ÚNICAMENTE con este JSON válido:
 }`
 
     const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001"
+    const claudeStart = logWithTime(`Enviando a Claude API (${MODEL})`)
     const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 4000,
@@ -446,45 +498,73 @@ Responde ÚNICAMENTE con este JSON válido:
         }
       ]
     })
+    const claudeDuration = logWithTime(`Claude API respondió`, claudeStart)
 
     const responseText = response.content[0].type === 'text' ? response.content[0].text : ''
-    console.log('Claude response:', responseText)
+    console.log(`📊 Respuesta Claude: ${responseText.length} caracteres`)
 
     // Parse JSON response
+    const parseStart = logWithTime('Parseando respuesta JSON de Claude')
     let processedData
     try {
       processedData = JSON.parse(responseText)
+      logWithTime('JSON parseado correctamente', parseStart)
     } catch (parseError) {
+      logWithTime('ERROR parseando JSON', parseStart)
       console.error('Error parsing Claude response:', parseError)
       throw new Error('Invalid JSON response from Claude')
     }
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        processedData,
-        documentId,
-        mode: 'lux'
-      }
-    })
+      logWithTime(`✅ Documento individual procesado completamente`, startTime)
+      return NextResponse.json({
+        success: true,
+        data: {
+          processedData,
+          documentId,
+          mode: 'lux'
+        }
+      })
 
-  } catch (error) {
-    console.error('Error processing individual document:', error)
-    return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
+    } catch (error: any) {
+      const isRateLimit = error?.status === 429 || error?.status === 529 || 
+        error?.message?.includes('rate') || error?.message?.includes('overloaded')
+      
+      console.error(`⚠️ Error procesando documento (intento ${attempt}/${RETRY_ATTEMPTS}):`, error?.message || error)
+      
+      if (attempt < RETRY_ATTEMPTS) {
+        // Backoff exponencial para rate limiting
+        const delay = isRateLimit 
+          ? RETRY_DELAY_BASE * Math.pow(2, attempt - 1) 
+          : RETRY_DELAY_BASE
+        console.log(`⏳ Esperando ${delay}ms antes de reintentar...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      } else {
+        logWithTime(`❌ ERROR procesando documento individual después de ${RETRY_ATTEMPTS} intentos`, startTime)
+        return NextResponse.json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          retryExhausted: true
+        }, { status: 500 })
+      }
+    }
   }
+
+  // Fallback final
+  return NextResponse.json({
+    success: false,
+    error: 'Error desconocido después de todos los reintentos'
+  }, { status: 500 })
 }
 
 async function processFullPDF(filename: string, url: string) {
-  console.log('🚀 Starting UNIFIED PDF processing (CORRECTED VERSION)...')
-  console.log('📄 Processing file:', filename, 'from URL:', url)
+  const processStartTime = logWithTime(`🚀 INICIO procesamiento completo PDF: ${filename}`)
+  console.log('📄 URL:', url)
 
   try {
     const supabase = getSupabaseClient()
     
     // Get document type ID for nomina (with fallback)
+    const dbStart = logWithTime('Buscando document_type en DB')
     let documentTypeId = 'nomina-type-id'
     const { data: documentType, error: docTypeError } = await supabase
       .from('document_types')
@@ -494,8 +574,9 @@ async function processFullPDF(filename: string, url: string) {
 
     if (documentType?.id) {
       documentTypeId = documentType.id
-      console.log('✅ Document type found:', documentTypeId)
+      logWithTime(`Document type encontrado: ${documentTypeId}`, dbStart)
     } else {
+      logWithTime('Document type NO encontrado, usando fallback', dbStart)
       console.warn('⚠️ Document type not found in DB, using fallback:', documentTypeId)
     }
 
@@ -559,16 +640,19 @@ async function processFullPDF(filename: string, url: string) {
         (async () => {
           try {
             sendProgress(5, 'Descargando PDF desde almacenamiento...')
+            const downloadStart = logWithTime('Descargando PDF desde Supabase Storage')
 
             // Download the PDF from Supabase Storage
             const response = await fetch(url)
             if (!response.ok) {
+              logWithTime('ERROR descargando PDF', downloadStart)
               sendError(`Failed to download PDF from storage: ${response.status} ${response.statusText}`)
               return
             }
             
-            sendProgress(10, 'PDF descargado, extrayendo información global...')
             const pdfBuffer = await response.arrayBuffer()
+            const downloadDuration = logWithTime(`PDF descargado (${(pdfBuffer.byteLength / 1024 / 1024).toFixed(2)} MB)`, downloadStart)
+            sendProgress(10, 'PDF descargado, extrayendo información global...')
             
             // PASO 1: Extraer información global del archivo con timeout y fallback
             let globalInfo
@@ -581,6 +665,7 @@ async function processFullPDF(filename: string, url: string) {
               globalInfo = await Promise.race([globalInfoPromise, timeoutPromise])
               console.log('📋 Global file info extracted:', globalInfo)
             } catch (globalError) {
+              logWithTime('ERROR extrayendo info global, usando fallback')
               console.error('⚠️ Error extracting global info, using fallback:', globalError)
               globalInfo = {
                 companyName: filename.replace('.pdf', '').replace(/[^a-zA-Z0-9]/g, '_') || 'Empresa_Desconocida',
@@ -592,76 +677,123 @@ async function processFullPDF(filename: string, url: string) {
             sendProgress(15, `Archivo global analizado (${globalInfo.companyName}). Dividiendo en páginas...`)
 
             // Load the PDF document
+            const pdfLoadStart = logWithTime('Cargando PDF con pdf-lib')
             const pdfDoc = await PDFDocument.load(pdfBuffer)
             const pageCount = pdfDoc.getPageCount()
             globalInfo.totalPages = pageCount
+            logWithTime(`PDF cargado: ${pageCount} páginas`, pdfLoadStart)
             
             console.log('📄 PDF has', pageCount, 'pages')
 
             sendProgress(20, `Documento dividido: ${pageCount} páginas. Procesando en paralelo...`, 0, pageCount)
 
             const documents: SplitDocument[] = []
-            // Procesamiento paralelo optimizado: más concurrencia para mayor velocidad
-            const MAX_PARALLEL = Math.min(6, pageCount) // Hasta 6 en paralelo
-            const RETRY_ATTEMPTS = 2 // Reintentos para páginas fallidas
+            // Procesamiento secuencial con rate limiting - PRIORIDAD: CALIDAD sobre VELOCIDAD
+            // Claude tiene límites de 50 RPM para Haiku, procesamos de 2 en 2 con delays
+            const MAX_PARALLEL = Math.min(2, pageCount) // Máximo 2 en paralelo para evitar rate limiting
+            const DELAY_BETWEEN_BATCHES = 2000 // 2 segundos entre batches para evitar rate limiting
+            const RETRY_ATTEMPTS = 3 // Más reintentos
+            const RETRY_DELAY_BASE = 3000 // 3 segundos base para retry
+            
+            logWithTime(`Iniciando procesamiento controlado: ${pageCount} páginas, batches de ${MAX_PARALLEL} con ${DELAY_BETWEEN_BATCHES}ms delay`)
 
-            // PASO 2 y 3: Process pages in parallel batches with Promise.allSettled
-            for (let batchStart = 0; batchStart < pageCount; batchStart += MAX_PARALLEL) {
-              const batchEnd = Math.min(batchStart + MAX_PARALLEL, pageCount)
-              const batchPromises = []
-
-              // Create promises for each page in batch
-              for (let i = batchStart; i < batchEnd; i++) {
-                batchPromises.push((async () => {
-                  const pageNum = i + 1
-                  const pageId = uuidv4()
+            // Función helper para procesar una página con reintentos y backoff exponencial
+            async function processPageWithRetry(pdfDoc: any, pageIndex: number, globalInfo: any): Promise<any> {
+              const pageNum = pageIndex + 1
+              const pageId = uuidv4()
+              
+              for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+                try {
+                  console.log(`🔄 Procesando página ${pageNum}/${pageCount} (intento ${attempt}/${RETRY_ATTEMPTS})...`)
                   
-                  console.log(`🔄 Processing page ${pageNum}/${pageCount} in parallel...`)
+                  // Create a new PDF with just this page
+                  const newPdf = await PDFDocument.create()
+                  const [copiedPage] = await newPdf.copyPages(pdfDoc, [pageIndex])
+                  newPdf.addPage(copiedPage)
+                  const pdfBytes = await newPdf.save()
                   
-                  try {
-                    // Create a new PDF with just this page
+                  // Procesar con timeout
+                  const processPromise = processPageWithFullData(pdfBytes, pageNum)
+                  const timeoutPromise = new Promise<never>((_, reject) => 
+                    setTimeout(() => reject(new Error(`Page ${pageNum} processing timeout`)), 90000) // 90s timeout
+                  )
+                  
+                  const processResult = await Promise.race([processPromise, timeoutPromise])
+                  return { pageNum, pageId, pdfBytes, processResult, index: pageIndex }
+                  
+                } catch (error: any) {
+                  const isRateLimit = error?.status === 429 || error?.status === 529 || 
+                    error?.message?.includes('rate') || error?.message?.includes('overloaded')
+                  
+                  console.error(`⚠️ Error página ${pageNum} (intento ${attempt}):`, error?.message || error)
+                  
+                  if (attempt < RETRY_ATTEMPTS) {
+                    // Backoff exponencial: 3s, 6s, 12s...
+                    const delay = isRateLimit 
+                      ? RETRY_DELAY_BASE * Math.pow(2, attempt - 1) 
+                      : RETRY_DELAY_BASE
+                    console.log(`⏳ Esperando ${delay}ms antes de reintentar página ${pageNum}...`)
+                    await new Promise(resolve => setTimeout(resolve, delay))
+                  } else {
+                    // Último intento falló, usar fallback
+                    console.error(`❌ Página ${pageNum} falló después de ${RETRY_ATTEMPTS} intentos, usando fallback`)
                     const newPdf = await PDFDocument.create()
-                    const [copiedPage] = await newPdf.copyPages(pdfDoc, [i])
+                    const [copiedPage] = await newPdf.copyPages(pdfDoc, [pageIndex])
                     newPdf.addPage(copiedPage)
-                    
-                    // Save the single-page PDF
                     const pdfBytes = await newPdf.save()
                     
-                    // PASO 3: Extraer TODA la información con Haiku 3.5 de una vez (con timeout)
-                    let processResult
-                    try {
-                      const processPromise = processPageWithFullData(pdfBytes, pageNum)
-                      const timeoutPromise = new Promise<never>((_, reject) => 
-                        setTimeout(() => reject(new Error(`Page ${pageNum} processing timeout`)), 60000)
-                      )
-                      
-                      processResult = await Promise.race([processPromise, timeoutPromise])
-                    } catch (processError) {
-                      console.error(`⚠️ Error processing page ${pageNum}, using fallback:`, processError)
-                      processResult = {
+                    return {
+                      pageNum,
+                      pageId,
+                      pdfBytes,
+                      processResult: {
                         basicInfo: {
                           companyName: globalInfo.companyName,
                           employeeName: 'Empleado_Desconocido',
                           period: globalInfo.period
                         },
                         fullNominaData: {},
-                        textContent: `Error processing page ${pageNum}: ${processError instanceof Error ? processError.message : 'Unknown error'}`
-                      }
+                        textContent: `Error procesando página ${pageNum}: ${error instanceof Error ? error.message : 'Error desconocido'}`
+                      },
+                      index: pageIndex
                     }
-                    
-                    return { pageNum, pageId, pdfBytes, processResult, index: i }
-                  } catch (error) {
-                    console.error(`❌ Error processing page ${pageNum}:`, error)
-                    return null
                   }
-                })())
+                }
+              }
+              return null
+            }
+
+            // PASO 2 y 3: Process pages in controlled batches
+            for (let batchStart = 0; batchStart < pageCount; batchStart += MAX_PARALLEL) {
+              const batchEnd = Math.min(batchStart + MAX_PARALLEL, pageCount)
+              const batchNumber = Math.floor(batchStart / MAX_PARALLEL) + 1
+              const totalBatches = Math.ceil(pageCount / MAX_PARALLEL)
+              
+              // Delay entre batches (excepto el primero) para evitar rate limiting
+              if (batchStart > 0) {
+                console.log(`⏳ Esperando ${DELAY_BETWEEN_BATCHES}ms antes del batch ${batchNumber}...`)
+                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES))
+              }
+              
+              const batchStartTime = logWithTime(`🔄 BATCH ${batchNumber}/${totalBatches}: Procesando páginas ${batchStart + 1}-${batchEnd}`)
+              const batchPromises = []
+
+              // Create promises for each page in batch
+              for (let i = batchStart; i < batchEnd; i++) {
+                batchPromises.push(processPageWithRetry(pdfDoc, i, globalInfo))
               }
 
               // Wait for all promises in batch with error handling
               const batchSettled = await Promise.allSettled(batchPromises)
               const batchResults = batchSettled
-                .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+                .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
                 .map(r => r.value)
+              
+              const batchDuration = logWithTime(`✅ BATCH ${batchNumber} completado: ${batchResults.length}/${batchEnd - batchStart} páginas`, batchStartTime)
+              const failed = batchSettled.filter(r => r.status === 'rejected').length
+              if (failed > 0) {
+                console.warn(`⚠️ BATCH ${batchNumber}: ${failed} páginas fallaron`)
+              }
               
               // Process results
               for (const result of batchResults) {
@@ -691,6 +823,7 @@ async function processFullPDF(filename: string, url: string) {
                   const textFileName = generateTextFileName(correctedBasicInfo.employeeName, correctedBasicInfo.period, pageNum)
                   
                   // Upload split PDF to Supabase Storage
+                  const storageStart = logWithTime(`Subiendo archivos de página ${pageNum} a Storage`)
                   const { error: pdfUploadError } = await supabase
                     .storage
                     .from('split-pdfs')
@@ -701,6 +834,7 @@ async function processFullPDF(filename: string, url: string) {
                     })
 
                   if (pdfUploadError) {
+                    logWithTime(`ERROR subiendo PDF página ${pageNum}`, storageStart)
                     console.error(`❌ Error uploading split PDF page ${pageNum}:`, pdfUploadError)
                   }
 
@@ -721,7 +855,10 @@ async function processFullPDF(filename: string, url: string) {
                     })
 
                   if (textUploadError) {
+                    logWithTime(`ERROR subiendo texto página ${pageNum}`, storageStart)
                     console.error(`❌ Error uploading text file for page ${pageNum}:`, textUploadError)
+                  } else {
+                    logWithTime(`Archivos de página ${pageNum} subidos a Storage`, storageStart)
                   }
 
                   // Get text URL
@@ -735,6 +872,7 @@ async function processFullPDF(filename: string, url: string) {
                   let nominaRecord = null
 
                   if (Object.keys(fullNominaData).length > 0) {
+                    const dbSaveStart = logWithTime(`Guardando página ${pageNum} en base de datos`)
                     try {
                       // Generate UUID for the nomina record
                       const nominaId = uuidv4()
@@ -787,15 +925,18 @@ async function processFullPDF(filename: string, url: string) {
                       }
 
                       // Save to nominas table
+                      const nominaInsertStart = logWithTime(`Insertando en tabla nominas página ${pageNum}`)
                       const { data: insertedData, error: insertError } = await supabase
                         .from('nominas')
                         .insert([nominaData])
                         .select()
 
                       if (insertError) {
+                        logWithTime(`ERROR insertando en nominas página ${pageNum}`, nominaInsertStart)
                         console.error(`❌ Error saving to nominas table page ${pageNum}:`, insertError)
                       } else {
                         nominaRecord = insertedData[0]
+                        logWithTime(`Insertado en nominas página ${pageNum}`, nominaInsertStart)
                         console.log(`✅ Page ${pageNum} saved to nominas table`)
                       }
 
@@ -822,6 +963,7 @@ async function processFullPDF(filename: string, url: string) {
                       })
 
                       // ✅ SOLUCIÓN: Usar insert con ON CONFLICT basado en filename + page_number
+                      const processedDocStart = logWithTime(`Upsert en processed_documents página ${pageNum}`)
                       const { error: processedDocError } = await supabase
                         .from('processed_documents')
                         .upsert(processedDocumentData, {
@@ -832,9 +974,12 @@ async function processFullPDF(filename: string, url: string) {
 
                       if (!processedDocError) {
                         dbSaved = true
+                        logWithTime(`Upsert en processed_documents página ${pageNum} OK`, processedDocStart)
+                        logWithTime(`✅ Página ${pageNum} guardada completamente en DB`, dbSaveStart)
                         console.log(`✅ Page ${pageNum} saved to processed_documents successfully`)
                         console.log(`✨ LUX processing complete for page ${pageNum} - All data stored successfully`)
                       } else {
+                        logWithTime(`ERROR upsert processed_documents página ${pageNum}`, processedDocStart)
                         console.error(`❌ Error saving page ${pageNum} to processed_documents:`, processedDocError)
                       }
 
@@ -924,6 +1069,13 @@ async function processFullPDF(filename: string, url: string) {
               }
             }
 
+            const totalDuration = logWithTime(`🎉 PROCESAMIENTO COMPLETO: ${documents.length} documentos procesados`, processStartTime)
+            console.log(`📊 RESUMEN DE RENDIMIENTO:`)
+            console.log(`   - Total tiempo: ${(totalDuration / 1000).toFixed(2)}s`)
+            console.log(`   - Páginas procesadas: ${documents.length}`)
+            console.log(`   - Tiempo promedio por página: ${(totalDuration / documents.length).toFixed(0)}ms`)
+            console.log(`   - Páginas por segundo: ${(documents.length / (totalDuration / 1000)).toFixed(2)}`)
+            
             sendProgress(100, `¡Procesamiento unificado completado! ${documents.length} documentos procesados`)
             console.log(`🎉 UNIFIED PDF processing completed! Created ${documents.length} documents`)
 

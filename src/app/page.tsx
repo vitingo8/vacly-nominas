@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { NominaCard, NominaStats } from '@/components/ui/nomina-card'
@@ -17,21 +16,23 @@ import {
   Download, 
   Eye, 
   Brain, 
-  CheckCircle, 
   FileSpreadsheet, 
   Loader2, 
   DollarSign, 
   TrendingUp, 
   CreditCard, 
   Building2,
-  Sparkles,
   LayoutGrid,
   List,
-  Filter,
   Search,
   Clock,
   ChevronRight,
-  Zap
+  Zap,
+  History,
+  User,
+  Calendar,
+  RefreshCw,
+  Trash2
 } from 'lucide-react'
 
 interface NominaData {
@@ -105,6 +106,50 @@ export default function VaclyNominas() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'processed' | 'pending'>('all')
+  
+  // Historial de nóminas procesadas
+  const [historialNominas, setHistorialNominas] = useState<any[]>([])
+  const [isLoadingHistorial, setIsLoadingHistorial] = useState(false)
+  const [historialPage, setHistorialPage] = useState(0)
+  const [historialTotal, setHistorialTotal] = useState(0)
+  const HISTORIAL_LIMIT = 10
+
+  // Cargar historial de nóminas
+  const loadHistorial = async (page = 0) => {
+    setIsLoadingHistorial(true)
+    try {
+      const response = await fetch(`/api/nominas?limit=${HISTORIAL_LIMIT}&offset=${page * HISTORIAL_LIMIT}`)
+      const data = await response.json()
+      if (data.success) {
+        setHistorialNominas(data.data || [])
+        setHistorialTotal(data.total || 0)
+        setHistorialPage(page)
+      }
+    } catch (error) {
+      console.error('Error cargando historial:', error)
+    } finally {
+      setIsLoadingHistorial(false)
+    }
+  }
+
+  // Eliminar nómina del historial
+  const deleteNomina = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar esta nómina del historial?')) return
+    try {
+      const response = await fetch(`/api/nominas?id=${id}`, { method: 'DELETE' })
+      const data = await response.json()
+      if (data.success) {
+        loadHistorial(historialPage)
+      }
+    } catch (error) {
+      console.error('Error eliminando nómina:', error)
+    }
+  }
+
+  // Cargar historial al montar
+  useEffect(() => {
+    loadHistorial()
+  }, [])
 
   // Filtered documents
   const filteredDocuments = useMemo(() => {
@@ -130,6 +175,9 @@ export default function VaclyNominas() {
     const file = event.target.files?.[0]
     if (!file) return
 
+    const uploadStartTime = performance.now()
+    console.log(`[FRONTEND] 🚀 INICIO upload y procesamiento: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`)
+
     setSplitDocuments([])
     setSelectedDocument(null)
     setUploadProgress(0)
@@ -142,10 +190,14 @@ export default function VaclyNominas() {
       const formData = new FormData()
       formData.append('pdf', file)
 
+      const uploadStart = performance.now()
+      console.log(`[FRONTEND] ⏱️ Subiendo archivo a Supabase Storage...`)
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       })
+      const uploadDuration = performance.now() - uploadStart
+      console.log(`[FRONTEND] ✅ Archivo subido en ${uploadDuration.toFixed(0)}ms`)
 
       const uploadResult = await uploadResponse.json()
 
@@ -153,6 +205,8 @@ export default function VaclyNominas() {
         throw new Error(uploadResult.error || 'Failed to upload file')
       }
 
+      const processStart = performance.now()
+      console.log(`[FRONTEND] ⏱️ Iniciando procesamiento con Claude...`)
       const processResponse = await fetch('/api/process-lux', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -201,11 +255,29 @@ export default function VaclyNominas() {
                   setProgressMessage(data.message)
                   if (data.currentPage) setCurrentPage(data.currentPage)
                   if (data.totalPages) setTotalPages(data.totalPages)
+                  
+                  // Log progreso cada 10%
+                  if (data.progress % 10 === 0) {
+                    const elapsed = performance.now() - processStart
+                    console.log(`[FRONTEND] 📊 Progreso: ${data.progress}% - ${data.message} (${elapsed.toFixed(0)}ms transcurridos)`)
+                  }
                 } else if (data.type === 'complete') {
+                  const processDuration = performance.now() - processStart
+                  const totalDuration = performance.now() - uploadStartTime
+                  console.log(`[FRONTEND] ✅ Procesamiento completado:`)
+                  console.log(`   - Tiempo procesamiento: ${(processDuration / 1000).toFixed(2)}s`)
+                  console.log(`   - Tiempo total (upload + proceso): ${(totalDuration / 1000).toFixed(2)}s`)
+                  console.log(`   - Documentos creados: ${data.documents.length}`)
+                  console.log(`   - Tiempo promedio por documento: ${(processDuration / data.documents.length).toFixed(0)}ms`)
+                  
                   setSplitDocuments(data.documents)
                   setUploadProgress(100)
                   setProgressMessage(`¡Procesamiento completado! ${data.documents.length} documentos creados`)
+                  // Actualizar historial después de procesar
+                  loadHistorial(0)
                 } else if (data.type === 'error') {
+                  const errorDuration = performance.now() - processStart
+                  console.error(`[FRONTEND] ❌ ERROR después de ${(errorDuration / 1000).toFixed(2)}s:`, data.error)
                   throw new Error(data.error)
                 }
               } catch (parseError) {
@@ -225,6 +297,10 @@ export default function VaclyNominas() {
 
   const handleProcessWithClaude = async (document: SplitDocument) => {
     if (document.claudeProcessed && document.nominaData) return
+
+    const processStart = performance.now()
+    console.log(`[FRONTEND] 🧠 Procesando documento individual: ${document.id} (página ${document.pageNumber})`)
+    console.log(`[FRONTEND] 📝 Longitud texto: ${document.textContent?.length || 0} caracteres`)
 
     setIsProcessingClaude(document.id)
 
@@ -248,8 +324,10 @@ export default function VaclyNominas() {
       }
 
       const result = await response.json()
+      const processDuration = performance.now() - processStart
 
       if (result.success && result.data?.processedData) {
+        console.log(`[FRONTEND] ✅ Documento procesado en ${processDuration.toFixed(0)}ms`)
         setSplitDocuments(prev =>
           prev.map(doc =>
             doc.id === document.id
@@ -261,8 +339,9 @@ export default function VaclyNominas() {
         throw new Error(result.error || 'Sin datos en la respuesta de Claude')
       }
     } catch (error) {
+      const errorDuration = performance.now() - processStart
       const errorMsg = error instanceof Error ? error.message : 'Error desconocido'
-      console.error('Error procesando con Claude:', errorMsg)
+      console.error(`[FRONTEND] ❌ ERROR procesando documento después de ${errorDuration.toFixed(0)}ms:`, errorMsg)
       alert(`Error procesando documento:\n\n${errorMsg}`)
     } finally {
       setIsProcessingClaude(null)
@@ -353,62 +432,15 @@ export default function VaclyNominas() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      {/* Hero Header */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/25">
-                <FileSpreadsheet className="w-7 h-7 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                  Vacly Nóminas
-                  <Badge className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0 text-xs px-2">
-                    <Sparkles className="w-3 h-3 mr-1" />
-                    IA
-                  </Badge>
-                </h1>
-                <p className="text-slate-400 text-sm">Procesamiento inteligente con Claude 4.5 Haiku</p>
-              </div>
-            </div>
-            
-            {/* Quick Stats in Header */}
-            {splitDocuments.length > 0 && (
-              <div className="hidden md:flex items-center gap-6">
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-white">{splitDocuments.length}</p>
-                  <p className="text-xs text-slate-400">Documentos</p>
-                </div>
-                <div className="w-px h-10 bg-slate-700" />
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-emerald-400">{processedCount}</p>
-                  <p className="text-xs text-slate-400">Procesados</p>
-                </div>
-                {pendingCount > 0 && (
-                  <>
-                    <div className="w-px h-10 bg-slate-700" />
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-amber-400">{pendingCount}</p>
-                      <p className="text-xs text-slate-400">Pendientes</p>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
         {/* Upload Section */}
         <Card className="mb-8 border-0 shadow-xl bg-white/80 backdrop-blur-sm overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-emerald-500/5 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-br from-[#1B2A41]/5 via-transparent to-[#C6A664]/5 pointer-events-none" />
           <CardContent className="p-8 relative">
             <div className="flex flex-col md:flex-row items-center gap-6">
               <div className="flex-1 text-center md:text-left">
                 <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2 justify-center md:justify-start">
-                  <Upload className="w-5 h-5 text-amber-500" />
+                  <Upload className="w-5 h-5 text-[#C6A664]" />
                   Subir PDF de Nóminas
                 </h2>
                 <p className="text-slate-600 text-sm">
@@ -418,7 +450,7 @@ export default function VaclyNominas() {
               
               <div>
                 <Label htmlFor="pdf-upload" className="cursor-pointer">
-                  <div className="flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-8 py-4 rounded-2xl hover:from-amber-600 hover:to-orange-600 transition-all shadow-lg shadow-amber-500/25 hover:shadow-xl hover:shadow-amber-500/30 font-semibold">
+                  <div className="flex items-center gap-3 bg-gradient-to-r from-[#1B2A41] to-[#2d4057] text-white px-8 py-4 rounded-2xl hover:from-[#152036] hover:to-[#1B2A41] transition-all shadow-lg shadow-[#1B2A41]/25 hover:shadow-xl hover:shadow-[#1B2A41]/30 font-semibold">
                     <Upload className="h-5 w-5" />
                     <span>Seleccionar PDF</span>
                   </div>
@@ -436,10 +468,10 @@ export default function VaclyNominas() {
 
             {/* Upload Progress */}
             {isUploading && (
-              <div className="mt-6 bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-2xl border border-blue-100">
+              <div className="mt-6 bg-gradient-to-r from-[#C6A664]/10 to-[#B8964A]/10 p-6 rounded-2xl border border-[#C6A664]/20">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center animate-pulse">
+                    <div className="w-10 h-10 rounded-xl bg-[#C6A664] flex items-center justify-center animate-pulse">
                       <Zap className="w-5 h-5 text-white" />
                     </div>
                     <div>
@@ -447,11 +479,11 @@ export default function VaclyNominas() {
                       <p className="text-sm text-slate-600">{progressMessage}</p>
                     </div>
                   </div>
-                  <span className="text-lg font-bold text-blue-600">
+                  <span className="text-lg font-bold text-[#C6A664]">
                     {currentPage && totalPages ? `${currentPage}/${totalPages}` : `${uploadProgress}%`}
                   </span>
                 </div>
-                <Progress value={uploadProgress} className="w-full h-3 bg-blue-100" />
+                <Progress value={uploadProgress} variant="gold" className="w-full h-3 bg-[#C6A664]/20" />
               </div>
             )}
           </CardContent>
@@ -504,7 +536,7 @@ export default function VaclyNominas() {
                     onClick={() => setFilterStatus('pending')}
                     className={`px-4 py-2 text-sm font-medium transition-colors ${
                       filterStatus === 'pending' 
-                        ? 'bg-amber-500 text-white' 
+                        ? 'bg-[#C6A664] text-white' 
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -539,7 +571,7 @@ export default function VaclyNominas() {
                   <Button
                     onClick={handleBatchProcess}
                     disabled={isBatchProcessing}
-                    className="bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-600 hover:to-purple-600 text-white shadow-lg shadow-purple-500/25"
+                    className="bg-[hsl(203,73%,56%)] hover:bg-[hsl(203,73%,50%)] text-white shadow-lg shadow-[hsl(203,73%,56%)]/25"
                   >
                     {isBatchProcessing ? (
                       <>
@@ -578,13 +610,14 @@ export default function VaclyNominas() {
 
             {/* Documents Grid/List */}
             <div className={viewMode === 'grid' 
-              ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-              : "flex flex-col gap-3"
+              ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5 gap-4 w-full"
+              : "flex flex-col gap-3 w-full"
             }>
               {filteredDocuments.map((doc) => (
                 <NominaCard
                   key={doc.id}
                   document={doc}
+                  compact={viewMode === 'list'}
                   isSelected={selectedDocument?.id === doc.id}
                   isProcessing={isProcessingClaude === doc.id}
                   onSelect={() => setSelectedDocument(doc)}
@@ -609,8 +642,8 @@ export default function VaclyNominas() {
         {/* Empty State */}
         {splitDocuments.length === 0 && !isUploading && (
           <div className="text-center py-20">
-            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-amber-100 to-orange-100 flex items-center justify-center mx-auto mb-6 shadow-lg">
-              <FileText className="w-12 h-12 text-amber-500" />
+            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center mx-auto mb-6 shadow-lg">
+              <FileText className="w-12 h-12 text-[#C6A664]" />
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">Sin documentos</h3>
             <p className="text-slate-600 max-w-md mx-auto">
@@ -618,6 +651,165 @@ export default function VaclyNominas() {
             </p>
           </div>
         )}
+
+        {/* Historial de Nóminas Procesadas */}
+        <div className="mt-12 pt-8 border-t border-slate-200">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
+                <History className="w-8 h-8 text-[#C6A664]" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-800">Historial de Nóminas</h2>
+                <p className="text-sm text-slate-500">{historialTotal} nóminas procesadas en total</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadHistorial(historialPage)}
+              disabled={isLoadingHistorial}
+              className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10"
+            >
+              {isLoadingHistorial ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              <span className="ml-2">Actualizar</span>
+            </Button>
+          </div>
+
+          {isLoadingHistorial && historialNominas.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-[#C6A664]" />
+            </div>
+          ) : historialNominas.length === 0 ? (
+            <div className="text-center py-16 bg-slate-50 rounded-xl">
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5 flex items-center justify-center mx-auto mb-4">
+                <History className="w-10 h-10 text-[#C6A664]/50" />
+              </div>
+              <h3 className="text-lg font-semibold text-slate-600 mb-1">Sin historial</h3>
+              <p className="text-slate-500 text-sm">No hay nóminas procesadas todavía</p>
+            </div>
+          ) : (
+            <>
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="font-semibold text-slate-700">Empleado</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Empresa</TableHead>
+                      <TableHead className="font-semibold text-slate-700 text-center">Período</TableHead>
+                      <TableHead className="font-semibold text-slate-700 text-center">Bruto</TableHead>
+                      <TableHead className="font-semibold text-slate-700 text-center">Neto</TableHead>
+                      <TableHead className="font-semibold text-slate-700 text-center">Coste Emp.</TableHead>
+                      <TableHead className="font-semibold text-slate-700 text-center">Fecha</TableHead>
+                      <TableHead className="font-semibold text-slate-700 text-center w-20">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {historialNominas.map((nomina) => (
+                      <TableRow key={nomina.id} className="hover:bg-slate-50/50">
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {nomina.employee_avatar ? (
+                              <img 
+                                src={nomina.employee_avatar} 
+                                alt={nomina.employee?.name || 'Avatar'}
+                                className="w-8 h-8 rounded-lg object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
+                                <User className="w-4 h-4 text-white" />
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-medium text-slate-800 text-sm">
+                                {nomina.employee?.name || 'Sin nombre'}
+                              </p>
+                              <p className="text-xs text-slate-500">{nomina.dni || nomina.employee?.dni || '—'}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <p className="text-sm text-slate-700">{nomina.company?.name || '—'}</p>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <div className="flex items-center justify-center gap-1.5 text-sm text-slate-600">
+                            <Calendar className="w-3.5 h-3.5" />
+                            {nomina.period_start ? new Date(nomina.period_start).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' }) : '—'}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className="font-mono text-sm font-semibold text-[#1B2A41]">
+                            {formatCurrency(nomina.gross_salary)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className="font-mono text-sm font-semibold text-emerald-600">
+                            {formatCurrency(nomina.net_pay)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className="font-mono text-sm font-semibold text-[#C6A664]">
+                            {formatCurrency(nomina.cost_empresa)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className="text-xs text-slate-500">
+                            {nomina.created_at ? new Date(nomina.created_at).toLocaleDateString('es-ES') : '—'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteNomina(nomina.id)}
+                              className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Paginación */}
+              {historialTotal > HISTORIAL_LIMIT && (
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-sm text-slate-500">
+                    Mostrando {historialPage * HISTORIAL_LIMIT + 1}-{Math.min((historialPage + 1) * HISTORIAL_LIMIT, historialTotal)} de {historialTotal}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadHistorial(historialPage - 1)}
+                      disabled={historialPage === 0 || isLoadingHistorial}
+                      className="border-slate-200"
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadHistorial(historialPage + 1)}
+                      disabled={(historialPage + 1) * HISTORIAL_LIMIT >= historialTotal || isLoadingHistorial}
+                      className="border-slate-200"
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
 
         {/* Detail Viewer Dialog */}
         <Dialog open={isViewerOpen} onOpenChange={setIsViewerOpen}>
@@ -647,13 +839,13 @@ export default function VaclyNominas() {
                   <TabsContent value="resumen" className="space-y-6">
                     {/* KPIs */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-indigo-50">
+                      <Card className="border-0 shadow-lg bg-gradient-to-br from-[#C6A664]/10 to-[#B8964A]/10">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-2 mb-2">
-                            <DollarSign className="w-5 h-5 text-blue-600" />
-                            <span className="text-sm font-medium text-blue-700">Salario Bruto</span>
+                            <DollarSign className="w-5 h-5 text-[#C6A664]" />
+                            <span className="text-sm font-medium text-[#1B2A41]">Salario Bruto</span>
                           </div>
-                          <p className="text-3xl font-bold text-blue-900">
+                          <p className="text-3xl font-bold text-[#1B2A41]">
                             {formatCurrency(viewerDocument.nominaData.gross_salary)}
                           </p>
                         </CardContent>
@@ -671,13 +863,13 @@ export default function VaclyNominas() {
                         </CardContent>
                       </Card>
 
-                      <Card className="border-0 shadow-lg bg-gradient-to-br from-amber-50 to-orange-50">
+                      <Card className="border-0 shadow-lg bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-2 mb-2">
-                            <Building2 className="w-5 h-5 text-amber-600" />
-                            <span className="text-sm font-medium text-amber-700">Coste Empresa</span>
+                            <Building2 className="w-5 h-5 text-[#C6A664]" />
+                            <span className="text-sm font-medium text-[#1B2A41]">Coste Empresa</span>
                           </div>
-                          <p className="text-3xl font-bold text-amber-900">
+                          <p className="text-3xl font-bold text-[#1B2A41]">
                             {formatCurrency(viewerDocument.nominaData.cost_empresa)}
                           </p>
                         </CardContent>
@@ -701,8 +893,8 @@ export default function VaclyNominas() {
                       <Card className="border-0 shadow-lg">
                         <CardHeader className="pb-3">
                           <CardTitle className="text-base flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                              <Building2 className="w-4 h-4 text-blue-600" />
+                            <div className="w-8 h-8 rounded-lg bg-[#C6A664]/10 flex items-center justify-center">
+                              <Building2 className="w-4 h-4 text-[#C6A664]" />
                             </div>
                             Datos del Empleado
                           </CardTitle>
@@ -831,22 +1023,78 @@ export default function VaclyNominas() {
                   </TabsContent>
 
                   <TabsContent value="documento">
-                    <div className="h-[60vh]">
-                      <iframe
-                        src={viewerDocument.pdfUrl}
-                        className="w-full h-full rounded-xl border-2 border-slate-200"
-                        title="PDF Viewer"
-                      />
+                    <div className="h-[60vh] flex flex-col">
+                      <div className="flex-1 rounded-xl border-2 border-slate-200 overflow-hidden bg-slate-50">
+                        <iframe
+                          src={`${viewerDocument.pdfUrl}#toolbar=1&navpanes=1&scrollbar=1`}
+                          className="w-full h-full"
+                          title="PDF Viewer"
+                          allowFullScreen
+                          style={{ border: 'none' }}
+                        />
+                      </div>
+                      <div className="mt-3 flex items-center justify-between">
+                        <p className="text-sm text-slate-600">
+                          Si el PDF no se muestra correctamente, puedes abrirlo en una nueva pestaña o descargarlo
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={viewerDocument.pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
+                          >
+                            <Eye className="w-4 h-4 inline mr-2" />
+                            Abrir en nueva pestaña
+                          </a>
+                          <a
+                            href={viewerDocument.pdfUrl}
+                            download
+                            className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium"
+                          >
+                            <Download className="w-4 h-4 inline mr-2" />
+                            Descargar PDF
+                          </a>
+                        </div>
+                      </div>
                     </div>
                   </TabsContent>
                 </Tabs>
               ) : (
-                <div className="h-[60vh]">
-                  <iframe
-                    src={viewerDocument?.pdfUrl}
-                    className="w-full h-full rounded-xl border-2 border-slate-200"
-                    title="PDF Viewer"
-                  />
+                <div className="h-[60vh] flex flex-col">
+                  <div className="flex-1 rounded-xl border-2 border-slate-200 overflow-hidden bg-slate-50">
+                    <iframe
+                      src={`${viewerDocument?.pdfUrl}#toolbar=1&navpanes=1&scrollbar=1`}
+                      className="w-full h-full"
+                      title="PDF Viewer"
+                      allowFullScreen
+                      style={{ border: 'none' }}
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <p className="text-sm text-slate-600">
+                      Si el PDF no se muestra correctamente, puedes abrirlo en una nueva pestaña o descargarlo
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={viewerDocument?.pdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
+                      >
+                        <Eye className="w-4 h-4 inline mr-2" />
+                        Abrir en nueva pestaña
+                      </a>
+                      <a
+                        href={viewerDocument?.pdfUrl}
+                        download
+                        className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium"
+                      >
+                        <Download className="w-4 h-4 inline mr-2" />
+                        Descargar PDF
+                      </a>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

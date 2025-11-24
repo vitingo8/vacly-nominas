@@ -59,7 +59,7 @@ const nextConfig = {
           },
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://api.voyageai.com https://*.supabase.co; frame-ancestors *;",
+            value: "default-src 'self' https://*.supabase.co; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co https://niztpeedjtnvskscnwds.supabase.co; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://api.voyageai.com https://*.supabase.co; frame-src 'self' https://*.supabase.co https://niztpeedjtnvskscnwds.supabase.co blob: data:; object-src 'self' https://*.supabase.co blob: data:; frame-ancestors *;",
           },
         ],
       },

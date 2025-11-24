@@ -75,6 +75,7 @@ interface NominaCardProps {
   document: SplitDocument
   isSelected?: boolean
   isProcessing?: boolean
+  compact?: boolean
   onSelect?: () => void
   onProcess?: () => void
   onView?: () => void
@@ -85,6 +86,7 @@ export function NominaCard({
   document,
   isSelected = false,
   isProcessing = false,
+  compact = false,
   onSelect,
   onProcess,
   onView,
@@ -117,6 +119,127 @@ export function NominaCard({
     return retention.toFixed(1)
   }
 
+  // Versión compacta para modo lista
+  if (compact) {
+    if (!claudeProcessed || !nominaData) {
+      return (
+        <div
+          onClick={onSelect}
+          className={cn(
+            "flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all",
+            "bg-white border-2 hover:border-[#C6A664]",
+            isSelected ? "border-[#C6A664] bg-[#C6A664]/5" : "border-slate-200"
+          )}
+        >
+          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+            <Clock className="w-4 h-4 text-slate-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-slate-700 truncate">Página {pageNumber}</p>
+            <p className="text-xs text-slate-500 truncate">{filename}</p>
+          </div>
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-[#C6A664]/10 text-[#C6A664] border border-[#C6A664]/20 flex-shrink-0">
+            Pendiente
+          </span>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onView?.()
+              }}
+              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
+              title="Ver documento"
+            >
+              <Eye className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onProcess?.()
+              }}
+              disabled={isProcessing}
+              className="p-1.5 rounded-lg bg-[#1B2A41] text-white hover:bg-[#152036] transition-colors"
+              title="Procesar con IA"
+            >
+              {isProcessing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Brain className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div
+        onClick={onSelect}
+        className={cn(
+          "flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-all",
+          "bg-white border-2 hover:border-emerald-300 hover:shadow-md",
+          isSelected ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200"
+        )}
+      >
+        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
+          <User className="w-5 h-5 text-white" />
+        </div>
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="text-sm font-bold text-slate-800 truncate">
+              {nominaData.employee?.name || 'Empleado'}
+            </p>
+            <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1 flex-shrink-0">
+              <CheckCircle className="w-3 h-3" />
+            </span>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span className="truncate">{nominaData.company?.name || 'Empresa'}</span>
+            <span>•</span>
+            <span>{formatPeriod(nominaData.period_start)}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 flex-shrink-0">
+          <div className="text-right">
+            <p className="text-xs text-slate-500 mb-0.5">Bruto</p>
+            <p className="text-sm font-bold text-[#1B2A41] tabular-nums">{formatCurrency(nominaData.gross_salary)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-slate-500 mb-0.5">Neto</p>
+            <p className="text-sm font-bold text-emerald-600 tabular-nums">{formatCurrency(nominaData.net_pay)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-slate-500 mb-0.5">Coste</p>
+            <p className="text-sm font-bold text-[#C6A664] tabular-nums">{formatCurrency(nominaData.cost_empresa)}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onView?.()
+            }}
+            className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDownload?.()
+            }}
+            className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // Card sin procesar
   if (!claudeProcessed || !nominaData) {
     return (
@@ -125,8 +248,8 @@ export function NominaCard({
         className={cn(
           "group relative overflow-hidden rounded-2xl cursor-pointer transition-all duration-300",
           "bg-gradient-to-br from-slate-50 to-slate-100 border-2",
-          "hover:shadow-xl hover:scale-[1.02] hover:border-amber-300",
-          isSelected ? "border-amber-500 shadow-lg ring-2 ring-amber-200" : "border-slate-200"
+          "hover:shadow-xl hover:scale-[1.02] hover:border-[#C6A664]",
+          isSelected ? "border-[#C6A664] shadow-lg ring-2 ring-[#C6A664]/20" : "border-slate-200"
         )}
       >
         {/* Header mínimo */}
@@ -141,14 +264,14 @@ export function NominaCard({
                 <p className="text-xs text-slate-500 truncate max-w-[140px]">{filename}</p>
               </div>
             </div>
-            <span className="px-2 py-1 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
+            <span className="px-2 py-1 text-xs font-medium rounded-full bg-[#C6A664]/10 text-[#C6A664] border border-[#C6A664]/20">
               Pendiente
             </span>
           </div>
           
           {/* Mensaje pendiente */}
-          <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
-            <p className="text-xs text-amber-700 text-center">
+          <div className="bg-[#1B2A41]/5 rounded-xl p-3 border border-[#C6A664]/20">
+            <p className="text-xs text-[#1B2A41] text-center">
               ⏳ Haz clic en <strong>Procesar</strong> para extraer los datos
             </p>
           </div>
@@ -167,7 +290,7 @@ export function NominaCard({
               "flex items-center justify-center gap-2",
               isProcessing 
                 ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                : "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 shadow-md hover:shadow-lg"
+                : "bg-gradient-to-r from-[#1B2A41] to-[#2d4057] text-white hover:from-[#152036] hover:to-[#1B2A41] shadow-md hover:shadow-lg"
             )}
           >
             {isProcessing ? (
@@ -254,14 +377,14 @@ export function NominaCard({
       <div className="px-4 pb-3">
         <div className="grid grid-cols-2 gap-2">
           {/* Salario Bruto */}
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-3 border border-blue-100">
+          <div className="bg-gradient-to-br from-[#C6A664]/10 to-[#B8964A]/10 rounded-xl p-3 border border-[#C6A664]/20">
             <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-5 h-5 rounded-md bg-blue-500/10 flex items-center justify-center">
-                <TrendingUp className="w-3 h-3 text-blue-600" />
+              <div className="w-5 h-5 rounded-md bg-[#C6A664]/10 flex items-center justify-center">
+                <TrendingUp className="w-3 h-3 text-[#C6A664]" />
               </div>
-              <span className="text-[10px] font-medium text-blue-700 uppercase tracking-wide">Bruto</span>
+              <span className="text-[10px] font-medium text-[#1B2A41] uppercase tracking-wide">Bruto</span>
             </div>
-            <p className="text-lg font-bold text-blue-900 tabular-nums">
+            <p className="text-lg font-bold text-[#1B2A41] tabular-nums">
               {formatCurrency(nominaData.gross_salary)}
             </p>
           </div>
@@ -280,14 +403,14 @@ export function NominaCard({
           </div>
 
           {/* Coste Empresa */}
-          <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-3 border border-amber-100">
+          <div className="bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5 rounded-xl p-3 border border-[#C6A664]/20">
             <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-5 h-5 rounded-md bg-amber-500/10 flex items-center justify-center">
-                <Building2 className="w-3 h-3 text-amber-600" />
+              <div className="w-5 h-5 rounded-md bg-[#C6A664]/10 flex items-center justify-center">
+                <Building2 className="w-3 h-3 text-[#C6A664]" />
               </div>
-              <span className="text-[10px] font-medium text-amber-700 uppercase tracking-wide">Coste Emp.</span>
+              <span className="text-[10px] font-medium text-[#1B2A41] uppercase tracking-wide">Coste Emp.</span>
             </div>
-            <p className="text-lg font-bold text-amber-900 tabular-nums">
+            <p className="text-lg font-bold text-[#1B2A41] tabular-nums">
               {formatCurrency(nominaData.cost_empresa)}
             </p>
           </div>
@@ -380,18 +503,18 @@ export function NominaStats({ documents }: NominaStatsProps) {
   if (!stats) return null
 
   return (
-    <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-6 mb-6 shadow-2xl border border-slate-700/50">
+    <div className="bg-white rounded-2xl p-6 mb-6 shadow-2xl border border-slate-200">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-emerald-400" />
+        <h3 className="text-lg font-bold text-[#1B2A41] flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-emerald-500" />
           Resumen de Nóminas
         </h3>
         <div className="flex items-center gap-2">
-          <span className="px-3 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+          <span className="px-3 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-600 border border-emerald-500/30">
             {stats.count} procesadas
           </span>
           {stats.pending > 0 && (
-            <span className="px-3 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            <span className="px-3 py-1 text-xs font-semibold rounded-full bg-[#C6A664]/20 text-[#C6A664] border border-[#C6A664]/30">
               {stats.pending} pendientes
             </span>
           )}
@@ -399,21 +522,21 @@ export function NominaStats({ documents }: NominaStatsProps) {
       </div>
       
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-          <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Total Bruto</p>
-          <p className="text-2xl font-bold text-blue-400 tabular-nums">{formatCurrency(stats.totalGross)}</p>
+        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+          <p className="text-xs text-slate-600 uppercase tracking-wide mb-1">Total Bruto</p>
+          <p className="text-2xl font-bold text-[#C6A664] tabular-nums">{formatCurrency(stats.totalGross)}</p>
         </div>
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-          <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Total Neto</p>
-          <p className="text-2xl font-bold text-emerald-400 tabular-nums">{formatCurrency(stats.totalNet)}</p>
+        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+          <p className="text-xs text-slate-600 uppercase tracking-wide mb-1">Total Neto</p>
+          <p className="text-2xl font-bold text-emerald-600 tabular-nums">{formatCurrency(stats.totalNet)}</p>
         </div>
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-          <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Coste Empresa</p>
-          <p className="text-2xl font-bold text-amber-400 tabular-nums">{formatCurrency(stats.totalCost)}</p>
+        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+          <p className="text-xs text-slate-600 uppercase tracking-wide mb-1">Coste Empresa</p>
+          <p className="text-2xl font-bold text-[#C6A664] tabular-nums">{formatCurrency(stats.totalCost)}</p>
         </div>
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-          <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Media/Empleado</p>
-          <p className="text-2xl font-bold text-purple-400 tabular-nums">{formatCurrency(stats.avgNet)}</p>
+        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+          <p className="text-xs text-slate-600 uppercase tracking-wide mb-1">Media/Empleado</p>
+          <p className="text-2xl font-bold text-[hsl(203,73%,56%)] tabular-nums">{formatCurrency(stats.avgNet)}</p>
         </div>
       </div>
     </div>

@@ -53,7 +53,7 @@ img {
 }
 
 .badge-premium {
-  @apply bg-gradient-to-r from-purple-600 to-primary text-white px-3 py-1 rounded-full text-xs font-semibold;
+  @apply bg-[hsl(203,73%,56%)] text-white px-3 py-1 rounded-full text-xs font-semibold;
 }
 
 @layer base {
@@ -155,7 +155,7 @@ img {
   }
   
   .gradient-premium {
-    @apply bg-gradient-to-br from-purple-600 via-primary to-primary;
+    @apply bg-[hsl(203,73%,56%)];
   }
   
   /* Card hover effects */

@@ -2,23 +2,30 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
-  // Permitir todas las peticiones de API sin restricciones
   const response = NextResponse.next()
   
-  // Agregar headers básicos de seguridad (no restrictivos)
-  response.headers.set('X-Content-Type-Options', 'nosniff')
+  // CSP que permite iframes de Supabase para visualizar PDFs
+  const csp = [
+    "default-src 'self' https://*.supabase.co",
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https://*.supabase.co",
+    "font-src 'self' data:",
+    "connect-src 'self' https://api.anthropic.com https://api.voyageai.com https://*.supabase.co",
+    "frame-src 'self' https://*.supabase.co blob: data:",
+    "object-src 'self' https://*.supabase.co blob: data:",
+    "frame-ancestors *"
+  ].join('; ')
   
-  // Permitir que se cargue en iframe desde cualquier origen
-  response.headers.set('X-Frame-Options', 'ALLOWALL')
-  response.headers.set('Content-Security-Policy', "frame-ancestors *;")
+  response.headers.set('X-Content-Type-Options', 'nosniff')
+  response.headers.set('Content-Security-Policy', csp)
   
   return response
 }
 
 export const config = {
   matcher: [
-    // Solo aplicar middleware a rutas específicas que realmente lo necesiten
-    // Esto evita interferencias con Vercel y otros servicios
-    '/admin/:path*',
+    // Aplicar a todas las páginas excepto API, _next y archivos estáticos
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 } 
