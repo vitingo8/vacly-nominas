@@ -8,28 +8,18 @@ import { getSupabaseClient } from '@/lib/supabase'
 // GET - Obtener gastos
 export async function GET(request: NextRequest) {
   const timestamp = new Date().toISOString()
-  console.log(`[${timestamp}] [API EXPENSES] 📥 GET - Nueva petición`)
-  
-  try {
-    const supabase = getSupabaseClient()
-    const { searchParams } = new URL(request.url)
-    const limit = searchParams.get('limit') || '20'
-    const offset = searchParams.get('offset') || '0'
-    const companyId = searchParams.get('company_id')
-    const employeeId = searchParams.get('employee_id')
-    const department = searchParams.get('department')
-    const year = searchParams.get('year')
-    const month = searchParams.get('month')
-
-    console.log(`[${timestamp}] [API EXPENSES] 📋 Parámetros:`, {
-      limit,
-      offset,
-      companyId,
-      employeeId,
-      department,
-      year,
-      month
-    })
+    const timestamp = new Date().toISOString()
+    
+    try {
+      const supabase = getSupabaseClient()
+      const { searchParams } = new URL(request.url)
+      const limit = searchParams.get('limit') || '20'
+      const offset = searchParams.get('offset') || '0'
+      const companyId = searchParams.get('company_id')
+      const employeeId = searchParams.get('employee_id')
+      const department = searchParams.get('department')
+      const year = searchParams.get('year')
+      const month = searchParams.get('month')
 
     if (!companyId) {
       console.error(`[${timestamp}] [API EXPENSES] ❌ company_id no proporcionado`)
@@ -39,7 +29,6 @@ export async function GET(request: NextRequest) {
       }, { status: 400 })
     }
 
-    console.log(`[${timestamp}] [API EXPENSES] 🔍 Consultando Supabase...`)
     let query = supabase
       .from('expenses')
       .select('*', { count: 'exact' })
@@ -91,16 +80,6 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    console.log(`[${timestamp}] [API EXPENSES] ✅ Datos obtenidos:`, {
-      count: expenses?.length || 0,
-      total: count,
-      firstExpense: expenses?.[0] ? {
-        id: expenses[0].id,
-        expense_date: expenses[0].expense_date,
-        description: expenses[0].description?.substring(0, 50),
-        amount: expenses[0].amount
-      } : null
-    })
 
     // Calcular estadísticas
     const now = new Date()
@@ -117,91 +96,78 @@ export async function GET(request: NextRequest) {
     })
     const totalEsteMes = gastosEsteMes.reduce((sum, exp) => sum + parseFloat(String(exp.amount || 0)), 0)
 
-    // Transformar gastos para compatibilidad con el frontend y cargar avatares
-    console.log(`[${timestamp}] [API EXPENSES] 🔄 Transformando ${allExpenses.length} gastos...`)
-    const transformedExpenses = await Promise.all(
-      allExpenses.map(async (exp: any, index: number) => {
-        // Intentar parsear description si es JSON
-        let parsedDesc: any = {}
-        try {
-          if (exp.description && exp.description.startsWith('{')) {
-            parsedDesc = JSON.parse(exp.description)
-            console.log(`[${timestamp}] [API EXPENSES] 📦 Gasto ${index + 1}: description parseado como JSON`)
-          } else {
-            parsedDesc = { text: exp.description }
-            console.log(`[${timestamp}] [API EXPENSES] 📝 Gasto ${index + 1}: description como texto plano`)
-          }
-        } catch (parseError: any) {
-          console.warn(`[${timestamp}] [API EXPENSES] ⚠️ Error parseando description del gasto ${index + 1}:`, parseError.message)
+    // Obtener todos los avatares de empleados de una vez (evitar N+1 queries)
+    const employeeIds = [...new Set(allExpenses.map((exp: any) => exp.employee_id).filter(Boolean))]
+    const avatarsMap = new Map<string, string | null>()
+    
+    if (employeeIds.length > 0) {
+      const { data: employees } = await supabase
+        .from('employees')
+        .select('id, image_url')
+        .eq('company_id', companyId)
+        .in('id', employeeIds)
+      
+      if (employees) {
+        employees.forEach((emp: any) => {
+          avatarsMap.set(emp.id, emp.image_url || null)
+        })
+      }
+    }
+
+    // Transformar gastos para compatibilidad con el frontend
+    const transformedExpenses = allExpenses.map((exp: any) => {
+      // Intentar parsear description si es JSON
+      let parsedDesc: any = {}
+      try {
+        if (exp.description && exp.description.startsWith('{')) {
+          parsedDesc = JSON.parse(exp.description)
+        } else {
           parsedDesc = { text: exp.description }
         }
+      } catch {
+        parsedDesc = { text: exp.description }
+      }
 
-        // Buscar avatar del empleado si existe employee_id
-        let employeeAvatar: string | null = null
-        if (exp.employee_id && exp.company_id) {
-          console.log(`[${timestamp}] [API EXPENSES] 👤 Buscando avatar para employee_id: ${exp.employee_id}, company_id: ${exp.company_id}`)
-          
-          const { data: employee, error: empError } = await supabase
-            .from('employees')
-            .select('image_url, company_id')
-            .eq('id', exp.employee_id)
-            .eq('company_id', exp.company_id)
-            .maybeSingle()
-          
-          if (empError) {
-            console.warn(`[${timestamp}] [API EXPENSES] ⚠️ Error buscando empleado ${exp.employee_id}:`, empError.message)
-          } else if (employee) {
-            employeeAvatar = employee.image_url || null
-            console.log(`[${timestamp}] [API EXPENSES] ✅ Avatar encontrado para employee_id ${exp.employee_id}:`, employeeAvatar ? 'Sí' : 'No')
-          } else {
-            console.log(`[${timestamp}] [API EXPENSES] ⚠️ No se encontró empleado con id: ${exp.employee_id}`)
-          }
-        }
-
-        const transformed = {
-          ...exp,
-          // Campos compatibles con el frontend
-          date: exp.expense_date,
-          concept: parsedDesc.text || exp.description || '',
-          category: parsedDesc.category || 'Gasto',
-          subcategory: parsedDesc.subcategory || 'Otro',
-          method: parsedDesc.method || 'Efectivo',
-          notes: parsedDesc.notes || null,
-          image: exp.receipt_url || null,
-          conceptos: exp.conceptos || null,
-          employee_avatar: employeeAvatar
-        }
-        
-        return transformed
-      })
-    )
-    
-    console.log(`[${timestamp}] [API EXPENSES] ✅ Transformación completada`)
-
-    // Obtener meses únicos con gastos para el filtro
-    const { data: allExpensesForMonths } = await supabase
-      .from('expenses')
-      .select('expense_date')
-      .eq('company_id', companyId)
-    
-    const uniqueMonths = new Set<string>()
-    if (allExpensesForMonths) {
-      allExpensesForMonths.forEach((exp: any) => {
-        if (exp.expense_date) {
-          const date = new Date(exp.expense_date)
-          const year = date.getFullYear()
-          const month = String(date.getMonth() + 1).padStart(2, '0')
-          uniqueMonths.add(`${year}-${month}`)
-        }
-      })
-    }
-    
-    const availableMonths = Array.from(uniqueMonths).sort((a, b) => {
-      // Ordenar de más reciente a más antiguo
-      return b.localeCompare(a)
+      return {
+        ...exp,
+        // Campos compatibles con el frontend
+        date: exp.expense_date,
+        concept: parsedDesc.text || exp.description || '',
+        category: parsedDesc.category || 'Gasto',
+        subcategory: parsedDesc.subcategory || 'Otro',
+        method: parsedDesc.method || 'Efectivo',
+        notes: parsedDesc.notes || null,
+        image: exp.receipt_url || null,
+        conceptos: exp.conceptos || null,
+        employee_avatar: exp.employee_id ? (avatarsMap.get(exp.employee_id) || null) : null
+      }
     })
 
-    console.log(`[${timestamp}] [API EXPENSES] 📅 Meses disponibles con gastos:`, availableMonths.length)
+    // Obtener meses únicos con gastos para el filtro (optimizado: solo si hay gastos)
+    let availableMonths: string[] = []
+    if (count && count > 0) {
+      const { data: allExpensesForMonths } = await supabase
+        .from('expenses')
+        .select('expense_date')
+        .eq('company_id', companyId)
+        .not('expense_date', 'is', null)
+      
+      const uniqueMonths = new Set<string>()
+      if (allExpensesForMonths) {
+        allExpensesForMonths.forEach((exp: any) => {
+          if (exp.expense_date) {
+            const date = new Date(exp.expense_date)
+            const year = date.getFullYear()
+            const month = String(date.getMonth() + 1).padStart(2, '0')
+            uniqueMonths.add(`${year}-${month}`)
+          }
+        })
+      }
+      
+      availableMonths = Array.from(uniqueMonths).sort((a, b) => {
+        return b.localeCompare(a)
+      })
+    }
 
     return NextResponse.json({
       success: true,
