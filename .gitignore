@@ -43,10 +43,10 @@ next-env.d.ts
 
 # Uploaded files
 /public/uploads/*
-/public/split-pdfs/*
+/public/Nominas/*
 /public/text-files/*
 
 # Keep directories but ignore contents
 !/public/uploads/.gitkeep
-!/public/split-pdfs/.gitkeep
+!/public/Nominas/.gitkeep
 !/public/text-files/.gitkeep

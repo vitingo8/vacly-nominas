@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     console.log('📤 Uploading with filename:', finalFilename)
     const { error: uploadError } = await supabase
       .storage
-      .from('pdfs')
+      .from('Nominas')
       .upload(finalFilename, buffer, {
         contentType: 'application/pdf',
         cacheControl: '3600',
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
         console.log('🔄 Retrying with unique filename:', uniqueFilename)
         const { error: retryError } = await supabase
           .storage
-          .from('pdfs')
+          .from('Nominas')
           .upload(uniqueFilename, buffer, {
             contentType: 'application/pdf',
             cacheControl: '3600'
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     // Get the public URL
     const { data: publicUrlData } = supabase
       .storage
-      .from('pdfs')
+      .from('Nominas')
       .getPublicUrl(finalFilename)
 
     console.log('✅ File uploaded successfully with name:', finalFilename)

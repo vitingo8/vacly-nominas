@@ -894,7 +894,7 @@ async function processFullPDF(filename: string, url: string) {
                   const storageStart = logWithTime(`Subiendo archivos de página ${pageNum} a Storage`)
                   const { error: pdfUploadError } = await supabase
                     .storage
-                    .from('split-pdfs')
+                    .from('Nominas')
                     .upload(pagePdfName, pdfBytes, {
                       contentType: 'application/pdf',
                       cacheControl: "3600", 
@@ -911,14 +911,14 @@ async function processFullPDF(filename: string, url: string) {
                   try {
                     const { data: signedUrlData, error: signedError } = await supabase
                       .storage
-                      .from('split-pdfs')
+                      .from('Nominas')
                       .createSignedUrl(pagePdfName, 3600) // 1 hora de validez
                     
                     if (signedError || !signedUrlData) {
                       // Fallback a public URL si falla la signed
                       const { data: publicUrlData } = supabase
                         .storage
-                        .from('split-pdfs')
+                        .from('Nominas')
                         .getPublicUrl(pagePdfName)
                       pdfUrl = publicUrlData.publicUrl
                     } else {
@@ -928,7 +928,7 @@ async function processFullPDF(filename: string, url: string) {
                     // Fallback a public URL en caso de error
                     const { data: publicUrlData } = supabase
                       .storage
-                      .from('split-pdfs')
+                      .from('Nominas')
                       .getPublicUrl(pagePdfName)
                     pdfUrl = publicUrlData.publicUrl
                   }
@@ -1131,6 +1131,30 @@ async function processFullPDF(filename: string, url: string) {
                     }
                   }
 
+                  // Buscar avatar del empleado si tenemos datos completos
+                  let employeeAvatar = null
+                  if (Object.keys(fullNominaData).length > 0) {
+                    const dni = fullNominaData.employee?.dni
+                    if (dni && companyId) {
+                      try {
+                        const dniLimpio = dni.trim().toUpperCase()
+                        const { data: employee } = await supabase
+                          .from('employees')
+                          .select('nif, image_url, company_id')
+                          .eq('nif', dniLimpio)
+                          .eq('company_id', companyId)
+                          .maybeSingle()
+                        
+                        employeeAvatar = employee?.image_url || null
+                        if (employeeAvatar) {
+                          console.log(`✅ Avatar encontrado para página ${pageNum} (DNI: ${dniLimpio}):`, employeeAvatar)
+                        }
+                      } catch (avatarError) {
+                        console.error(`❌ Error buscando avatar para página ${pageNum}:`, avatarError)
+                      }
+                    }
+                  }
+
                   // Add to documents array with proper structure
                   documents.push({
                     id: pageId,
@@ -1162,7 +1186,8 @@ async function processFullPDF(filename: string, url: string) {
                                    fullNominaData.perceptions?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0) +
                                    (fullNominaData.contributions?.reduce((sum: number, c: any) => 
                                    sum + (c.employer_contribution || c.amount || 0), 0) || 0),
-                      signed: false
+                      signed: false,
+                      employee_avatar: employeeAvatar
                     } : undefined
                   })
 

@@ -353,10 +353,10 @@ export function NominaCard({
               <img
                 src={nominaData.employee_avatar}
                 alt={nominaData.employee?.name || 'Avatar'}
-                className="w-12 h-12 rounded-xl object-cover flex-shrink-0 shadow-lg border border-slate-200"
+                className="w-12 h-12 rounded-full object-cover flex-shrink-0 shadow-lg border border-slate-200"
               />
             ) : (
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg">
                 <User className="w-6 h-6 text-white" />
               </div>
             )}

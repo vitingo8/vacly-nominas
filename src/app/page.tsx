@@ -460,7 +460,7 @@ export default function VaclyNominas() {
           // Intentar obtener signed URL para producción
           const { data: signedPdfData } = await supabase
             .storage
-            .from('split-pdfs')
+            .from('Nominas')
             .createSignedUrl(nomina.document_name, 3600)
           
           if (signedPdfData) {
@@ -469,7 +469,7 @@ export default function VaclyNominas() {
             // Fallback a public URL
             const { data: publicPdfData } = supabase
               .storage
-              .from('split-pdfs')
+              .from('Nominas')
               .getPublicUrl(nomina.document_name)
             pdfUrl = publicPdfData.publicUrl
           }
@@ -477,7 +477,7 @@ export default function VaclyNominas() {
           console.error('[FRONTEND] Error obteniendo URL del PDF:', urlError)
           const { data: publicPdfData } = supabase
             .storage
-            .from('split-pdfs')
+            .from('Nominas')
             .getPublicUrl(nomina.document_name)
           pdfUrl = publicPdfData.publicUrl
         }
