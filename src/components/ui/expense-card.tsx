@@ -2,7 +2,7 @@
 
 import { 
   Receipt, Calendar, Building2, CreditCard, Sparkles, 
-  Eye, Download, Trash2, User, CheckCircle, Tag
+  Eye, Download, Trash2, User, CheckCircle, Tag, FileText
 } from 'lucide-react'
 import { cn } from "@/lib/utils"
 import type { Expense, ReceiptAnalysis } from '@/types/expenses'
@@ -141,13 +141,29 @@ export function ExpenseCard({
         {/* Importe */}
         <div className="text-right flex-shrink-0">
           <div className="flex flex-col items-end gap-0.5">
-            <p className="text-sm font-bold text-red-600 tabular-nums">
-              -{formatCurrency(expense.amount)}
-            </p>
-            {ivaAmount && (
-              <p className="text-[10px] text-slate-500 tabular-nums">
-                IVA {ivaPercentage ? `(${ivaPercentage}%)` : ''}: {formatCurrency(ivaAmount)}
-              </p>
+            {ivaAmount && baseAmount !== expense.amount ? (
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs text-slate-500 tabular-nums">
+                  Base: {formatCurrency(baseAmount)}
+                </p>
+                <p className="text-[10px] text-slate-400 tabular-nums">
+                  IVA {ivaPercentage ? `(${ivaPercentage}%)` : ''}: {formatCurrency(ivaAmount)}
+                </p>
+                <p className="text-sm font-bold text-red-600 tabular-nums">
+                  Total: -{formatCurrency(expense.amount)}
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-bold text-red-600 tabular-nums">
+                  -{formatCurrency(expense.amount)}
+                </p>
+                {ivaAmount && (
+                  <p className="text-[10px] text-slate-500 tabular-nums">
+                    IVA {ivaPercentage ? `(${ivaPercentage}%)` : ''}: {formatCurrency(ivaAmount)}
+                  </p>
+                )}
+              </div>
             )}
             <p className="text-xs text-slate-500">{expense.method}</p>
           </div>
@@ -161,7 +177,7 @@ export function ExpenseCard({
                 e.stopPropagation()
                 onViewImage()
               }}
-              className="p-1.5 rounded-lg text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              className="p-1.5 rounded-lg text-slate-600 hover:bg-primary/10 hover:text-primary transition-colors"
               title="Ver imagen"
             >
               <Eye className="w-4 h-4" />
@@ -174,9 +190,9 @@ export function ExpenseCard({
                 onView()
               }}
               className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
-              title="Ver detalles"
+              title="Tiquet Digital"
             >
-              <Eye className="w-4 h-4" />
+              <FileText className="w-4 h-4" />
             </button>
           )}
           {onDelete && (
@@ -308,7 +324,7 @@ export function ExpenseCard({
                 e.stopPropagation()
                 onViewImage()
               }}
-              className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors text-sm font-medium"
+              className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-sm font-medium"
               title="Ver imagen"
             >
               <Eye className="w-4 h-4" />
@@ -322,8 +338,8 @@ export function ExpenseCard({
               }}
               className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors text-sm font-medium"
             >
-              <Eye className="w-4 h-4" />
-              Ver
+              <FileText className="w-4 h-4" />
+              Tiquet Digital
             </button>
           )}
           {onDelete && (

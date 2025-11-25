@@ -90,6 +90,7 @@ export default function GastosPage() {
   const [filterMonth, setFilterMonth] = useState<string>('')
   const [employees, setEmployees] = useState<Array<{id: string, name: string, department?: string}>>([])
   const [departments, setDepartments] = useState<Array<{id: string, department: string}>>([])
+  const [availableMonths, setAvailableMonths] = useState<Array<string>>([])
   
   // Detectar modo desde query params (employee = trabajador, global = gestor)
   const [viewModeType, setViewModeType] = useState<'employee' | 'global'>('global')
@@ -205,6 +206,10 @@ export default function GastosPage() {
         })
         setHistorialTotal(data.total || 0)
         setHistorialPage(page)
+        if (data.availableMonths && Array.isArray(data.availableMonths)) {
+          setAvailableMonths(data.availableMonths)
+          console.log(`[${timestamp}] [FRONTEND GASTOS] 📅 Meses disponibles cargados:`, data.availableMonths.length)
+        }
         console.log(`[${timestamp}] [FRONTEND GASTOS] ✅ Gastos cargados exitosamente`)
         
         // Los avatares ya vienen en la respuesta de la API (employee_avatar)
@@ -355,9 +360,9 @@ export default function GastosPage() {
       const companyId = DEFAULT_COMPANY_ID
       const employeeId = DEFAULT_EMPLOYEE_ID
       
-      // Preparar conceptos desde items si existen
+      // Preparar conceptos desde items si existen - SIEMPRE guardar si hay items o taxes
       const conceptos: any = {
-        items: analysisResult.items && analysisResult.items.length > 0
+        items: analysisResult.items && Array.isArray(analysisResult.items) && analysisResult.items.length > 0
           ? analysisResult.items.map((item: any) => ({
               name: item.name || '',
               quantity: item.quantity || 1,
@@ -372,6 +377,9 @@ export default function GastosPage() {
         } : null
       }
 
+      // SIEMPRE guardar conceptos si hay items (aunque esté vacío) o taxes
+      const hasConceptos = (conceptos.items && conceptos.items.length > 0) || conceptos.taxes
+
       const expenseData = {
         company_id: companyId,
         employee_id: employeeId,
@@ -382,7 +390,7 @@ export default function GastosPage() {
         amount: analysisResult.amount,
         method: newExpense.method,
         image: currentImage,
-        conceptos: conceptos.items.length > 0 || conceptos.taxes ? conceptos : undefined,
+        conceptos: hasConceptos ? conceptos : null, // Guardar null en lugar de undefined
         notes: JSON.stringify({
           text: analysisResult.notes,
           merchant: analysisResult.merchant,
@@ -556,44 +564,44 @@ export default function GastosPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
       <div className="w-full px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
           {/* Gastos Este Mes */}
-          <Card className="relative overflow-hidden rounded-3xl border border-slate-200/50 bg-white/80 shadow-xl backdrop-blur-md">
-            <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 via-red-400/5 to-orange-400/10 opacity-70" />
-            <CardHeader className="relative z-10 pb-2">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500 to-rose-600 shadow-lg">
-                  <TrendingDown className="h-6 w-6 text-white" />
+          <Card className="relative overflow-hidden rounded-xl border border-slate-200/50 bg-white/80 shadow-md backdrop-blur-md">
+            <div className="absolute inset-0 bg-primary/5 opacity-70" />
+            <CardHeader className="relative z-10 pb-1 pt-3 px-4">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shadow-sm">
+                  <TrendingDown className="h-4 w-4 text-white" />
                 </div>
                 <div>
-                  <CardTitle className="text-lg font-semibold text-slate-700">Gastos Este Mes</CardTitle>
-                  <p className="text-sm text-slate-500">{stats.cantidadEsteMes} gastos registrados</p>
+                  <CardTitle className="text-sm font-semibold text-slate-700">Gastos Este Mes</CardTitle>
+                  <p className="text-xs text-slate-500">{stats.cantidadEsteMes} gastos registrados</p>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="relative z-10">
-              <div className="text-4xl font-bold text-red-600 tabular-nums">
+            <CardContent className="relative z-10 px-4 pb-3">
+              <div className="text-2xl font-bold text-primary tabular-nums">
                 {formatCurrency(stats.gastosEsteMes)}
               </div>
             </CardContent>
           </Card>
 
           {/* Total Gastos */}
-          <Card className="relative overflow-hidden rounded-3xl border border-slate-200/50 bg-white/80 shadow-xl backdrop-blur-md">
+          <Card className="relative overflow-hidden rounded-xl border border-slate-200/50 bg-white/80 shadow-md backdrop-blur-md">
             <div className="absolute inset-0 bg-gradient-to-br from-[#1B2A41]/10 via-slate-400/5 to-[#C6A664]/10 opacity-70" />
-            <CardHeader className="relative z-10 pb-2">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1B2A41] to-[#C6A664] shadow-lg">
-                  <Wallet className="h-6 w-6 text-white" />
+            <CardHeader className="relative z-10 pb-1 pt-3 px-4">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#1B2A41] to-[#C6A664] shadow-sm">
+                  <Wallet className="h-4 w-4 text-white" />
                 </div>
                 <div>
-                  <CardTitle className="text-lg font-semibold text-slate-700">Total Gastos</CardTitle>
-                  <p className="text-sm text-slate-500">{stats.cantidadTotal} gastos en total</p>
+                  <CardTitle className="text-sm font-semibold text-slate-700">Total Gastos</CardTitle>
+                  <p className="text-xs text-slate-500">{stats.cantidadTotal} gastos en total</p>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="relative z-10">
-              <div className="text-4xl font-bold text-[#1B2A41] tabular-nums">
+            <CardContent className="relative z-10 px-4 pb-3">
+              <div className="text-2xl font-bold text-[#1B2A41] tabular-nums">
                 {formatCurrency(stats.totalGastos)}
               </div>
             </CardContent>
@@ -601,20 +609,20 @@ export default function GastosPage() {
         </div>
 
         {/* Botones de Acción */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row gap-2 mb-6">
           <Button
             onClick={handleCameraClick}
             disabled={isAnalyzing}
-            className="flex-1 h-16 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg rounded-2xl text-lg font-semibold"
+            className="flex-1 h-10 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-sm rounded-lg text-sm font-medium"
           >
             {isAnalyzing ? (
               <>
-                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-3" />
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
                 Analizando... {analysisProgress}%
               </>
             ) : (
               <>
-                <Sparkles className="w-6 h-6 mr-3" />
+                <Sparkles className="w-4 h-4 mr-2" />
                 Gasto con IA
               </>
             )}
@@ -630,9 +638,9 @@ export default function GastosPage() {
           <Button
             onClick={() => setShowNewExpenseDialog(true)}
             variant="outline"
-            className="flex-1 h-16 border-2 border-[#1B2A41] text-[#1B2A41] hover:bg-[#1B2A41] hover:text-white rounded-2xl text-lg font-semibold"
+            className="flex-1 h-10 border border-[#1B2A41] text-[#1B2A41] hover:bg-[#1B2A41] hover:text-white rounded-lg text-sm font-medium"
           >
-            <Plus className="w-6 h-6 mr-3" />
+            <Plus className="w-4 h-4 mr-2" />
             Nuevo Gasto Manual
           </Button>
         </div>
@@ -730,93 +738,80 @@ export default function GastosPage() {
                   <p className="text-sm text-slate-500">{historialTotal} gastos procesados</p>
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => loadExpenses(historialPage)}
-                disabled={isLoading}
-                className="gap-2"
-              >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                Actualizar
-              </Button>
+              <div className="flex items-center gap-3">
+                {/* Filtros - Solo mostrar en modo global */}
+                {viewModeType === 'global' && (
+                  <>
+                    <select
+                      value={filterMonth}
+                      onChange={(e) => setFilterMonth(e.target.value)}
+                      className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#C6A664] focus:border-transparent"
+                    >
+                      <option value="">Todos los meses</option>
+                      {availableMonths.map((monthValue) => {
+                        const [year, month] = monthValue.split('-')
+                        const date = new Date(parseInt(year), parseInt(month) - 1)
+                        return (
+                          <option key={monthValue} value={monthValue}>
+                            {date.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                          </option>
+                        )
+                      })}
+                    </select>
+                    <select
+                      value={filterEmployee}
+                      onChange={(e) => setFilterEmployee(e.target.value)}
+                      className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664] focus:border-transparent"
+                    >
+                      <option value="">Todos los empleados</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={filterDepartment}
+                      onChange={(e) => setFilterDepartment(e.target.value)}
+                      className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664] focus:border-transparent"
+                    >
+                      <option value="">Todos los departamentos</option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.department}>
+                          {dept.department}
+                        </option>
+                      ))}
+                    </select>
+                    {(filterEmployee || filterDepartment || filterMonth) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setFilterEmployee('')
+                          setFilterDepartment('')
+                          setFilterMonth('')
+                        }}
+                        className="h-9 gap-1"
+                      >
+                        <X className="w-4 h-4" />
+                        Limpiar
+                      </Button>
+                    )}
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadExpenses(historialPage)}
+                  disabled={isLoading}
+                  className="gap-2"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  Actualizar
+                </Button>
+              </div>
             </div>
             
-            {/* Filtros - Solo mostrar en modo global */}
-            {viewModeType === 'global' && (
-              <div className="flex flex-wrap items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <select
-                  value={filterEmployee}
-                  onChange={(e) => setFilterEmployee(e.target.value)}
-                  className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664] focus:border-transparent"
-                >
-                  <option value="">Todos los empleados</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={filterDepartment}
-                  onChange={(e) => setFilterDepartment(e.target.value)}
-                  className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664] focus:border-transparent"
-                >
-                  <option value="">Todos los departamentos</option>
-                  {departments.map((dept) => (
-                    <option key={dept.id} value={dept.department}>
-                      {dept.department}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={filterMonth}
-                  onChange={(e) => setFilterMonth(e.target.value)}
-                  className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664] focus:border-transparent"
-                >
-                  <option value="">Todos los meses</option>
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const date = new Date()
-                    date.setMonth(date.getMonth() - i)
-                    const month = String(date.getMonth() + 1).padStart(2, '0')
-                    const year = date.getFullYear()
-                    return `${year}-${month}`
-                  }).map((monthValue) => {
-                    const [year, month] = monthValue.split('-')
-                    const date = new Date(parseInt(year), parseInt(month) - 1)
-                    return (
-                      <option key={monthValue} value={monthValue}>
-                        {date.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
-                      </option>
-                    )
-                  })}
-                </select>
-                {(filterEmployee || filterDepartment || filterMonth) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setFilterEmployee('')
-                      setFilterDepartment('')
-                      setFilterMonth('')
-                    }}
-                    className="h-9 gap-1"
-                  >
-                    <X className="w-4 h-4" />
-                    Limpiar
-                  </Button>
-                )}
-              </div>
-            )}
-            
-            {/* Mensaje informativo en modo trabajador */}
-            {viewModeType === 'employee' && (
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200 mb-4">
-                <p className="text-sm text-blue-700">
-                  📋 Mostrando solo tus gastos personales. Los filtros están deshabilitados en esta vista.
-                </p>
-              </div>
-            )}
           </div>
 
           {expenses.length > 0 && (
@@ -871,16 +866,30 @@ export default function GastosPage() {
                         {expense.method}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex flex-col items-end gap-0.5">
-                          <span className="font-mono font-semibold text-red-600">
-                            -{formatCurrency(expense.amount)}
-                          </span>
-                          {expense.conceptos && typeof expense.conceptos === 'object' && !Array.isArray(expense.conceptos) && expense.conceptos.taxes && expense.conceptos.taxes.iva && (
-                            <span className="text-[10px] text-slate-500 font-mono">
+                        {expense.conceptos && typeof expense.conceptos === 'object' && !Array.isArray(expense.conceptos) && expense.conceptos.taxes && expense.conceptos.taxes.iva && expense.conceptos.taxes.subtotal ? (
+                          <div className="flex items-center gap-1.5 justify-end">
+                            <span className="text-xs text-slate-500 font-mono">
+                              Base: {formatCurrency(expense.conceptos.taxes.subtotal)}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
                               IVA {expense.conceptos.taxes.ivaPercentage ? `(${expense.conceptos.taxes.ivaPercentage}%)` : ''}: {formatCurrency(expense.conceptos.taxes.iva)}
                             </span>
-                          )}
-                        </div>
+                            <span className="font-mono font-semibold text-red-600">
+                              Total: -{formatCurrency(expense.amount)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 justify-end">
+                            <span className="font-mono font-semibold text-red-600">
+                              -{formatCurrency(expense.amount)}
+                            </span>
+                            {expense.conceptos && typeof expense.conceptos === 'object' && !Array.isArray(expense.conceptos) && expense.conceptos.taxes && expense.conceptos.taxes.iva && (
+                              <span className="text-[10px] text-slate-500 font-mono">
+                                IVA {expense.conceptos.taxes.ivaPercentage ? `(${expense.conceptos.taxes.ivaPercentage}%)` : ''}: {formatCurrency(expense.conceptos.taxes.iva)}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1">
@@ -888,7 +897,7 @@ export default function GastosPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleViewExpense(expense)}
-                            className="h-7 w-7 p-0 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                            className="h-7 w-7 p-0 text-slate-400 hover:text-primary hover:bg-primary/10"
                             title="Ver ticket digital"
                           >
                             <FileText className="w-3.5 h-3.5" />

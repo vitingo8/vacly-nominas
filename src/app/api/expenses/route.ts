@@ -178,6 +178,31 @@ export async function GET(request: NextRequest) {
     
     console.log(`[${timestamp}] [API EXPENSES] ✅ Transformación completada`)
 
+    // Obtener meses únicos con gastos para el filtro
+    const { data: allExpensesForMonths } = await supabase
+      .from('expenses')
+      .select('expense_date')
+      .eq('company_id', companyId)
+    
+    const uniqueMonths = new Set<string>()
+    if (allExpensesForMonths) {
+      allExpensesForMonths.forEach((exp: any) => {
+        if (exp.expense_date) {
+          const date = new Date(exp.expense_date)
+          const year = date.getFullYear()
+          const month = String(date.getMonth() + 1).padStart(2, '0')
+          uniqueMonths.add(`${year}-${month}`)
+        }
+      })
+    }
+    
+    const availableMonths = Array.from(uniqueMonths).sort((a, b) => {
+      // Ordenar de más reciente a más antiguo
+      return b.localeCompare(a)
+    })
+
+    console.log(`[${timestamp}] [API EXPENSES] 📅 Meses disponibles con gastos:`, availableMonths.length)
+
     return NextResponse.json({
       success: true,
       expenses: transformedExpenses,
@@ -188,6 +213,7 @@ export async function GET(request: NextRequest) {
         cantidadTotal: allExpenses.length,
         cantidadEsteMes: gastosEsteMes.length
       },
+      availableMonths, // Nuevo campo con meses disponibles
       limit: parseInt(limit),
       offset: parseInt(offset)
     })
@@ -256,8 +282,15 @@ export async function POST(request: NextRequest) {
       status: 'pending',
       employee_id: employee_id || null,
       category_id: category_id || null,
-      conceptos: conceptos && Array.isArray(conceptos) ? conceptos : null
+      conceptos: conceptos ? (typeof conceptos === 'object' ? conceptos : null) : null
     }
+    
+    console.log(`[${timestamp}] [API EXPENSES] 📦 Conceptos a guardar:`, {
+      hasConceptos: !!conceptos,
+      isObject: typeof conceptos === 'object',
+      itemsCount: conceptos && typeof conceptos === 'object' && !Array.isArray(conceptos) ? (conceptos.items?.length || 0) : 0,
+      hasTaxes: conceptos && typeof conceptos === 'object' && !Array.isArray(conceptos) ? !!conceptos.taxes : false
+    })
 
     // Si hay datos adicionales (subcategory, method, notes), los guardamos en description como JSON
     const extraData: any = { text: concept }
@@ -278,7 +311,11 @@ export async function POST(request: NextRequest) {
       status: expenseData.status,
       employee_id: expenseData.employee_id,
       category_id: expenseData.category_id,
-      conceptos: expenseData.conceptos ? `${expenseData.conceptos.length} items` : 'null'
+      conceptos: expenseData.conceptos 
+        ? (typeof expenseData.conceptos === 'object' && !Array.isArray(expenseData.conceptos)
+          ? `${expenseData.conceptos.items?.length || 0} items, ${expenseData.conceptos.taxes ? 'con taxes' : 'sin taxes'}`
+          : 'formato incorrecto')
+        : 'null'
     })
 
     console.log(`[${timestamp}] [API EXPENSES] 🔍 Insertando en Supabase...`)

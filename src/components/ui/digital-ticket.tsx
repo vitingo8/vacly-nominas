@@ -223,11 +223,11 @@ export function DigitalTicket({
 
         {/* Vision Analysis Notes */}
         {visionAnalysis && (
-          <div className="flex items-start gap-2 p-2 md:p-3 bg-blue-50 rounded-lg border border-blue-100">
-            <Sparkles className="h-4 w-4 md:h-5 md:w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+          <div className="flex items-start gap-2 p-2 md:p-3 bg-primary/10 rounded-lg border border-primary/20">
+            <Sparkles className="h-4 w-4 md:h-5 md:w-5 text-primary mt-0.5 flex-shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] md:text-xs text-blue-700 font-medium uppercase">Detalles del Análisis</p>
-              <p className="text-xs md:text-sm text-blue-900 mt-1 break-words line-clamp-2">{visionAnalysis}</p>
+              <p className="text-[10px] md:text-xs text-primary font-medium uppercase">Detalles del Análisis</p>
+              <p className="text-xs md:text-sm text-primary/90 mt-1 break-words line-clamp-2">{visionAnalysis}</p>
             </div>
           </div>
         )}

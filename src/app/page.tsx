@@ -867,7 +867,7 @@ export default function VaclyNominas() {
                               variant="ghost"
                               size="sm"
                               onClick={() => openViewerFromHistorial(nomina)}
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                              className="h-7 w-7 p-0 text-slate-400 hover:text-primary hover:bg-primary/10"
                               title="Ver detalles"
                             >
                               <Eye className="w-3.5 h-3.5" />
