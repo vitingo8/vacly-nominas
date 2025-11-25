@@ -8,7 +8,6 @@ import { getSupabaseClient } from '@/lib/supabase'
 // GET - Obtener gastos
 export async function GET(request: NextRequest) {
   const timestamp = new Date().toISOString()
-    const timestamp = new Date().toISOString()
     
     try {
       const supabase = getSupabaseClient()
