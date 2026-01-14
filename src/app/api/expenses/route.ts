@@ -146,9 +146,10 @@ export async function GET(request: NextRequest) {
     // ⚠️ IMPORTANTE: Aplicar los MISMOS filtros que en la query principal
     let availableMonths: string[] = []
     if (count && count > 0) {
+      let shouldFetchMonths = true
       let monthsQuery = supabase
         .from('expenses')
-        .select('expense_date', { count: 'exact' })
+        .select('expense_date')
         .eq('company_id', companyId)
         .not('expense_date', 'is', null)
       
@@ -170,12 +171,12 @@ export async function GET(request: NextRequest) {
           monthsQuery = monthsQuery.in('employee_id', employeeIds)
         } else {
           // Si no hay empleados en el departamento, lista vacía
+          shouldFetchMonths = false
           availableMonths = []
-          monthsQuery = null
         }
       }
       
-      if (monthsQuery) {
+      if (shouldFetchMonths) {
         const { data: allExpensesForMonths } = await monthsQuery
       
         const uniqueMonths = new Set<string>()
