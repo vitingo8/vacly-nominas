@@ -113,14 +113,30 @@ export default function VaclyNominas() {
   const [isLoadingHistorial, setIsLoadingHistorial] = useState(false)
   const [historialPage, setHistorialPage] = useState(0)
   const [historialTotal, setHistorialTotal] = useState(0)
+  const [companyId, setCompanyId] = useState<string | null>(null)
   const HISTORIAL_LIMIT = 10
+
+  // Leer company_id desde parámetros de URL al montar
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const paramCompanyId = params.get('company_id')
+    if (paramCompanyId) {
+      setCompanyId(paramCompanyId)
+      console.log(`[FRONTEND NÓMINAS] 🔍 Company ID detectado: ${paramCompanyId}`)
+    }
+  }, [])
 
   // Cargar historial de nóminas
   const loadHistorial = async (page = 0) => {
     setIsLoadingHistorial(true)
     try {
-      console.log(`[FRONTEND] 🔄 Cargando historial página ${page}`)
-      const response = await fetch(`/api/nominas?limit=${HISTORIAL_LIMIT}&offset=${page * HISTORIAL_LIMIT}`)
+      if (!companyId) {
+        console.warn('[FRONTEND NÓMINAS] ⚠️ No company_id disponible')
+        return
+      }
+      
+      console.log(`[FRONTEND] 🔄 Cargando historial página ${page} para company_id: ${companyId}`)
+      const response = await fetch(`/api/nominas?limit=${HISTORIAL_LIMIT}&offset=${page * HISTORIAL_LIMIT}&company_id=${companyId}`)
       const data = await response.json()
       console.log(`[FRONTEND] Historial recibido:`, {
         success: data.success,
@@ -159,10 +175,12 @@ export default function VaclyNominas() {
     }
   }
 
-  // Cargar historial al montar
+  // Cargar historial al montar y cuando cambia companyId
   useEffect(() => {
-    loadHistorial()
-  }, [])
+    if (companyId) {
+      loadHistorial()
+    }
+  }, [companyId])
 
   // Filtered documents
   const filteredDocuments = useMemo(() => {

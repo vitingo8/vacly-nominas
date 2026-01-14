@@ -40,10 +40,6 @@ const metodosPago = ['Efectivo', 'Tarjeta', 'Transferencia', 'Bizum']
 
 const HISTORIAL_LIMIT = 10
 
-// Valores por defecto si no hay login
-const DEFAULT_COMPANY_ID = 'e3605f07-2576-4960-81a5-04184661926d'
-const DEFAULT_EMPLOYEE_ID = 'de95edea-9322-494a-a693-61e1ac7337f8'
-
 export default function GastosPage() {
   // Estados principales
   const [expenses, setExpenses] = useState<Expense[]>([])
@@ -95,6 +91,8 @@ export default function GastosPage() {
   // Detectar modo desde query params (employee = trabajador, global = gestor)
   const [viewModeType, setViewModeType] = useState<'employee' | 'global'>('global')
   const [autoEmployeeId, setAutoEmployeeId] = useState<string | null>(null)
+  const [companyId, setCompanyId] = useState<string | null>(null)
+  const [employeeIdForCreation, setEmployeeIdForCreation] = useState<string | null>(null)
   
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -104,9 +102,19 @@ export default function GastosPage() {
     const params = new URLSearchParams(window.location.search)
     const mode = params.get('mode') || 'global'
     const employeeId = params.get('employee_id')
-    const companyId = params.get('company_id')
+    const paramCompanyId = params.get('company_id')
     
     setViewModeType(mode === 'employee' ? 'employee' : 'global')
+    
+    // Guardar company_id desde URL - es crítico para filtrado
+    if (paramCompanyId) {
+      setCompanyId(paramCompanyId)
+    }
+    
+    // Guardar employee_id para crear gastos
+    if (employeeId) {
+      setEmployeeIdForCreation(employeeId)
+    }
     
     // Si es modo trabajador, aplicar filtro automático
     if (mode === 'employee' && employeeId) {
@@ -114,7 +122,7 @@ export default function GastosPage() {
       setFilterEmployee(employeeId) // Aplicar filtro automáticamente
     }
     
-    console.log(`[FRONTEND GASTOS] 🔍 Modo detectado: ${mode}, Employee ID: ${employeeId}, Company ID: ${companyId}`)
+    console.log(`[FRONTEND GASTOS] 🔍 Modo detectado: ${mode}, Employee ID: ${employeeId}, Company ID: ${paramCompanyId}`)
   }, [])
 
   // Formatear moneda
@@ -142,8 +150,13 @@ export default function GastosPage() {
     console.log(`[${timestamp}] [FRONTEND GASTOS] 📥 Cargando gastos - página ${page}`)
     setIsLoading(true)
     try {
-      // TODO: En producción obtener del contexto de usuario
-      const companyId = DEFAULT_COMPANY_ID
+      // Validar que tenemos company_id desde los parámetros
+      if (!companyId) {
+        console.error(`[${timestamp}] [FRONTEND GASTOS] ❌ No company_id en parámetros`)
+        setIsLoading(false)
+        return
+      }
+      
       let url = `/api/expenses?company_id=${companyId}&limit=${HISTORIAL_LIMIT}&offset=${page * HISTORIAL_LIMIT}`
       
       // En modo trabajador, siempre filtrar por employee_id
@@ -232,7 +245,12 @@ export default function GastosPage() {
   // Cargar empleados y departamentos
   useEffect(() => {
     const loadEmployeesAndDepartments = async () => {
-      const companyId = DEFAULT_COMPANY_ID
+      // Usar company_id de los parámetros - es crítico para seguridad
+      if (!companyId) {
+        console.warn('[FRONTEND GASTOS] ⚠️ No company_id disponible')
+        return
+      }
+      
       try {
         // Cargar empleados desde Supabase directamente
         const { createClient } = await import('@supabase/supabase-js')
@@ -269,7 +287,7 @@ export default function GastosPage() {
       }
     }
     loadEmployeesAndDepartments()
-  }, [])
+  }, [companyId])
 
   useEffect(() => {
     loadExpenses(historialPage)
@@ -356,9 +374,13 @@ export default function GastosPage() {
 
     setIsLoading(true)
     try {
-      // TODO: En producción obtener del contexto de usuario
-      const companyId = DEFAULT_COMPANY_ID
-      const employeeId = DEFAULT_EMPLOYEE_ID
+      // Validar parámetros críticos
+      if (!companyId || !employeeIdForCreation) {
+        console.error(`[${timestamp}] [FRONTEND GASTOS] ❌ Faltan parámetros: company_id=${companyId}, employee_id=${employeeIdForCreation}`)
+        alert('Error de configuración. Contacta al administrador.')
+        setIsLoading(false)
+        return
+      }
       
       // Preparar conceptos desde items si existen - SIEMPRE guardar si hay items o taxes
       const conceptos: any = {
@@ -382,7 +404,7 @@ export default function GastosPage() {
 
       const expenseData = {
         company_id: companyId,
-        employee_id: employeeId,
+        employee_id: employeeIdForCreation,
         date: analysisResult.date || new Date().toISOString().split('T')[0],
         concept: analysisResult.concept,
         category: 'Gasto',
@@ -402,6 +424,7 @@ export default function GastosPage() {
 
       console.log(`[${timestamp}] [FRONTEND GASTOS] 📦 Datos a enviar:`, {
         company_id: expenseData.company_id,
+        employee_id: expenseData.employee_id,
         date: expenseData.date,
         concept: expenseData.concept?.substring(0, 50),
         amount: expenseData.amount,
@@ -459,13 +482,17 @@ export default function GastosPage() {
 
     setIsLoading(true)
     try {
-      // TODO: En producción obtener del contexto de usuario
-      const companyId = DEFAULT_COMPANY_ID
-      const employeeId = DEFAULT_EMPLOYEE_ID
+      // Validar parámetros críticos
+      if (!companyId || !employeeIdForCreation) {
+        console.error('[FRONTEND GASTOS] ❌ Faltan parámetros de configuración')
+        alert('Error de configuración. Contacta al administrador.')
+        setIsLoading(false)
+        return
+      }
 
       const expenseData = {
         company_id: companyId,
-        employee_id: employeeId,
+        employee_id: employeeIdForCreation,
         date: newExpense.date,
         concept: newExpense.concept,
         category: 'Gasto',
@@ -513,7 +540,9 @@ export default function GastosPage() {
     console.log(`[${timestamp}] [FRONTEND GASTOS] 🗑️ Eliminando gasto:`, id)
 
     try {
-      const response = await fetch(`/api/expenses?id=${id}`, { method: 'DELETE' })
+      // IMPORTANTE: Pasar company_id para validación de seguridad
+      const url = `/api/expenses?id=${id}&company_id=${encodeURIComponent(companyId || '')}`
+      const response = await fetch(url, { method: 'DELETE' })
       console.log(`[${timestamp}] [FRONTEND GASTOS] 📥 Respuesta DELETE:`, {
         status: response.status,
         statusText: response.statusText,
@@ -868,23 +897,23 @@ export default function GastosPage() {
                       <TableCell className="text-right">
                         {expense.conceptos && typeof expense.conceptos === 'object' && !Array.isArray(expense.conceptos) && expense.conceptos.taxes && expense.conceptos.taxes.iva && expense.conceptos.taxes.subtotal ? (
                           <div className="flex items-center gap-1.5 justify-end">
-                            <span className="text-xs text-slate-500 font-mono">
+                            <span className="text-sm text-slate-500 font-mono">
                               Base: {formatCurrency(expense.conceptos.taxes.subtotal)}
                             </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
+                            <span className="text-sm text-slate-400 font-mono">
                               IVA {expense.conceptos.taxes.ivaPercentage ? `(${expense.conceptos.taxes.ivaPercentage}%)` : ''}: {formatCurrency(expense.conceptos.taxes.iva)}
                             </span>
-                            <span className="font-mono font-semibold text-red-600">
+                            <span className="text-sm font-mono font-semibold text-red-600">
                               Total: -{formatCurrency(expense.amount)}
                             </span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 justify-end">
-                            <span className="font-mono font-semibold text-red-600">
+                            <span className="text-sm font-mono font-semibold text-red-600">
                               -{formatCurrency(expense.amount)}
                             </span>
                             {expense.conceptos && typeof expense.conceptos === 'object' && !Array.isArray(expense.conceptos) && expense.conceptos.taxes && expense.conceptos.taxes.iva && (
-                              <span className="text-[10px] text-slate-500 font-mono">
+                              <span className="text-sm text-slate-500 font-mono">
                                 IVA {expense.conceptos.taxes.ivaPercentage ? `(${expense.conceptos.taxes.ivaPercentage}%)` : ''}: {formatCurrency(expense.conceptos.taxes.iva)}
                               </span>
                             )}

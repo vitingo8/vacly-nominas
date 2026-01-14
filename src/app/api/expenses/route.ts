@@ -143,29 +143,57 @@ export async function GET(request: NextRequest) {
     })
 
     // Obtener meses únicos con gastos para el filtro (optimizado: solo si hay gastos)
+    // ⚠️ IMPORTANTE: Aplicar los MISMOS filtros que en la query principal
     let availableMonths: string[] = []
     if (count && count > 0) {
-      const { data: allExpensesForMonths } = await supabase
+      let monthsQuery = supabase
         .from('expenses')
-        .select('expense_date')
+        .select('expense_date', { count: 'exact' })
         .eq('company_id', companyId)
         .not('expense_date', 'is', null)
       
-      const uniqueMonths = new Set<string>()
-      if (allExpensesForMonths) {
-        allExpensesForMonths.forEach((exp: any) => {
-          if (exp.expense_date) {
-            const date = new Date(exp.expense_date)
-            const year = date.getFullYear()
-            const month = String(date.getMonth() + 1).padStart(2, '0')
-            uniqueMonths.add(`${year}-${month}`)
-          }
-        })
+      // Aplicar LOS MISMOS FILTROS que en la query principal
+      if (employeeId) {
+        monthsQuery = monthsQuery.eq('employee_id', employeeId)
       }
       
-      availableMonths = Array.from(uniqueMonths).sort((a, b) => {
-        return b.localeCompare(a)
-      })
+      if (department) {
+        // Aplicar el mismo filtro de departamento
+        const { data: employeesInDept } = await supabase
+          .from('employees')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('department', department)
+        
+        if (employeesInDept && employeesInDept.length > 0) {
+          const employeeIds = employeesInDept.map(emp => emp.id)
+          monthsQuery = monthsQuery.in('employee_id', employeeIds)
+        } else {
+          // Si no hay empleados en el departamento, lista vacía
+          availableMonths = []
+          monthsQuery = null
+        }
+      }
+      
+      if (monthsQuery) {
+        const { data: allExpensesForMonths } = await monthsQuery
+      
+        const uniqueMonths = new Set<string>()
+        if (allExpensesForMonths) {
+          allExpensesForMonths.forEach((exp: any) => {
+            if (exp.expense_date) {
+              const date = new Date(exp.expense_date)
+              const year = date.getFullYear()
+              const month = String(date.getMonth() + 1).padStart(2, '0')
+              uniqueMonths.add(`${year}-${month}`)
+            }
+          })
+        }
+        
+        availableMonths = Array.from(uniqueMonths).sort((a, b) => {
+          return b.localeCompare(a)
+        })
+      }
     }
 
     return NextResponse.json({
@@ -371,8 +399,9 @@ export async function DELETE(request: NextRequest) {
     const supabase = getSupabaseClient()
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
+    const companyId = searchParams.get('company_id')
 
-    console.log(`[${timestamp}] [API EXPENSES] 🗑️ Eliminando gasto con ID:`, id)
+    console.log(`[${timestamp}] [API EXPENSES] 🗑️ Eliminando gasto con ID:`, id, `Company ID:`, companyId)
 
     if (!id) {
       console.error(`[${timestamp}] [API EXPENSES] ❌ ID no proporcionado`)
@@ -381,11 +410,44 @@ export async function DELETE(request: NextRequest) {
         error: 'ID es requerido'
       }, { status: 400 })
     }
+    
+    // IMPORTANTE: Validar company_id para seguridad
+    if (!companyId) {
+      console.error(`[${timestamp}] [API EXPENSES] ❌ company_id no proporcionado`)
+      return NextResponse.json({ 
+        success: false,
+        error: 'company_id es requerido'
+      }, { status: 400 })
+    }
+
+    // Verificar que el gasto pertenece a esta company ANTES de eliminarlo
+    const { data: existingExpense } = await supabase
+      .from('expenses')
+      .select('id, company_id')
+      .eq('id', id)
+      .single()
+    
+    if (!existingExpense) {
+      console.error(`[${timestamp}] [API EXPENSES] ❌ Gasto no encontrado`)
+      return NextResponse.json({ 
+        success: false,
+        error: 'Gasto no encontrado'
+      }, { status: 404 })
+    }
+    
+    if (existingExpense.company_id !== companyId) {
+      console.error(`[${timestamp}] [API EXPENSES] ❌ Intento de eliminar gasto de otra company`)
+      return NextResponse.json({ 
+        success: false,
+        error: 'No tienes permiso para eliminar este gasto'
+      }, { status: 403 })
+    }
 
     const { error } = await supabase
       .from('expenses')
       .delete()
       .eq('id', id)
+      .eq('company_id', companyId)
 
     if (error) {
       console.error(`[${timestamp}] [API EXPENSES] ❌ Error Supabase delete:`, {

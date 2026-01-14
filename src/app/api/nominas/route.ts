@@ -7,10 +7,19 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limit = searchParams.get('limit') || '10'
     const offset = searchParams.get('offset') || '0'
+    const companyId = searchParams.get('company_id')
+
+    if (!companyId) {
+      return NextResponse.json({ 
+        error: 'company_id es requerido',
+        success: false
+      }, { status: 400 })
+    }
 
     const { data: nominas, error, count } = await supabase
       .from('nominas')
       .select('*', { count: 'exact' })
+      .eq('company_id', companyId)
       .order('created_at', { ascending: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1)
 
