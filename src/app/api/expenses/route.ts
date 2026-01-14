@@ -146,20 +146,9 @@ export async function GET(request: NextRequest) {
     // ⚠️ IMPORTANTE: Aplicar los MISMOS filtros que en la query principal
     let availableMonths: string[] = []
     if (count && count > 0) {
-      let shouldFetchMonths = true
-      let monthsQuery = supabase
-        .from('expenses')
-        .select('expense_date')
-        .eq('company_id', companyId)
-        .not('expense_date', 'is', null)
-      
-      // Aplicar LOS MISMOS FILTROS que en la query principal
-      if (employeeId) {
-        monthsQuery = monthsQuery.eq('employee_id', employeeId)
-      }
-      
+      // Verificar si hay empleados en el departamento (si se filtra por departamento)
+      let employeeIdsForMonths: string[] | null = null
       if (department) {
-        // Aplicar el mismo filtro de departamento
         const { data: employeesInDept } = await supabase
           .from('employees')
           .select('id')
@@ -167,16 +156,30 @@ export async function GET(request: NextRequest) {
           .eq('department', department)
         
         if (employeesInDept && employeesInDept.length > 0) {
-          const employeeIds = employeesInDept.map(emp => emp.id)
-          monthsQuery = monthsQuery.in('employee_id', employeeIds)
+          employeeIdsForMonths = employeesInDept.map(emp => emp.id)
         } else {
           // Si no hay empleados en el departamento, lista vacía
-          shouldFetchMonths = false
           availableMonths = []
         }
       }
       
-      if (shouldFetchMonths) {
+      // Solo hacer la query si no hay filtro de departamento o si hay empleados en el departamento
+      if (!department || employeeIdsForMonths) {
+        let monthsQuery = supabase
+          .from('expenses')
+          .select('expense_date')
+          .eq('company_id', companyId)
+          .not('expense_date', 'is', null)
+        
+        // Aplicar LOS MISMOS FILTROS que en la query principal
+        if (employeeId) {
+          monthsQuery = monthsQuery.eq('employee_id', employeeId)
+        }
+        
+        if (department && employeeIdsForMonths) {
+          monthsQuery = monthsQuery.in('employee_id', employeeIdsForMonths)
+        }
+        
         const { data: allExpensesForMonths } = await monthsQuery
       
         const uniqueMonths = new Set<string>()
