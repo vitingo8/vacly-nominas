@@ -590,7 +590,7 @@ export default function GastosPage() {
   }
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-br from-gray-50 via-slate-50 to-gray-50">
+    <div className="w-full min-h-screen bg-transparent">
       <div className="w-full px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
