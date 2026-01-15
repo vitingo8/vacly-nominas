@@ -10,11 +10,6 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Vacly Nóminas - Sistema Inteligente de Gestión",
   description: "Procesamiento inteligente de nóminas con IA",
-  icons: {
-    icon: "/logo_colapsed.png",
-    shortcut: "/logo_colapsed.png",
-    apple: "/logo_colapsed.png",
-  },
 };
 
 export default function RootLayout({
