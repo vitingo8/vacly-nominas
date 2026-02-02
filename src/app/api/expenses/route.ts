@@ -341,6 +341,63 @@ export async function POST(request: NextRequest) {
       amount: data?.[0]?.amount
     })
 
+    try {
+      const createdExpenseId = data?.[0]?.id
+      if (createdExpenseId && company_id) {
+        const { data: employeeRow } = await supabase
+          .from('employees')
+          .select('user_id')
+          .eq('id', employee_id || '')
+          .maybeSingle()
+
+        const { data: companyRow } = await supabase
+          .from('companies')
+          .select('admin_user_id')
+          .eq('company_id', company_id)
+          .maybeSingle()
+
+        if (employeeRow?.user_id) {
+          await supabase
+            .from('notifications')
+            .insert([{
+              company_id,
+              user_id: employeeRow.user_id,
+              type: 'expenses_pending',
+              level: 'info',
+              title: 'Gasto pendiente de validación',
+              message: 'Tu gasto se ha enviado y está pendiente de validación.',
+              status: 'pendiente',
+              action_url: '/mobile/gastos',
+              entity_type: 'expenses',
+              entity_id: createdExpenseId,
+              dedupe_key: `expense-${createdExpenseId}-requester`,
+              metadata: { status: 'pendiente' }
+            }])
+        }
+
+        if (companyRow?.admin_user_id && companyRow.admin_user_id !== employeeRow?.user_id) {
+          await supabase
+            .from('notifications')
+            .insert([{
+              company_id,
+              user_id: companyRow.admin_user_id,
+              type: 'expenses_pending_validator',
+              level: 'warning',
+              title: 'Nuevo gasto pendiente',
+              message: 'Tienes un gasto pendiente de validar.',
+              status: 'pendiente',
+              action_url: '/Validaciones',
+              entity_type: 'expenses',
+              entity_id: createdExpenseId,
+              dedupe_key: `expense-${createdExpenseId}-validator-${companyRow.admin_user_id}`,
+              metadata: { status: 'pendiente' }
+            }])
+        }
+      }
+    } catch (notificationError) {
+      console.error(`[${timestamp}] [API EXPENSES] ❌ Error creando notificación:`, notificationError)
+    }
+
     // Transformar el gasto creado para compatibilidad con el frontend
     const createdExpense = data?.[0]
     if (createdExpense) {

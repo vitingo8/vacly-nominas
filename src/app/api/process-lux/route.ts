@@ -356,9 +356,14 @@ export async function POST(request: NextRequest) {
       // Individual document processing with Claude
       return await processIndividualDocument(body.textContent, body.documentId)
     } else if (body.filename && body.url) {
+      if (!body.companyId) {
+        return NextResponse.json({
+          error: 'companyId requerido',
+          details: 'Para procesar un PDF completo se debe enviar companyId (empresa actual) en el body.'
+        }, { status: 400 })
+      }
       console.log('✅ Procesando PDF completo con streaming')
-      // Full PDF processing with streaming
-      return await processFullPDF(body.filename, body.url)
+      return await processFullPDF(body.filename, body.url, body.companyId, body.employeeId ?? null)
     } else {
       console.error('❌ Parámetros inválidos:', { body })
       return NextResponse.json({ 
@@ -624,9 +629,9 @@ Responde ÚNICAMENTE con este JSON válido:
   }, { status: 500 })
 }
 
-async function processFullPDF(filename: string, url: string) {
+async function processFullPDF(filename: string, url: string, companyId: string, employeeId: string | null) {
   const processStartTime = logWithTime(`🚀 INICIO procesamiento completo PDF: ${filename}`)
-  console.log('📄 URL:', url)
+  console.log('📄 URL:', url, 'companyId:', companyId)
 
   try {
     const supabase = getSupabaseClient()
@@ -648,9 +653,8 @@ async function processFullPDF(filename: string, url: string) {
       console.warn('⚠️ Document type not found in DB, using fallback:', documentTypeId)
     }
 
-    // Fixed IDs for testing (or replace with dynamic values if needed)
-    const companyId = 'e3605f07-2576-4960-81a5-04184661926d'
-    const employeeId = 'de95edea-9322-494a-a693-61e1ac7337f8'
+    // employeeId opcional: si no se envía, las nóminas se asocian a la company; el empleado puede resolverse después por DNI
+    const effectiveEmployeeId = employeeId ?? undefined
 
     // Create a readable stream for Server-Sent Events
     const encoder = new TextEncoder()
@@ -1018,7 +1022,7 @@ async function processFullPDF(filename: string, url: string) {
                       const nominaData = {
                         id: nominaId,
                         company_id: companyId,
-                        employee_id: employeeId,
+                        employee_id: effectiveEmployeeId ?? null,
                         period_start: fullNominaData.period_start || '2024-01-01',
                         period_end: fullNominaData.period_end || '2024-01-31',
                         employee: normalizedEmployee,
@@ -1052,6 +1056,37 @@ async function processFullPDF(filename: string, url: string) {
                         nominaRecord = insertedData[0]
                         logWithTime(`Insertado en nominas página ${pageNum}`, nominaInsertStart)
                         console.log(`✅ Page ${pageNum} saved to nominas table`)
+
+                        try {
+if (companyId && effectiveEmployeeId) {
+                              const { data: employeeRow } = await supabase
+                              .from('employees')
+                              .select('user_id')
+                              .eq('id', effectiveEmployeeId)
+                              .maybeSingle()
+
+                            if (employeeRow?.user_id) {
+                              await supabase
+                                .from('notifications')
+                                .insert([{
+                                  company_id: companyId,
+                                  user_id: employeeRow.user_id,
+                                  type: 'nominas_new',
+                                  level: 'info',
+                                  title: 'Nueva nómina disponible',
+                                  message: 'Tienes una nueva nómina disponible para consultar.',
+                                  status: 'pendiente',
+                                  action_url: '/mobile/nominas',
+                                  entity_type: 'nominas',
+                                  entity_id: nominaId,
+                                  dedupe_key: `nomina-${nominaId}`,
+                                  metadata: { status: 'nueva' }
+                                }])
+                            }
+                          }
+                        } catch (notificationError) {
+                          console.error('❌ Error creando notificación de nómina:', notificationError)
+                        }
                       }
 
                       // CORRECCIÓN: Update processed_documents table with CORRECT column name
@@ -1060,7 +1095,7 @@ async function processFullPDF(filename: string, url: string) {
                         original_filename: pagePdfName,
                         document_type_id: documentTypeId,
                         company_id: companyId,
-                        employee_id: employeeId,
+                        employee_id: effectiveEmployeeId ?? null,
                         extracted_text: textContent,
                         processed_data: { ...fullNominaData, page_number: pageNum },
                         processing_status: 'completed',
@@ -1107,7 +1142,7 @@ async function processFullPDF(filename: string, url: string) {
                       original_filename: pagePdfName,
                       document_type_id: documentTypeId,
                       company_id: companyId,
-                      employee_id: employeeId,
+                      employee_id: effectiveEmployeeId ?? null,
                       extracted_text: textContent,
                       processed_data: { page_number: pageNum },
                       processing_status: 'pending',

@@ -206,6 +206,11 @@ export default function VaclyNominas() {
     const file = event.target.files?.[0]
     if (!file) return
 
+    if (!companyId) {
+      setProgressMessage('Error: abre la app con ?company_id=... en la URL para procesar nóminas de una empresa.')
+      return
+    }
+
     const uploadStartTime = performance.now()
     console.log(`[FRONTEND] 🚀 INICIO upload y procesamiento: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`)
 
@@ -244,6 +249,8 @@ export default function VaclyNominas() {
         body: JSON.stringify({
           filename: uploadResult.filename,
           url: uploadResult.url,
+          companyId,
+          employeeId: undefined, // opcional: asociar a empleado concreto
         }),
       })
 
