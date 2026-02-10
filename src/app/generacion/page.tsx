@@ -5,7 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import {
   Calculator, Users, Download, CheckCircle2, AlertCircle,
   Search, Eye, Calendar, Loader2, RefreshCw,
-  FileText, TrendingUp, ChevronDown, ListChecks, History
+  FileText, TrendingUp, ChevronDown, ListChecks, History,
+  FileArchive, FileCode, Database
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -166,6 +167,11 @@ function GeneracionContent() {
   const [historyYear, setHistoryYear] = useState(String(now.getFullYear()))
   const [historyEmployee, setHistoryEmployee] = useState('')
   const [historyStatus, setHistoryStatus] = useState('')
+  
+  // ── Export actions state ──
+  const [downloadingPDFs, setDownloadingPDFs] = useState(false)
+  const [generatingSEPA, setGeneratingSEPA] = useState(false)
+  const [generatingRED, setGeneratingRED] = useState(false)
   const [historyTotal, setHistoryTotal] = useState(0)
 
   // ── Detail dialog ──
@@ -474,6 +480,149 @@ function GeneracionContent() {
       prev.map(row => calculateRow(row, selectedMonth, selectedYear))
     )
   }, [calculateRow, selectedMonth, selectedYear])
+
+  // ── Download PDFs as ZIP ──
+  const downloadPDFs = useCallback(async () => {
+    if (!companyId) return
+    const month = historyMonth || selectedMonth
+    const year = historyYear || selectedYear
+
+    setDownloadingPDFs(true)
+    try {
+      const res = await fetch('/api/download-pdfs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, month: Number(month), year: Number(year) }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Error al descargar PDFs')
+        return
+      }
+
+      // Download ZIP file
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Nominas_${year}${String(month).padStart(2, '0')}.zip`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al descargar PDFs')
+    } finally {
+      setDownloadingPDFs(false)
+    }
+  }, [companyId, historyMonth, historyYear, selectedMonth, selectedYear])
+
+  // ── Generate SEPA file ──
+  const generateSEPA = useCallback(async () => {
+    if (!companyId) return
+    const month = historyMonth || selectedMonth
+    const year = historyYear || selectedYear
+
+    // TODO: Get company data from config (for now, prompt user)
+    const companyName = prompt('Nombre de la empresa:')
+    const companyIBAN = prompt('IBAN de la empresa (cuenta de cargo):')
+    const companyBIC = prompt('BIC/SWIFT de la empresa:')
+    const companyCIF = prompt('CIF de la empresa (opcional):') || ''
+
+    if (!companyName || !companyIBAN || !companyBIC) {
+      alert('Datos de la empresa incompletos')
+      return
+    }
+
+    setGeneratingSEPA(true)
+    try {
+      const res = await fetch('/api/sepa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          month: Number(month),
+          year: Number(year),
+          companyData: { companyName, companyIBAN, companyBIC, companyCIF },
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Error al generar fichero SEPA')
+        return
+      }
+
+      // Download SEPA XML
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `SEPA_Nominas_${year}${String(month).padStart(2, '0')}.xml`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al generar SEPA')
+    } finally {
+      setGeneratingSEPA(false)
+    }
+  }, [companyId, historyMonth, historyYear, selectedMonth, selectedYear])
+
+  // ── Generate RED file ──
+  const generateRED = useCallback(async () => {
+    if (!companyId) return
+    const month = historyMonth || selectedMonth
+    const year = historyYear || selectedYear
+
+    // TODO: Get company data from config (for now, prompt user)
+    const companyName = prompt('Nombre de la empresa:')
+    const ccc = prompt('Código de Cuenta de Cotización (CCC - 11 dígitos):')
+    const cif = prompt('CIF de la empresa:')
+    const cnae = prompt('CNAE (4 dígitos, opcional):') || '0000'
+
+    if (!companyName || !ccc || !cif) {
+      alert('Datos de la empresa incompletos')
+      return
+    }
+
+    setGeneratingRED(true)
+    try {
+      const res = await fetch('/api/red', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          month: Number(month),
+          year: Number(year),
+          companyData: { companyName, ccc, cif, cnae },
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Error al generar fichero RED')
+        return
+      }
+
+      // Download RED file
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `RED_${ccc}_${year}${String(month).padStart(2, '0')}.txt`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al generar RED')
+    } finally {
+      setGeneratingRED(false)
+    }
+  }, [companyId, historyMonth, historyYear, selectedMonth, selectedYear])
 
   // ─── RENDER ─────────────────────────────────────────────────────────
 
@@ -1043,6 +1192,64 @@ function GeneracionContent() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* ── Export Actions ── */}
+            {historico.length > 0 && (
+              <Card className="mb-6 bg-gradient-to-r from-slate-50 to-slate-100/50 border-slate-200">
+                <CardContent className="pt-6">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex-1 min-w-[200px]">
+                      <h3 className="text-sm font-semibold text-slate-700 mb-1">Exportar y Generar Ficheros</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Descarga PDFs, genera ficheros SEPA (transferencias) y RED (Seguridad Social)
+                      </p>
+                    </div>
+                    
+                    <Button
+                      onClick={downloadPDFs}
+                      disabled={downloadingPDFs}
+                      variant="outline"
+                      className="bg-white hover:bg-slate-50"
+                    >
+                      {downloadingPDFs ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <FileArchive className="w-4 h-4 mr-2" />
+                      )}
+                      Descargar PDFs (ZIP)
+                    </Button>
+
+                    <Button
+                      onClick={generateSEPA}
+                      disabled={generatingSEPA}
+                      variant="outline"
+                      className="bg-white hover:bg-slate-50"
+                    >
+                      {generatingSEPA ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <FileCode className="w-4 h-4 mr-2" />
+                      )}
+                      Generar SEPA
+                    </Button>
+
+                    <Button
+                      onClick={generateRED}
+                      disabled={generatingRED}
+                      variant="outline"
+                      className="bg-white hover:bg-slate-50"
+                    >
+                      {generatingRED ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Database className="w-4 h-4 mr-2" />
+                      )}
+                      Generar RED
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* ── History Table ── */}
             <Card>

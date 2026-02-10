@@ -589,10 +589,10 @@ export function validateConfig(config: PayrollConfigInput): ValidationError[] {
   }
 
   // Tipos de cotizacion del trabajador
-  errors.push(...validateRatesObject(config.workerRates, 'workerRates'));
+  errors.push(...validateRatesObject(config.workerRates as unknown as Record<string, number>, 'workerRates'));
 
   // Tipos de cotizacion de la empresa
-  errors.push(...validateRatesObject(config.companyRates, 'companyRates'));
+  errors.push(...validateRatesObject(config.companyRates as unknown as Record<string, number>, 'companyRates'));
 
   // Limite horas extras
   if (config.maxOvertimeHoursYear <= 0) {

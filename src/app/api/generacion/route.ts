@@ -13,6 +13,8 @@ import type {
   PayslipResult,
   GrupoCotizacion,
 } from '@/lib/calculadora'
+import { generatePayslipPDF } from '@/lib/generadores'
+import type { PayslipPDFData } from '@/lib/generadores'
 
 // ─── GET: List generated nominas with filters ─────────────────────────
 export async function GET(request: NextRequest) {
@@ -358,6 +360,91 @@ export async function POST(request: NextRequest) {
 
         if (saveError) {
           throw new Error(`Error guardando nómina: ${saveError.message}`)
+        }
+
+        // Generate PDF payslip
+        let pdfUrl: string | null = null
+        try {
+          // Prepare data for PDF generator
+          const pdfData: PayslipPDFData = {
+            company: {
+              name: (companyData?.name as string) || 'Empresa',
+              cif: (companyData?.cif as string) || '',
+              ccc: (companyData?.ccc as string) || '',
+              address: (companyData?.address as string) || '',
+            },
+            employee: {
+              name: emp.employeeName,
+              nif: emp.dni,
+              nss: emp.ssNumber,
+              category: 'Empleado',
+              cotizationGroup: emp.cotizationGroup,
+            },
+            periodStart,
+            periodEnd,
+            workedDays: vars.workedDays ?? 30,
+            totalDays: calendarDays,
+            salaryAccruals: perceptions.map((p, idx) => ({
+              code: String(idx + 1).padStart(3, '0'),
+              concept: p.concept,
+              amount: p.amount,
+            })),
+            nonSalaryAccruals: [],
+            deductions: deductions.map((d, idx) => ({
+              code: String(idx + 1).padStart(3, '0'),
+              concept: d.concept,
+              base: d.rate ? (d.amount / (d.rate / 100)) : 0,
+              rate: d.rate || 0,
+              amount: d.amount,
+            })),
+            companyContributions: contributions.map(c => ({
+              concept: c.concept,
+              base: c.base || 0,
+              rate: c.rate || 0,
+              amount: c.amount,
+            })),
+            totalAccruals: payslipResult.accruals.totalAccruals,
+            totalDeductions: payslipResult.workerDeductions.totalDeductions,
+            netPay: payslipResult.netSalary,
+            baseCC: payslipResult.bases.baseCC,
+            baseCP: payslipResult.bases.baseCP,
+            baseIRPF: payslipResult.accruals.totalAccruals,
+            irpfRate: emp.irpfPercentage,
+            iban: emp.iban || '',
+            issueDate: new Date().toISOString().split('T')[0],
+          }
+
+          // Generate PDF
+          const pdfBytes = await generatePayslipPDF(pdfData)
+          
+          // Upload to Supabase Storage
+          const pdfFilename = `nominas/${companyId}/${year}/${String(month).padStart(2, '0')}/${savedNomina.id}.pdf`
+          const { error: uploadError } = await supabase.storage
+            .from('documents')
+            .upload(pdfFilename, pdfBytes, {
+              contentType: 'application/pdf',
+              upsert: true,
+            })
+
+          if (uploadError) {
+            console.error('Error uploading PDF:', uploadError)
+          } else {
+            // Get public URL
+            const { data: urlData } = supabase.storage
+              .from('documents')
+              .getPublicUrl(pdfFilename)
+            
+            pdfUrl = urlData.publicUrl
+
+            // Update nomina with PDF URL
+            await supabase
+              .from('nominas')
+              .update({ pdf_url: pdfUrl })
+              .eq('id', savedNomina.id)
+          }
+        } catch (pdfError) {
+          console.error('Error generating PDF:', pdfError)
+          // Don't fail the entire process if PDF generation fails
         }
 
         // Save monthly variables
