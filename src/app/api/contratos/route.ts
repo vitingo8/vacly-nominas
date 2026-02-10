@@ -129,7 +129,13 @@ export async function POST(request: NextRequest) {
       agreed_base_salary,
       status,
       signed_pdf_url,
-      notes
+      notes,
+      work_center_address,
+      trial_period_months,
+      vacation_days_per_year,
+      signing_place,
+      signing_date,
+      job_description
     } = body
 
     if (!company_id || !employee_id || !contract_type || !start_date) {
@@ -156,7 +162,13 @@ export async function POST(request: NextRequest) {
       agreed_base_salary: agreed_base_salary ? parseFloat(agreed_base_salary) : 0,
       status: status || 'active',
       signed_pdf_url: signed_pdf_url || null,
-      notes: notes || null
+      notes: notes || null,
+      work_center_address: work_center_address || null,
+      trial_period_months: trial_period_months != null && trial_period_months !== '' ? parseInt(trial_period_months) : null,
+      vacation_days_per_year: vacation_days_per_year != null && vacation_days_per_year !== '' ? parseInt(vacation_days_per_year) : null,
+      signing_place: signing_place || null,
+      signing_date: signing_date || null,
+      job_description: job_description || null
     }
 
     const { data, error } = await supabase
@@ -240,7 +252,9 @@ export async function PUT(request: NextRequest) {
       'employee_id', 'contract_type', 'start_date', 'end_date',
       'cotization_group', 'professional_category', 'occupation_code',
       'agreement_id', 'full_time', 'workday_percentage', 'weekly_hours',
-      'shift_type', 'agreed_base_salary', 'status', 'signed_pdf_url', 'notes'
+      'shift_type', 'agreed_base_salary', 'status', 'signed_pdf_url', 'notes',
+      'work_center_address', 'trial_period_months', 'vacation_days_per_year',
+      'signing_place', 'signing_date', 'job_description'
     ]
 
     for (const field of allowedFields) {
@@ -249,8 +263,14 @@ export async function PUT(request: NextRequest) {
           updateData[field] = parseInt(updateFields[field])
         } else if (['workday_percentage', 'weekly_hours', 'agreed_base_salary'].includes(field) && updateFields[field]) {
           updateData[field] = parseFloat(updateFields[field])
-        } else if (field === 'end_date' && updateFields[field] === '') {
+        } else if (['end_date', 'signing_date'].includes(field) && (updateFields[field] === '' || updateFields[field] == null)) {
           updateData[field] = null
+        } else if (['trial_period_months', 'vacation_days_per_year'].includes(field)) {
+          const v = updateFields[field]
+          updateData[field] = (v != null && v !== '') ? parseInt(v) : null
+        } else if (['work_center_address', 'signing_place', 'job_description'].includes(field)) {
+          const v = updateFields[field]
+          updateData[field] = (v != null && v !== '') ? v : null
         } else {
           updateData[field] = updateFields[field]
         }

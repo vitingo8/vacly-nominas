@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   FileText, Plus, Search, Trash2, Pencil, AlertTriangle,
   Clock, Users, Briefcase, CalendarDays, X, RefreshCw,
-  ChevronDown, Sun, Moon, Upload, Loader2, Sparkles
+  ChevronDown, Sun, Moon, Upload, Loader2, Sparkles, CheckCircle2, User
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -48,6 +48,12 @@ interface Contract {
   status: 'active' | 'expired' | 'cancelled'
   signed_pdf_url: string | null
   notes: string | null
+  work_center_address: string | null
+  trial_period_months: number | null
+  vacation_days_per_year: number | null
+  signing_place: string | null
+  signing_date: string | null
+  job_description: string | null
   created_at: string
   updated_at: string
   employees: Employee
@@ -70,6 +76,12 @@ type ContractFormData = {
   status: string
   signed_pdf_url: string
   notes: string
+  work_center_address: string
+  trial_period_months: string
+  vacation_days_per_year: string
+  signing_place: string
+  signing_date: string
+  job_description: string
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -133,7 +145,13 @@ const EMPTY_FORM: ContractFormData = {
   agreed_base_salary: '',
   status: 'active',
   signed_pdf_url: '',
-  notes: ''
+  notes: '',
+  work_center_address: '',
+  trial_period_months: '',
+  vacation_days_per_year: '',
+  signing_place: '',
+  signing_date: '',
+  job_description: ''
 }
 
 // ─── Helper functions ────────────────────────────────────────────────
@@ -180,6 +198,14 @@ export default function ContratosPage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [aiProcessing, setAiProcessing] = useState(false)
   const [extractedData, setExtractedData] = useState<Partial<ContractFormData> | null>(null)
+  
+  // Success dialog for automatic process
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [processResult, setProcessResult] = useState<{
+    employee: { id: string; created: boolean; updated: boolean; name: string; nif: string }
+    contract: { id: string; contract_type: string; start_date: string; agreed_base_salary: number }
+    message: string
+  } | null>(null)
 
   // Filters
   const [filterName, setFilterName] = useState('')
@@ -312,7 +338,13 @@ export default function ContratosPage() {
       agreed_base_salary: contract.agreed_base_salary?.toString() || '',
       status: contract.status,
       signed_pdf_url: contract.signed_pdf_url || '',
-      notes: contract.notes || ''
+      notes: contract.notes || '',
+      work_center_address: contract.work_center_address || '',
+      trial_period_months: contract.trial_period_months?.toString() || '',
+      vacation_days_per_year: contract.vacation_days_per_year?.toString() || '',
+      signing_place: contract.signing_place || '',
+      signing_date: contract.signing_date || '',
+      job_description: contract.job_description || ''
     })
     setShowFormDialog(true)
   }
@@ -934,6 +966,69 @@ export default function ContratosPage() {
               </div>
             </div>
 
+            {/* Centro de trabajo */}
+            <div className="space-y-2">
+              <Label className="text-slate-700">Centro de trabajo (dirección)</Label>
+              <Input
+                value={form.work_center_address}
+                onChange={(e) => setForm({ ...form, work_center_address: e.target.value })}
+                placeholder="Ej. C/ Marina 45, 08005 Barcelona"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-slate-700">Período de prueba (meses)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.trial_period_months}
+                  onChange={(e) => setForm({ ...form, trial_period_months: e.target.value })}
+                  placeholder="Ej. 6"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-700">Días de vacaciones / año</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.vacation_days_per_year}
+                  onChange={(e) => setForm({ ...form, vacation_days_per_year: e.target.value })}
+                  placeholder="Ej. 30"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-slate-700">Lugar de firma</Label>
+                <Input
+                  value={form.signing_place}
+                  onChange={(e) => setForm({ ...form, signing_place: e.target.value })}
+                  placeholder="Ej. Barcelona"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-700">Fecha de firma</Label>
+                <Input
+                  type="date"
+                  value={form.signing_date}
+                  onChange={(e) => setForm({ ...form, signing_date: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-slate-700">Descripción del puesto / funciones</Label>
+              <textarea
+                value={form.job_description}
+                onChange={(e) => setForm({ ...form, job_description: e.target.value })}
+                placeholder="Funciones principales del puesto..."
+                rows={3}
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+              />
+            </div>
+
             {/* PDF URL */}
             <div className="space-y-2">
               <Label className="text-slate-700">URL del Contrato Firmado (PDF)</Label>
@@ -1146,120 +1241,156 @@ export default function ContratosPage() {
           </div>
 
           <DialogFooter>
-            {!extractedData ? (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsUploadModalOpen(false)
-                    setUploadedFile(null)
-                    setAiProcessing(false)
-                  }}
-                  disabled={aiProcessing}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={async () => {
-                    if (!uploadedFile) return
-                    setAiProcessing(true)
-                    
-                    try {
-                      const formData = new FormData()
-                      formData.append('file', uploadedFile)
-                      formData.append('company_id', companyId || '')
-                      
-                      const res = await fetch('/api/contratos/extract-pdf', {
-                        method: 'POST',
-                        body: formData
-                      })
-                      
-                      const data = await res.json()
-                      
-                      if (!data.success) {
-                        throw new Error(data.error || 'Error al procesar el PDF')
-                      }
-                      
-                      // Try to match employee by NIF or name
-                      let matchedEmployeeId = data.contract.employee_id
-                      if (data.contract.employee_nif) {
-                        const match = employees.find(e => 
-                          e.nif?.toLowerCase() === data.contract.employee_nif.toLowerCase()
-                        )
-                        if (match) {
-                          matchedEmployeeId = match.id
-                        }
-                      } else if (data.contract.employee_name) {
-                        const match = employees.find(e => {
-                          const fullName = `${e.first_name} ${e.last_name}`.toLowerCase()
-                          return fullName.includes(data.contract.employee_name.toLowerCase()) ||
-                                 data.contract.employee_name.toLowerCase().includes(fullName)
-                        })
-                        if (match) {
-                          matchedEmployeeId = match.id
-                        }
-                      }
-                      
-                      setExtractedData({
-                        ...data.contract,
-                        employee_id: matchedEmployeeId || employees[0]?.id || '',
-                      })
-                    } catch (err) {
-                      alert('Error al procesar el PDF: ' + (err instanceof Error ? err.message : 'Error desconocido'))
-                      setUploadedFile(null)
-                    } finally {
-                      setAiProcessing(false)
-                    }
-                  }}
-                  disabled={!uploadedFile || aiProcessing}
-                  className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white"
-                >
-                  {aiProcessing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Procesando...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      Procesar con IA
-                    </>
-                  )}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setExtractedData(null)
-                    setUploadedFile(null)
-                  }}
-                >
-                  Subir otro PDF
-                </Button>
-                <Button
-                  onClick={() => {
-                    // Pre-fill form with extracted data and open create modal
-                    setForm({
-                      ...EMPTY_FORM,
-                      ...extractedData,
-                      cotization_group: extractedData.cotization_group || '',
-                      agreed_base_salary: extractedData.agreed_base_salary || '',
-                      workday_percentage: extractedData.workday_percentage || '100',
-                      weekly_hours: extractedData.weekly_hours || '40',
-                    })
-                    setIsUploadModalOpen(false)
-                    setShowFormDialog(true)
-                    setExtractedData(null)
-                    setUploadedFile(null)
-                  }}
-                  className="bg-[#1B2A41] hover:bg-[#152036] text-white"
-                >
-                  Crear Contrato con estos datos
-                </Button>
-              </>
-            )}
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsUploadModalOpen(false)
+                setUploadedFile(null)
+                setAiProcessing(false)
+              }}
+              disabled={aiProcessing}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!uploadedFile) return
+                setAiProcessing(true)
+                
+                try {
+                  const formData = new FormData()
+                  formData.append('file', uploadedFile)
+                  formData.append('company_id', companyId || '')
+                  
+                  const res = await fetch('/api/contratos/process-contract-pdf', {
+                    method: 'POST',
+                    body: formData
+                  })
+                  
+                  const data = await res.json()
+                  
+                  if (!data.success) {
+                    throw new Error(data.error || 'Error al procesar el PDF')
+                  }
+                  
+                  // Show success dialog with results
+                  setProcessResult(data)
+                  setShowSuccessDialog(true)
+                  
+                  // Close upload modal
+                  setIsUploadModalOpen(false)
+                  setUploadedFile(null)
+                  
+                  // Reload contracts to show the new one
+                  await loadContracts()
+                } catch (err) {
+                  alert('Error al procesar el PDF: ' + (err instanceof Error ? err.message : 'Error desconocido'))
+                  setUploadedFile(null)
+                } finally {
+                  setAiProcessing(false)
+                }
+              }}
+              disabled={!uploadedFile || aiProcessing}
+              className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white"
+            >
+              {aiProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Procesando con IA...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Procesar Automáticamente
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Success Dialog - Process Result */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600">
+              <CheckCircle2 className="w-5 h-5" />
+              ¡Contrato Procesado Correctamente!
+            </DialogTitle>
+            <DialogDescription>
+              El contrato se ha analizado con IA y los datos se han cargado automáticamente en el sistema.
+            </DialogDescription>
+          </DialogHeader>
+
+          {processResult && (
+            <div className="space-y-4 py-2">
+              {/* Employee Info */}
+              <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <User className="w-4 h-4 text-[#C6A664]" />
+                  <h3 className="font-semibold text-sm text-slate-700">Empleado</h3>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <p>
+                    <span className="font-medium">{processResult.employee.name}</span>
+                    {processResult.employee.created && (
+                      <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                        Nuevo
+                      </span>
+                    )}
+                    {processResult.employee.updated && (
+                      <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                        Actualizado
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-slate-500">NIF: {processResult.employee.nif}</p>
+                </div>
+              </div>
+
+              {/* Contract Info */}
+              <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText className="w-4 h-4 text-[#C6A664]" />
+                  <h3 className="font-semibold text-sm text-slate-700">Contrato</h3>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <p>
+                    <span className="font-medium">
+                      {processResult.contract.contract_type === 'permanent' && 'Indefinido'}
+                      {processResult.contract.contract_type === 'temporary' && 'Temporal'}
+                      {processResult.contract.contract_type === 'training' && 'Formación'}
+                      {processResult.contract.contract_type === 'internship' && 'Prácticas'}
+                      {processResult.contract.contract_type === 'specific_work' && 'Obra o Servicio'}
+                    </span>
+                  </p>
+                  <p className="text-slate-500">
+                    Inicio: {formatDate(processResult.contract.start_date)}
+                  </p>
+                  <p className="text-slate-500">
+                    Salario Base: {formatCurrency(processResult.contract.agreed_base_salary)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Message */}
+              <div className="flex items-start gap-2 text-sm text-slate-600 bg-green-50 border border-green-200 rounded-lg p-3">
+                <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                <p>{processResult.message}</p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setShowSuccessDialog(false)
+                setProcessResult(null)
+              }}
+              className="bg-[#1B2A41] hover:bg-[#152036] text-white"
+            >
+              Entendido
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

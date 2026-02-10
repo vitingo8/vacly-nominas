@@ -58,6 +58,12 @@ Datos a extraer:
 - shift_type: tipo de turno (uno de: "continuous", "split", "rotating", "night")
 - agreed_base_salary: salario base mensual pactado (número sin decimales)
 - notes: cualquier observación relevante (string o null)
+- work_center_address: dirección del centro de trabajo (string o null)
+- trial_period_months: período de prueba en meses (número o null, ej. 6)
+- vacation_days_per_year: días de vacaciones por año (número o null, ej. 30)
+- signing_place: lugar de firma (string o null, ej. Barcelona)
+- signing_date: fecha de firma (formato YYYY-MM-DD o null)
+- job_description: descripción breve del puesto o funciones (string o null)
 
 Si no encuentras algún dato, usa null (excepto para boolean y números que tienen defaults).
 
@@ -76,7 +82,13 @@ Responde SOLO con el JSON, ejemplo:
   "weekly_hours": 40,
   "shift_type": "continuous",
   "agreed_base_salary": 2100,
-  "notes": null
+  "notes": null,
+  "work_center_address": "C/ Marina 45, 08005 Barcelona",
+  "trial_period_months": 6,
+  "vacation_days_per_year": 30,
+  "signing_place": "Barcelona",
+  "signing_date": "2026-01-01",
+  "job_description": "Analista de datos..."
 }`
 
     console.log('[extract-pdf] Sending to Claude Haiku...')
@@ -138,6 +150,12 @@ Responde SOLO con el JSON, ejemplo:
         shift_type: extractedContract.shift_type || 'continuous',
         agreed_base_salary: extractedContract.agreed_base_salary?.toString() || '',
         notes: extractedContract.notes || '',
+        work_center_address: extractedContract.work_center_address || '',
+        trial_period_months: extractedContract.trial_period_months?.toString() || '',
+        vacation_days_per_year: extractedContract.vacation_days_per_year?.toString() || '',
+        signing_place: extractedContract.signing_place || '',
+        signing_date: extractedContract.signing_date || '',
+        job_description: extractedContract.job_description || '',
       },
     })
   } catch (error) {
