@@ -19,6 +19,8 @@ import type { PayslipPDFData } from '@/lib/generadores'
 // ─── GET: List generated nominas with filters ─────────────────────────
 export async function GET(request: NextRequest) {
   try {
+    console.log('[GET /api/generacion] Starting request')
+    
     const supabase = getSupabaseClient()
     const { searchParams } = new URL(request.url)
     const companyId = searchParams.get('company_id')
@@ -29,7 +31,18 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
+    console.log('[GET /api/generacion] Query params:', {
+      companyId,
+      month,
+      year,
+      employeeId,
+      status,
+      limit,
+      offset,
+    })
+
     if (!companyId) {
+      console.warn('[GET /api/generacion] Missing company_id')
       return NextResponse.json(
         { success: false, error: 'company_id es requerido' },
         { status: 400 }
@@ -39,32 +52,57 @@ export async function GET(request: NextRequest) {
     // Handle load_employees action
     const action = searchParams.get('action')
     if (action === 'load_employees') {
+      console.log(`[load_employees] Fetching for company_id: ${companyId}`)
+      
       const { data: employees, error: empError } = await supabase
         .from('employees')
         .select(`
           id, first_name, last_name, nif, social_security_number, iban, compensation, status,
-          contracts (id, contract_type, full_time, workday_percentage, agreed_base_salary, cotization_group, status)
+          contracts!contracts_employee_id_fkey (id, contract_type, full_time, workday_percentage, agreed_base_salary, cotization_group, status)
         `)
         .eq('company_id', companyId)
-        .eq('status', 'active')
+        .eq('status', 'Activo')
 
       if (empError) {
-        console.error('Error fetching employees:', empError)
+        console.error('[load_employees] Supabase error:', {
+          code: empError.code,
+          message: empError.message,
+          details: empError.details,
+          hint: empError.hint,
+        })
         return NextResponse.json(
-          { success: false, error: 'Error al cargar empleados', details: empError.message },
+          {
+            success: false,
+            error: 'Error al cargar empleados',
+            details: empError.message,
+            code: empError.code,
+            fullError: empError,
+          },
           { status: 500 }
         )
       }
 
-      // Only include employees with active contracts
-      const filtered = (employees || []).map((emp: any) => ({
-        ...emp,
-        contracts: (emp.contracts || []).filter((c: any) => c.status === 'active')
-      })).filter((emp: any) => emp.contracts.length > 0)
+      console.log(`[load_employees] Loaded ${employees?.length || 0} employees`)
+
+      // Separate employees with and without active contracts
+      const processed = (employees || []).map((emp: any) => {
+        const activeContracts = (emp.contracts || []).filter((c: any) => c.status === 'active')
+        return {
+          ...emp,
+          contracts: activeContracts,
+          hasActiveContract: activeContracts.length > 0
+        }
+      })
+
+      const withContracts = processed.filter(e => e.hasActiveContract)
+      const withoutContracts = processed.filter(e => !e.hasActiveContract)
+
+      console.log(`[load_employees] With contracts: ${withContracts.length}, Without contracts: ${withoutContracts.length}`)
 
       return NextResponse.json({
         success: true,
-        employees: filtered,
+        employees: withContracts,
+        employeesWithoutContract: withoutContracts,
       })
     }
 

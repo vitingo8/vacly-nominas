@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   FileText, Plus, Search, Trash2, Pencil, AlertTriangle,
   Clock, Users, Briefcase, CalendarDays, X, RefreshCw,
-  ChevronDown, Sun, Moon
+  ChevronDown, Sun, Moon, Upload, Loader2, Sparkles
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -174,6 +174,13 @@ export default function ContratosPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // PDF Upload with AI
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  const [uploadingPDF, setUploadingPDF] = useState(false)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [aiProcessing, setAiProcessing] = useState(false)
+  const [extractedData, setExtractedData] = useState<Partial<ContractFormData> | null>(null)
+
   // Filters
   const [filterName, setFilterName] = useState('')
   const [filterType, setFilterType] = useState('')
@@ -193,8 +200,15 @@ export default function ContratosPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const paramCompanyId = params.get('company_id')
+    const uploadPdf = params.get('upload_pdf')
+    
     if (paramCompanyId) {
       setCompanyId(paramCompanyId)
+    }
+    
+    // Auto-open PDF upload modal if requested
+    if (uploadPdf === 'true') {
+      setTimeout(() => setIsUploadModalOpen(true), 500)
     }
   }, [])
 
@@ -212,7 +226,7 @@ export default function ContratosPage() {
           .from('employees')
           .select('id, first_name, last_name, nif, status')
           .eq('company_id', companyId)
-          .eq('status', 'active')
+          .eq('status', 'Activo')
           .order('first_name')
 
         if (data) setEmployees(data)
@@ -407,10 +421,18 @@ export default function ContratosPage() {
             </Button>
             <Button
               onClick={handleOpenCreate}
-              className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
+              variant="outline"
+              className="gap-2 border-[#1B2A41] text-[#1B2A41] hover:bg-[#1B2A41]/5"
             >
               <Plus className="w-4 h-4" />
               Nuevo Contrato
+            </Button>
+            <Button
+              onClick={() => setIsUploadModalOpen(true)}
+              className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              Subir PDF con IA
             </Button>
           </div>
         </div>
@@ -978,6 +1000,249 @@ export default function ContratosPage() {
             >
               {isSaving ? 'Eliminando...' : 'Eliminar'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── PDF Upload with AI Modal ── */}
+      <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#1B2A41]">
+              <Sparkles className="w-5 h-5 text-[#C6A664]" />
+              Subir Contrato en PDF con IA
+            </DialogTitle>
+            <DialogDescription>
+              Sube un contrato en PDF y Claude Haiku extraerá automáticamente todos los datos para crear el contrato.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* File upload */}
+            {!uploadedFile && !extractedData && (
+              <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-[#C6A664] transition-colors">
+                <Upload className="w-12 h-12 mx-auto mb-3 text-slate-400" />
+                <p className="text-sm text-slate-600 mb-4">
+                  Arrastra un archivo PDF aquí o haz clic para seleccionar
+                </p>
+                <Input
+                  type="file"
+                  accept=".pdf"
+                  className="max-w-xs mx-auto"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file && file.type === 'application/pdf') {
+                      setUploadedFile(file)
+                    } else {
+                      alert('Por favor selecciona un archivo PDF')
+                    }
+                  }}
+                />
+              </div>
+            )}
+
+            {/* File selected */}
+            {uploadedFile && !extractedData && (
+              <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-8 h-8 text-[#C6A664]" />
+                    <div>
+                      <p className="font-medium text-sm">{uploadedFile.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {(uploadedFile.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setUploadedFile(null)}
+                    disabled={aiProcessing}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* AI Processing */}
+            {aiProcessing && (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-center space-y-3">
+                  <div className="relative inline-block">
+                    <Loader2 className="w-12 h-12 animate-spin text-[#C6A664]" />
+                    <Sparkles className="w-5 h-5 text-[#C6A664] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                  </div>
+                  <p className="text-sm font-medium text-slate-700">
+                    Claude Haiku está leyendo el contrato...
+                  </p>
+                  <p className="text-xs text-slate-500">Esto puede tardar 10-30 segundos</p>
+                </div>
+              </div>
+            )}
+
+            {/* Extracted data preview */}
+            {extractedData && (
+              <div className="border border-emerald-200 rounded-lg p-4 bg-emerald-50/50">
+                <div className="flex items-start gap-3 mb-3">
+                  <Sparkles className="w-5 h-5 text-emerald-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-sm text-emerald-900">
+                      Datos extraídos correctamente
+                    </h4>
+                    <p className="text-xs text-emerald-700 mt-0.5">
+                      Revisa los datos antes de crear el contrato
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {extractedData.employee_id && (
+                    <div>
+                      <span className="text-slate-500">Empleado:</span>{' '}
+                      <span className="font-medium">
+                        {employees.find(e => e.id === extractedData.employee_id)?.first_name || 'N/A'}
+                      </span>
+                    </div>
+                  )}
+                  {extractedData.contract_type && (
+                    <div>
+                      <span className="text-slate-500">Tipo:</span>{' '}
+                      <span className="font-medium">{CONTRACT_TYPES[extractedData.contract_type] || extractedData.contract_type}</span>
+                    </div>
+                  )}
+                  {extractedData.start_date && (
+                    <div>
+                      <span className="text-slate-500">Inicio:</span>{' '}
+                      <span className="font-medium">{formatDate(extractedData.start_date)}</span>
+                    </div>
+                  )}
+                  {extractedData.agreed_base_salary && (
+                    <div>
+                      <span className="text-slate-500">Salario:</span>{' '}
+                      <span className="font-medium">{extractedData.agreed_base_salary}€</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            {!extractedData ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsUploadModalOpen(false)
+                    setUploadedFile(null)
+                    setAiProcessing(false)
+                  }}
+                  disabled={aiProcessing}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (!uploadedFile) return
+                    setAiProcessing(true)
+                    
+                    try {
+                      const formData = new FormData()
+                      formData.append('file', uploadedFile)
+                      formData.append('company_id', companyId || '')
+                      
+                      const res = await fetch('/api/contratos/extract-pdf', {
+                        method: 'POST',
+                        body: formData
+                      })
+                      
+                      const data = await res.json()
+                      
+                      if (!data.success) {
+                        throw new Error(data.error || 'Error al procesar el PDF')
+                      }
+                      
+                      // Try to match employee by NIF or name
+                      let matchedEmployeeId = data.contract.employee_id
+                      if (data.contract.employee_nif) {
+                        const match = employees.find(e => 
+                          e.nif?.toLowerCase() === data.contract.employee_nif.toLowerCase()
+                        )
+                        if (match) {
+                          matchedEmployeeId = match.id
+                        }
+                      } else if (data.contract.employee_name) {
+                        const match = employees.find(e => {
+                          const fullName = `${e.first_name} ${e.last_name}`.toLowerCase()
+                          return fullName.includes(data.contract.employee_name.toLowerCase()) ||
+                                 data.contract.employee_name.toLowerCase().includes(fullName)
+                        })
+                        if (match) {
+                          matchedEmployeeId = match.id
+                        }
+                      }
+                      
+                      setExtractedData({
+                        ...data.contract,
+                        employee_id: matchedEmployeeId || employees[0]?.id || '',
+                      })
+                    } catch (err) {
+                      alert('Error al procesar el PDF: ' + (err instanceof Error ? err.message : 'Error desconocido'))
+                      setUploadedFile(null)
+                    } finally {
+                      setAiProcessing(false)
+                    }
+                  }}
+                  disabled={!uploadedFile || aiProcessing}
+                  className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white"
+                >
+                  {aiProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Procesar con IA
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setExtractedData(null)
+                    setUploadedFile(null)
+                  }}
+                >
+                  Subir otro PDF
+                </Button>
+                <Button
+                  onClick={() => {
+                    // Pre-fill form with extracted data and open create modal
+                    setFormData(prev => ({
+                      ...EMPTY_FORM,
+                      ...extractedData,
+                      cotization_group: extractedData.cotization_group || '',
+                      agreed_base_salary: extractedData.agreed_base_salary || '',
+                      workday_percentage: extractedData.workday_percentage || '100',
+                      weekly_hours: extractedData.weekly_hours || '40',
+                    }))
+                    setIsUploadModalOpen(false)
+                    setShowDialog(true)
+                    setExtractedData(null)
+                    setUploadedFile(null)
+                  }}
+                  className="bg-[#1B2A41] hover:bg-[#152036] text-white"
+                >
+                  Crear Contrato con estos datos
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

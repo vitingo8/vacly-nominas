@@ -6,7 +6,7 @@ import {
   Calculator, Users, Download, CheckCircle2, AlertCircle,
   Search, Eye, Calendar, Loader2, RefreshCw,
   FileText, TrendingUp, ChevronDown, ListChecks, History,
-  FileArchive, FileCode, Database
+  FileArchive, FileCode, Database, FileUp
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -154,6 +154,7 @@ function GeneracionContent() {
 
   // ── Tab 1: Generation state ──
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
+  const [employeesWithoutContract, setEmployeesWithoutContract] = useState<any[]>([])
   const [loadingEmployees, setLoadingEmployees] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -316,9 +317,11 @@ function GeneracionContent() {
       })
 
       setEmployees(rows)
+      setEmployeesWithoutContract(data.employeesWithoutContract || [])
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Error desconocido')
       setEmployees([])
+      setEmployeesWithoutContract([])
     } finally {
       setLoadingEmployees(false)
     }
@@ -836,6 +839,62 @@ function GeneracionContent() {
                     <AlertCircle className="w-5 h-5 text-red-500" />
                     <span className="text-sm text-red-700">{loadError}</span>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── Employees Without Contract ── */}
+            {employeesWithoutContract.length > 0 && (
+              <Card className="mb-6 border-l-4 border-l-amber-500 bg-amber-50/30">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-amber-600" />
+                      <CardTitle className="text-base">
+                        Empleados sin contrato activo ({employeesWithoutContract.length})
+                      </CardTitle>
+                    </div>
+                  </div>
+                  <CardDescription>
+                    Los siguientes empleados no tienen un contrato activo. Debes crear un contrato antes de poder generar nóminas.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {employeesWithoutContract.map((emp) => (
+                    <div
+                      key={emp.id}
+                      className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-200"
+                    >
+                      <div className="flex-1">
+                        <p className="font-medium text-sm">
+                          {emp.first_name} {emp.last_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {emp.nif && `NIF: ${emp.nif}`}
+                          {emp.social_security_number && ` • NSS: ${emp.social_security_number}`}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs"
+                          onClick={() => window.open(`/contratos?employee_id=${emp.id}&company_id=${companyId}`, '_blank')}
+                        >
+                          <FileText className="w-3.5 h-3.5 mr-1.5" />
+                          Crear manualmente
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="text-xs bg-[#C6A664] hover:bg-[#C6A664]/90"
+                          onClick={() => window.open(`/contratos?employee_id=${emp.id}&company_id=${companyId}&upload_pdf=true`, '_blank')}
+                        >
+                          <FileUp className="w-3.5 h-3.5 mr-1.5" />
+                          Subir PDF con IA
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             )}

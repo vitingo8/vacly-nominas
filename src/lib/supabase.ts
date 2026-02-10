@@ -14,6 +14,11 @@ export function getSupabaseClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+  console.log('[getSupabaseClient] Initializing:', {
+    url: supabaseUrl ? '✓' : '✗ MISSING',
+    key: supabaseKey ? '✓' : '✗ MISSING',
+  })
+
   if (!supabaseUrl || !supabaseKey) {
     throw new Error(
       'Missing Supabase environment variables. ' +
@@ -22,6 +27,7 @@ export function getSupabaseClient(): SupabaseClient {
   }
 
   supabaseClient = createClient(supabaseUrl, supabaseKey)
+  console.log('[getSupabaseClient] Client created successfully')
   return supabaseClient
 }
 
