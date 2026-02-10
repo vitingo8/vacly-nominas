@@ -1224,16 +1224,16 @@ export default function ContratosPage() {
                 <Button
                   onClick={() => {
                     // Pre-fill form with extracted data and open create modal
-                    setFormData(prev => ({
+                    setForm({
                       ...EMPTY_FORM,
                       ...extractedData,
                       cotization_group: extractedData.cotization_group || '',
                       agreed_base_salary: extractedData.agreed_base_salary || '',
                       workday_percentage: extractedData.workday_percentage || '100',
                       weekly_hours: extractedData.weekly_hours || '40',
-                    }))
+                    })
                     setIsUploadModalOpen(false)
-                    setShowDialog(true)
+                    setShowFormDialog(true)
                     setExtractedData(null)
                     setUploadedFile(null)
                   }}
