@@ -196,21 +196,38 @@ export default function ContratosPage() {
   // Form
   const [form, setForm] = useState<ContractFormData>(EMPTY_FORM)
 
+  // Pendiente abrir formulario crear con empleado pre-seleccionado (open=create&employee_id=)
+  const [pendingOpenCreateEmployeeId, setPendingOpenCreateEmployeeId] = useState<string | null>(null)
+
   // ── Read URL params ──────────────────────────────────────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const paramCompanyId = params.get('company_id')
     const uploadPdf = params.get('upload_pdf')
-    
+    const openCreate = params.get('open')
+    const paramEmployeeId = params.get('employee_id')
+
     if (paramCompanyId) {
       setCompanyId(paramCompanyId)
     }
-    
-    // Auto-open PDF upload modal if requested
+
     if (uploadPdf === 'true') {
       setTimeout(() => setIsUploadModalOpen(true), 500)
     }
+
+    if (openCreate === 'create' && paramEmployeeId) {
+      setPendingOpenCreateEmployeeId(paramEmployeeId)
+    }
   }, [])
+
+  // Abrir formulario de crear contrato con empleado pre-seleccionado cuando ya hay empleados cargados
+  useEffect(() => {
+    if (!pendingOpenCreateEmployeeId || employees.length === 0) return
+    setEditingContract(null)
+    setForm({ ...EMPTY_FORM, employee_id: pendingOpenCreateEmployeeId })
+    setShowFormDialog(true)
+    setPendingOpenCreateEmployeeId(null)
+  }, [pendingOpenCreateEmployeeId, employees.length])
 
   // ── Load employees for the select dropdown ───────────────────────
   useEffect(() => {
@@ -1013,7 +1030,7 @@ export default function ContratosPage() {
               Subir Contrato en PDF con IA
             </DialogTitle>
             <DialogDescription>
-              Sube un contrato en PDF y Claude Haiku extraerá automáticamente todos los datos para crear el contrato.
+              Sube un contrato en PDF y se extraerán automáticamente todos los datos para crear el contrato.
             </DialogDescription>
           </DialogHeader>
 

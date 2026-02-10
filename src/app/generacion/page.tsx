@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo, Suspense } from 'react'
+import { useState, useCallback, useMemo, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Calculator, Users, Download, CheckCircle2, AlertCircle,
@@ -178,8 +178,25 @@ function GeneracionContent() {
   // ── Detail dialog ──
   const [detailNomina, setDetailNomina] = useState<NominaHistorico | null>(null)
 
+  // ── Contract modal (misma página, iframe a Contratos) ──
+  const [contractModalOpen, setContractModalOpen] = useState(false)
+  const [contractModalMode, setContractModalMode] = useState<'create' | 'upload_pdf'>('create')
+  const [contractModalEmployee, setContractModalEmployee] = useState<{ id: string; first_name: string; last_name: string } | null>(null)
+  const [contractIframeUrl, setContractIframeUrl] = useState<string | null>(null)
+
   // ── Active tab ──
   const [activeTab, setActiveTab] = useState('generar')
+
+  // URL del iframe de contratos (solo en cliente para evitar hidratación)
+  useEffect(() => {
+    if (contractModalOpen && companyId && contractModalEmployee) {
+      setContractIframeUrl(
+        `${typeof window !== 'undefined' ? window.location.origin : ''}/contratos?company_id=${companyId}&employee_id=${contractModalEmployee.id}${contractModalMode === 'upload_pdf' ? '&upload_pdf=true' : '&open=create'}`
+      )
+    } else {
+      setContractIframeUrl(null)
+    }
+  }, [contractModalOpen, companyId, contractModalEmployee, contractModalMode])
 
   // ── Calculated summaries ──
   const summary = useMemo(() => {
@@ -879,7 +896,11 @@ function GeneracionContent() {
                           size="sm"
                           variant="outline"
                           className="text-xs"
-                          onClick={() => window.open(`/contratos?employee_id=${emp.id}&company_id=${companyId}`, '_blank')}
+                          onClick={() => {
+                            setContractModalEmployee({ id: emp.id, first_name: emp.first_name, last_name: emp.last_name })
+                            setContractModalMode('create')
+                            setContractModalOpen(true)
+                          }}
                         >
                           <FileText className="w-3.5 h-3.5 mr-1.5" />
                           Crear manualmente
@@ -887,7 +908,11 @@ function GeneracionContent() {
                         <Button
                           size="sm"
                           className="text-xs bg-[#C6A664] hover:bg-[#C6A664]/90"
-                          onClick={() => window.open(`/contratos?employee_id=${emp.id}&company_id=${companyId}&upload_pdf=true`, '_blank')}
+                          onClick={() => {
+                            setContractModalEmployee({ id: emp.id, first_name: emp.first_name, last_name: emp.last_name })
+                            setContractModalMode('upload_pdf')
+                            setContractModalOpen(true)
+                          }}
                         >
                           <FileUp className="w-3.5 h-3.5 mr-1.5" />
                           Subir PDF con IA
@@ -1548,6 +1573,43 @@ function GeneracionContent() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Contratos en la misma página (crear manual / subir PDF con IA) */}
+      <Dialog
+        open={contractModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setContractModalOpen(false)
+            setContractModalEmployee(null)
+            loadEmployees()
+          }
+        }}
+      >
+        <DialogContent className="max-w-[95vw] w-full h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 pt-4 pb-2 shrink-0">
+            <DialogTitle className="text-base">
+              {contractModalMode === 'upload_pdf'
+                ? 'Subir contrato en PDF con IA'
+                : 'Crear contrato manualmente'}
+              {contractModalEmployee && (
+                <span className="font-normal text-muted-foreground">
+                  {' — '}
+                  {contractModalEmployee.first_name} {contractModalEmployee.last_name}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 relative px-6 pb-6">
+            {contractIframeUrl && (
+              <iframe
+                title="Contratos"
+                src={contractIframeUrl}
+                className="absolute inset-0 w-full h-full rounded-lg border border-slate-200"
+              />
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
