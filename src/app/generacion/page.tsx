@@ -38,6 +38,7 @@ interface EmployeeRow {
   nif: string
   ssNumber: string
   iban: string
+  imageUrl: string | null
   baseSalary: number
   cotizationGroup: number
   irpfPercentage: number
@@ -52,6 +53,8 @@ interface EmployeeRow {
   overtimeHours: number
   vacationDays: number
   itDays: number
+  sickLeaveDays: number
+  expenses: number
   commissions: number
   advances: number
   // Calculated
@@ -296,12 +299,21 @@ function GeneracionContent() {
         const comp = emp.compensation || {}
         const contract = emp.contracts?.[0] || {}
 
+        // Calculate actual working days for the selected month (weekdays only)
+        const daysInMonth = getDaysInMonth(selectedMonth, selectedYear)
+        let businessDays = 0
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dayOfWeek = new Date(selectedYear, selectedMonth - 1, d).getDay()
+          if (dayOfWeek !== 0 && dayOfWeek !== 6) businessDays++
+        }
+
         const row: EmployeeRow = {
           id: emp.id,
           name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(),
           nif: emp.nif || '',
           ssNumber: emp.social_security_number || '',
           iban: emp.iban || '',
+          imageUrl: emp.image_url || null,
           baseSalary: comp.baseSalaryMonthly || contract.agreed_base_salary || 0,
           cotizationGroup: comp.cotizationGroup || contract.cotization_group || 7,
           irpfPercentage: comp.irpfPercentage || 0,
@@ -311,10 +323,12 @@ function GeneracionContent() {
           contractType: contract.contract_type || 'permanent',
           fullTime: contract.full_time !== false,
           workdayPercentage: contract.workday_percentage || 100,
-          workedDays: 30,
+          workedDays: daysInMonth,
           overtimeHours: 0,
           vacationDays: 0,
           itDays: 0,
+          sickLeaveDays: 0,
+          expenses: 0,
           commissions: 0,
           advances: 0,
           grossSalary: null,
@@ -419,6 +433,8 @@ function GeneracionContent() {
               overtimeHours: emp.overtimeHours,
               vacationDays: emp.vacationDays,
               itDays: emp.itDays,
+              sickLeaveDays: emp.sickLeaveDays,
+              expenses: emp.expenses,
               commissions: emp.commissions,
               advances: emp.advances,
               incentives: 0,
@@ -664,23 +680,6 @@ function GeneracionContent() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* ── Header ── */}
-      <div className="bg-[#1B2A41] text-white">
-        <div className="max-w-[1600px] mx-auto px-6 py-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-[#C6A664]/20 p-2.5 rounded-lg">
-              <Calculator className="w-6 h-6 text-[#C6A664]" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Generación de Nóminas</h1>
-              <p className="text-sm text-slate-300 mt-0.5">
-                Calcula y genera las nóminas de tus empleados
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* ── Content ── */}
       <div className="max-w-[1600px] mx-auto px-6 py-6">
         <Tabs value={activeTab} onValueChange={(val) => {
@@ -877,19 +876,28 @@ function GeneracionContent() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {employeesWithoutContract.map((emp) => (
+                  {employeesWithoutContract.map((emp: any) => (
                     <div
                       key={emp.id}
                       className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-200"
                     >
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">
-                          {emp.first_name} {emp.last_name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {emp.nif && `NIF: ${emp.nif}`}
-                          {emp.social_security_number && ` • NSS: ${emp.social_security_number}`}
-                        </p>
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="w-9 h-9 rounded-full flex-shrink-0 overflow-hidden border border-slate-200 bg-gradient-to-br from-[#1B2A41] to-slate-600 flex items-center justify-center">
+                          {emp.image_url ? (
+                            <img src={emp.image_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-xs font-bold text-white">{(emp.first_name || '?').charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm">
+                            {emp.first_name} {emp.last_name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {emp.nif && `NIF: ${emp.nif}`}
+                            {emp.social_security_number && ` • NSS: ${emp.social_security_number}`}
+                          </p>
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button
@@ -1004,7 +1012,7 @@ function GeneracionContent() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-slate-50/80">
-                          <TableHead className="w-[44px] px-3">
+                          <TableHead className="w-[44px] px-3 text-center">
                             <input
                               type="checkbox"
                               checked={allSelected}
@@ -1015,15 +1023,17 @@ function GeneracionContent() {
                               className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
                             />
                           </TableHead>
-                          <TableHead className="min-w-[180px] px-3 text-xs font-semibold uppercase tracking-wider">Empleado</TableHead>
-                          <TableHead className="w-[100px] px-2 text-xs font-semibold uppercase tracking-wider text-center">Días Trab.</TableHead>
-                          <TableHead className="w-[90px] px-2 text-xs font-semibold uppercase tracking-wider text-center">H. Extra</TableHead>
-                          <TableHead className="w-[90px] px-2 text-xs font-semibold uppercase tracking-wider text-center">Vacaciones</TableHead>
-                          <TableHead className="w-[80px] px-2 text-xs font-semibold uppercase tracking-wider text-center">IT Días</TableHead>
-                          <TableHead className="w-[100px] px-2 text-xs font-semibold uppercase tracking-wider text-center">Comisiones</TableHead>
-                          <TableHead className="w-[100px] px-2 text-xs font-semibold uppercase tracking-wider text-center">Anticipos</TableHead>
-                          <TableHead className="w-[130px] px-3 text-xs font-semibold uppercase tracking-wider text-right">Salario Bruto</TableHead>
-                          <TableHead className="w-[130px] px-3 text-xs font-semibold uppercase tracking-wider text-right">Neto</TableHead>
+                          <TableHead className="min-w-[200px] px-3 text-xs font-semibold uppercase tracking-wider">Empleado</TableHead>
+                          <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Días Trab.</TableHead>
+                          <TableHead className="w-[80px] px-1 text-xs font-semibold uppercase tracking-wider text-center">H. Extra</TableHead>
+                          <TableHead className="w-[80px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Vacaciones</TableHead>
+                          <TableHead className="w-[75px] px-1 text-xs font-semibold uppercase tracking-wider text-center">IT Días</TableHead>
+                          <TableHead className="w-[75px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Bajas</TableHead>
+                          <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Gastos</TableHead>
+                          <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Comisiones</TableHead>
+                          <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Anticipos</TableHead>
+                          <TableHead className="w-[110px] px-2 text-xs font-semibold uppercase tracking-wider text-center">Bruto</TableHead>
+                          <TableHead className="w-[110px] px-2 text-xs font-semibold uppercase tracking-wider text-center">Neto</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1038,7 +1048,7 @@ function GeneracionContent() {
                             )}
                           >
                             {/* Checkbox */}
-                            <TableCell className="px-3 py-2">
+                            <TableCell className="px-3 py-2 text-center">
                               <input
                                 type="checkbox"
                                 checked={emp.selected}
@@ -1047,15 +1057,22 @@ function GeneracionContent() {
                               />
                             </TableCell>
 
-                            {/* Employee Name */}
+                            {/* Employee Name + Avatar */}
                             <TableCell className="px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                <div>
-                                  <p className="text-sm font-medium leading-tight">{emp.name}</p>
-                                  <p className="text-xs text-muted-foreground">{emp.nif}</p>
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden border border-slate-200 bg-gradient-to-br from-[#1B2A41] to-slate-600 flex items-center justify-center">
+                                  {emp.imageUrl ? (
+                                    <img src={emp.imageUrl} alt={emp.name} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="text-[11px] font-bold text-white">{emp.name.charAt(0).toUpperCase()}</span>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium leading-tight truncate">{emp.name}</p>
+                                  <p className="text-[11px] text-muted-foreground">{emp.nif}</p>
                                 </div>
                                 {emp.generated && (
-                                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">
+                                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0 shrink-0">
                                     Generada
                                   </Badge>
                                 )}
@@ -1063,19 +1080,19 @@ function GeneracionContent() {
                             </TableCell>
 
                             {/* Worked Days */}
-                            <TableCell className="px-2 py-2">
+                            <TableCell className="px-1 py-2 text-center">
                               <Input
                                 type="number"
                                 value={emp.workedDays}
                                 onChange={e => updateVariable(idx, 'workedDays', Number(e.target.value))}
                                 className="h-8 text-center text-sm w-full tabular-nums"
                                 min={0}
-                                max={31}
+                                max={getDaysInMonth(selectedMonth, selectedYear)}
                               />
                             </TableCell>
 
                             {/* Overtime Hours */}
-                            <TableCell className="px-2 py-2">
+                            <TableCell className="px-1 py-2 text-center">
                               <Input
                                 type="number"
                                 value={emp.overtimeHours}
@@ -1087,31 +1104,55 @@ function GeneracionContent() {
                             </TableCell>
 
                             {/* Vacation Days */}
-                            <TableCell className="px-2 py-2">
+                            <TableCell className="px-1 py-2 text-center">
                               <Input
                                 type="number"
                                 value={emp.vacationDays}
                                 onChange={e => updateVariable(idx, 'vacationDays', Number(e.target.value))}
                                 className="h-8 text-center text-sm w-full tabular-nums"
                                 min={0}
-                                max={31}
+                                max={getDaysInMonth(selectedMonth, selectedYear)}
                               />
                             </TableCell>
 
                             {/* IT Days */}
-                            <TableCell className="px-2 py-2">
+                            <TableCell className="px-1 py-2 text-center">
                               <Input
                                 type="number"
                                 value={emp.itDays}
                                 onChange={e => updateVariable(idx, 'itDays', Number(e.target.value))}
                                 className="h-8 text-center text-sm w-full tabular-nums"
                                 min={0}
-                                max={31}
+                                max={getDaysInMonth(selectedMonth, selectedYear)}
+                              />
+                            </TableCell>
+
+                            {/* Sick Leave Days (Bajas) */}
+                            <TableCell className="px-1 py-2 text-center">
+                              <Input
+                                type="number"
+                                value={emp.sickLeaveDays}
+                                onChange={e => updateVariable(idx, 'sickLeaveDays', Number(e.target.value))}
+                                className="h-8 text-center text-sm w-full tabular-nums"
+                                min={0}
+                                max={getDaysInMonth(selectedMonth, selectedYear)}
+                              />
+                            </TableCell>
+
+                            {/* Expenses (Gastos) */}
+                            <TableCell className="px-1 py-2 text-center">
+                              <Input
+                                type="number"
+                                value={emp.expenses}
+                                onChange={e => updateVariable(idx, 'expenses', Number(e.target.value))}
+                                className="h-8 text-center text-sm w-full tabular-nums"
+                                min={0}
+                                step={10}
                               />
                             </TableCell>
 
                             {/* Commissions */}
-                            <TableCell className="px-2 py-2">
+                            <TableCell className="px-1 py-2 text-center">
                               <Input
                                 type="number"
                                 value={emp.commissions}
@@ -1123,7 +1164,7 @@ function GeneracionContent() {
                             </TableCell>
 
                             {/* Advances */}
-                            <TableCell className="px-2 py-2">
+                            <TableCell className="px-1 py-2 text-center">
                               <Input
                                 type="number"
                                 value={emp.advances}
@@ -1135,7 +1176,7 @@ function GeneracionContent() {
                             </TableCell>
 
                             {/* Gross Salary */}
-                            <TableCell className="px-3 py-2 text-right">
+                            <TableCell className="px-2 py-2 text-center">
                               {emp.calcError ? (
                                 <span className="text-xs text-red-500" title={emp.calcError}>Error</span>
                               ) : (
@@ -1146,7 +1187,7 @@ function GeneracionContent() {
                             </TableCell>
 
                             {/* Net Salary */}
-                            <TableCell className="px-3 py-2 text-right">
+                            <TableCell className="px-2 py-2 text-center">
                               {emp.calcError ? (
                                 <span className="text-xs text-red-500">—</span>
                               ) : (

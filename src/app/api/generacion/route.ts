@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
       const { data: employees, error: empError } = await supabase
         .from('employees')
         .select(`
-          id, first_name, last_name, nif, social_security_number, iban, compensation, status,
+          id, first_name, last_name, nif, social_security_number, iban, compensation, status, image_url,
           contracts!contracts_employee_id_fkey (id, contract_type, full_time, workday_percentage, agreed_base_salary, cotization_group, status)
         `)
         .eq('company_id', companyId)

@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
           first_name,
           last_name,
           nif,
-          status
+          status,
+          image_url
         )
       `)
       .eq('company_id', companyId)

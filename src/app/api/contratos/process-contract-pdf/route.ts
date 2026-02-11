@@ -91,7 +91,7 @@ Responde SOLO con el JSON, ejemplo:
     "nif": "47829860A",
     "social_security_number": "08/0987654321",
     "birthdate": "1993-09-17",
-    "address": "Av. Roma 120, 08011 Barcelona",
+    "address": "Domicilio Empleado,
     "internal_employee_code": "00027",
     "position": "Analista de Datos",
     "email": null,

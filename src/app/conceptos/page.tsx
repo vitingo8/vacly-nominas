@@ -401,36 +401,24 @@ export default function ConceptosPage() {
     <div className="w-full min-h-screen bg-transparent">
       <div className="w-full px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1B2A41] to-[#C6A664] flex items-center justify-center shadow-sm">
-              <Coins className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-[#1B2A41]">Conceptos Salariales</h1>
-              <p className="text-sm text-slate-500">Gestión de conceptos retributivos y no retributivos</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadConcepts}
-              disabled={isLoading}
-              className="gap-2"
-            >
-              <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
-              Actualizar
-            </Button>
-            <Button
-              onClick={handleOpenCreate}
-              className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Nuevo Concepto
-            </Button>
-          </div>
+        <div className="flex items-center justify-end gap-2 mb-6">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadConcepts}
+            disabled={isLoading}
+            className="gap-2"
+          >
+            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+            Actualizar
+          </Button>
+          <Button
+            onClick={handleOpenCreate}
+            className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Nuevo Concepto
+          </Button>
         </div>
 
         {/* Stats Cards */}

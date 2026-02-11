@@ -27,6 +27,7 @@ interface Employee {
   last_name: string
   nif: string
   status: string
+  image_url?: string | null
 }
 
 interface Contract {
@@ -267,7 +268,7 @@ export default function ContratosPage() {
 
         const { data } = await supabase
           .from('employees')
-          .select('id, first_name, last_name, nif, status')
+          .select('id, first_name, last_name, nif, status, image_url')
           .eq('company_id', companyId)
           .eq('status', 'Activo')
           .order('first_name')
@@ -446,44 +447,32 @@ export default function ContratosPage() {
     <div className="w-full min-h-screen bg-transparent">
       <div className="w-full px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1B2A41] to-[#C6A664] flex items-center justify-center shadow-sm">
-              <FileText className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-[#1B2A41]">Contratos</h1>
-              <p className="text-sm text-slate-500">Gestión de contratos laborales</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadContracts}
-              disabled={isLoading}
-              className="gap-2"
-            >
-              <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
-              Actualizar
-            </Button>
-            <Button
-              onClick={handleOpenCreate}
-              variant="outline"
-              className="gap-2 border-[#1B2A41] text-[#1B2A41] hover:bg-[#1B2A41]/5"
-            >
-              <Plus className="w-4 h-4" />
-              Nuevo Contrato
-            </Button>
-            <Button
-              onClick={() => setIsUploadModalOpen(true)}
-              className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white gap-2"
-            >
-              <Sparkles className="w-4 h-4" />
-              Subir PDF con IA
-            </Button>
-          </div>
+        <div className="flex items-center justify-end gap-2 mb-6">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadContracts}
+            disabled={isLoading}
+            className="gap-2"
+          >
+            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+            Actualizar
+          </Button>
+          <Button
+            onClick={handleOpenCreate}
+            variant="outline"
+            className="gap-2 border-[#1B2A41] text-[#1B2A41] hover:bg-[#1B2A41]/5"
+          >
+            <Plus className="w-4 h-4" />
+            Nuevo Contrato
+          </Button>
+          <Button
+            onClick={() => setIsUploadModalOpen(true)}
+            className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white gap-2"
+          >
+            <Sparkles className="w-4 h-4" />
+            Subir PDF con IA
+          </Button>
         </div>
 
         {/* Alert: Expiring contracts */}
@@ -675,11 +664,15 @@ export default function ContratosPage() {
                   return (
                     <TableRow key={contract.id} className="hover:bg-slate-50/50">
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1B2A41] to-slate-700 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-bold text-white">
-                              {empName.charAt(0).toUpperCase()}
-                            </span>
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1B2A41] to-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden border border-slate-200">
+                            {contract.employees?.image_url ? (
+                              <img src={contract.employees.image_url} alt={empName} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-xs font-bold text-white">
+                                {empName.charAt(0).toUpperCase()}
+                              </span>
+                            )}
                           </div>
                           <div>
                             <span className="font-medium text-slate-800 block">{empName}</span>
