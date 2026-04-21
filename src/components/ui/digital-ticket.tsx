@@ -5,7 +5,14 @@
  * Genera un ticket digital a partir del análisis de Vision
  */
 
-import { Building2, Calendar, DollarSign, Tag, Receipt, Sparkles } from "lucide-react"
+import {
+  BuildingOffice2Icon,
+  CalendarIcon,
+  ClipboardDocumentListIcon,
+  CurrencyDollarIcon,
+  SparklesIcon,
+  TagIcon,
+} from "@heroicons/react/24/outline"
 import { Badge } from "@/components/ui/badge"
 
 interface TicketItem {
@@ -84,12 +91,12 @@ export function DigitalTicket({
       <div className="bg-gradient-to-r from-[#1B2A41] to-[#C6A664] p-2 md:p-3 text-white flex-shrink-0 z-10">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
-            <Receipt className="h-4 w-4 md:h-5 md:w-5 flex-shrink-0" />
+            <ClipboardDocumentListIcon className="h-4 w-4 md:h-5 md:w-5 flex-shrink-0" />
             <h2 className="text-base md:text-lg font-bold">Ticket Digital</h2>
           </div>
           {confidence && (
             <Badge className={`${confidenceColors[confidence]} text-[10px] px-1.5 py-0 flex-shrink-0`}>
-              <Sparkles className="h-2.5 w-2.5 mr-1" />
+              <SparklesIcon className="h-2.5 w-2.5 mr-1" />
               {confidenceLabels[confidence]}
             </Badge>
           )}
@@ -102,7 +109,7 @@ export function DigitalTicket({
         {/* Merchant */}
         {merchant && (
           <div className="flex items-start gap-2 p-2 md:p-3 bg-gray-50 rounded-lg">
-            <Building2 className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] mt-0.5 flex-shrink-0" />
+            <BuildingOffice2Icon className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] mt-0.5 flex-shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="text-[10px] md:text-xs text-gray-500 font-medium uppercase">Establecimiento</p>
               <p className="text-sm md:text-base font-semibold text-gray-900 truncate">{merchant}</p>
@@ -116,7 +123,7 @@ export function DigitalTicket({
             {/* Date and Time */}
             {date && (
               <div className="flex items-center gap-2 flex-shrink-0">
-                <Calendar className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] flex-shrink-0" />
+                <CalendarIcon className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-[10px] md:text-xs text-gray-500 font-medium uppercase">Fecha/Hora</p>
                   <p className="text-xs md:text-sm font-semibold text-gray-900 whitespace-nowrap">
@@ -144,7 +151,7 @@ export function DigitalTicket({
             {/* Ticket Number */}
             {ticketNumber && (
               <div className="flex items-center gap-2 flex-shrink-0">
-                <Receipt className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] flex-shrink-0" />
+                <ClipboardDocumentListIcon className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-[10px] md:text-xs text-gray-500 font-medium uppercase">Nº Ticket</p>
                   <p className="text-xs md:text-sm font-semibold text-gray-900 font-mono whitespace-nowrap">{ticketNumber}</p>
@@ -160,7 +167,7 @@ export function DigitalTicket({
             {/* Category */}
             {subcategory && (
               <div className="flex items-center gap-2 flex-shrink-0">
-                <Tag className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] flex-shrink-0" />
+                <TagIcon className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-[10px] md:text-xs text-gray-500 font-medium uppercase">Categoría</p>
                   <Badge className="mt-0.5 bg-[#C6A664]/10 text-[#1B2A41] border-[#C6A664]/20 text-[10px] px-1.5 py-0.5">
@@ -178,7 +185,7 @@ export function DigitalTicket({
             {/* Payment Method */}
             {paymentMethod && (
               <div className="flex items-center gap-2 flex-shrink-0">
-                <DollarSign className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] flex-shrink-0" />
+                <CurrencyDollarIcon className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-[10px] md:text-xs text-gray-500 font-medium uppercase">Método de Pago</p>
                   <p className="text-xs md:text-sm font-semibold text-gray-900 capitalize whitespace-nowrap">{paymentMethod}</p>
@@ -190,7 +197,7 @@ export function DigitalTicket({
 
         {/* Concept */}
         <div className="flex items-start gap-2 p-2 md:p-3 bg-gray-50 rounded-lg">
-          <Receipt className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] mt-0.5 flex-shrink-0" />
+          <ClipboardDocumentListIcon className="h-4 w-4 md:h-5 md:w-5 text-[#C6A664] mt-0.5 flex-shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[10px] md:text-xs text-gray-500 font-medium uppercase">Concepto</p>
             <p className="text-sm md:text-base font-medium text-gray-900 break-words">{concept}</p>
@@ -224,7 +231,7 @@ export function DigitalTicket({
         {/* Vision Analysis Notes */}
         {visionAnalysis && (
           <div className="flex items-start gap-2 p-2 md:p-3 bg-primary/10 rounded-lg border border-primary/20">
-            <Sparkles className="h-4 w-4 md:h-5 md:w-5 text-primary mt-0.5 flex-shrink-0" />
+            <SparklesIcon className="h-4 w-4 md:h-5 md:w-5 text-primary mt-0.5 flex-shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="text-[10px] md:text-xs text-primary font-medium uppercase">Detalles del Análisis</p>
               <p className="text-xs md:text-sm text-primary/90 mt-1 break-words line-clamp-2">{visionAnalysis}</p>
@@ -257,7 +264,7 @@ export function DigitalTicket({
           {/* Total */}
           <div className="flex items-center justify-between p-2 md:p-3 bg-gradient-to-r from-red-50 to-rose-50 rounded-lg border border-red-100">
             <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 md:h-5 md:w-5 text-red-600" />
+              <CurrencyDollarIcon className="h-4 w-4 md:h-5 md:w-5 text-red-600" />
               <span className="text-sm md:text-base font-semibold text-gray-700">Total</span>
             </div>
             <span className="text-2xl md:text-3xl font-bold text-red-600">
@@ -270,7 +277,7 @@ export function DigitalTicket({
       {/* Footer */}
       <div className="bg-gray-50 px-3 md:px-4 py-1.5 md:py-2 border-t border-gray-200 flex-shrink-0">
         <div className="flex items-center justify-center gap-1.5 text-[10px] md:text-xs text-gray-500">
-          <Sparkles className="h-2.5 w-2.5 md:h-3 md:w-3" />
+          <SparklesIcon className="h-2.5 w-2.5 md:h-3 md:w-3" />
           <span>Analizado automáticamente con IA</span>
         </div>
       </div>

@@ -10,30 +10,27 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { NominaCard, NominaStats } from '@/components/ui/nomina-card'
-import { 
-  Upload, 
-  FileText, 
-  Download, 
-  Eye, 
-  Brain, 
-  FileSpreadsheet, 
-  Loader2, 
-  DollarSign, 
-  TrendingUp, 
-  CreditCard, 
-  Building2,
-  LayoutGrid,
-  List,
-  Search,
-  Clock,
-  ChevronRight,
-  Zap,
-  History,
-  User,
-  Calendar,
-  RefreshCw,
-  Trash2
-} from 'lucide-react'
+import {
+  ArrowDownTrayIcon,
+  ArrowPathIcon,
+  ArrowTrendingUpIcon,
+  ArrowUpTrayIcon,
+  BoltIcon,
+  BuildingOffice2Icon,
+  CalendarIcon,
+  CpuChipIcon,
+  CreditCardIcon,
+  CurrencyDollarIcon,
+  DocumentTextIcon,
+  EyeIcon,
+  ListBulletIcon,
+  MagnifyingGlassIcon,
+  Squares2X2Icon,
+  TableCellsIcon,
+  TrashIcon,
+  UserIcon,
+  ArrowUturnLeftIcon,
+} from '@heroicons/react/24/outline'
 
 interface NominaData {
   id: string
@@ -565,7 +562,7 @@ export default function VaclyNominas() {
             <div className="flex flex-col md:flex-row items-center gap-6">
               <div className="flex-1 text-center md:text-left">
                 <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2 justify-center md:justify-start">
-                  <Upload className="w-5 h-5 text-[#C6A664]" />
+                  <ArrowUpTrayIcon className="w-5 h-5 text-[#C6A664]" />
                   Subir PDF de Nóminas
                 </h2>
                 <p className="text-slate-600 text-sm">
@@ -576,7 +573,7 @@ export default function VaclyNominas() {
               <div>
                 <Label htmlFor="pdf-upload" className="cursor-pointer">
                   <div className="flex items-center gap-3 bg-gradient-to-r from-[#1B2A41] to-[#2d4057] text-white px-8 py-4 rounded-2xl hover:from-[#152036] hover:to-[#1B2A41] transition-all shadow-lg shadow-[#1B2A41]/25 hover:shadow-xl hover:shadow-[#1B2A41]/30 font-semibold">
-                    <Upload className="h-5 w-5" />
+                    <ArrowUpTrayIcon className="h-5 w-5" />
                     <span>Seleccionar PDF</span>
                   </div>
                 </Label>
@@ -597,7 +594,7 @@ export default function VaclyNominas() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-[#C6A664] flex items-center justify-center animate-pulse">
-                      <Zap className="w-5 h-5 text-white" />
+                      <BoltIcon className="w-5 h-5 text-white" />
                     </div>
                     <div>
                       <span className="font-semibold text-slate-800">Procesando documento...</span>
@@ -625,7 +622,7 @@ export default function VaclyNominas() {
               <div className="flex items-center gap-3">
                 {/* Search */}
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
                     type="text"
                     placeholder="Buscar empleado..."
@@ -679,7 +676,7 @@ export default function VaclyNominas() {
                       viewMode === 'grid' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    <LayoutGrid className="w-4 h-4" />
+                    <Squares2X2Icon className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setViewMode('list')}
@@ -687,7 +684,7 @@ export default function VaclyNominas() {
                       viewMode === 'list' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    <List className="w-4 h-4" />
+                    <ListBulletIcon className="w-4 h-4" />
                   </button>
                 </div>
 
@@ -700,12 +697,12 @@ export default function VaclyNominas() {
                   >
                     {isBatchProcessing ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
                         {Math.round(batchProgress)}%
                       </>
                     ) : (
                       <>
-                        <Brain className="w-4 h-4 mr-2" />
+                        <CpuChipIcon className="w-4 h-4 mr-2" />
                         Procesar Todos ({pendingCount})
                       </>
                     )}
@@ -720,12 +717,12 @@ export default function VaclyNominas() {
                 >
                   {isExportingExcel ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
                       Exportando...
                     </>
                   ) : (
                     <>
-                      <FileSpreadsheet className="w-4 h-4 mr-2" />
+                      <TableCellsIcon className="w-4 h-4 mr-2" />
                       Exportar Excel
                     </>
                   )}
@@ -756,7 +753,7 @@ export default function VaclyNominas() {
             {filteredDocuments.length === 0 && (
               <div className="text-center py-16">
                 <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-                  <Search className="w-8 h-8 text-slate-400" />
+                  <MagnifyingGlassIcon className="w-8 h-8 text-slate-400" />
                 </div>
                 <p className="text-slate-600">No se encontraron documentos con los filtros actuales</p>
               </div>
@@ -768,7 +765,7 @@ export default function VaclyNominas() {
         {splitDocuments.length === 0 && !isUploading && (
           <div className="text-center py-20">
             <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center mx-auto mb-6 shadow-lg">
-              <FileText className="w-12 h-12 text-[#C6A664]" />
+              <DocumentTextIcon className="w-12 h-12 text-[#C6A664]" />
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">Sin documentos</h3>
             <p className="text-slate-600 max-w-md mx-auto">
@@ -782,7 +779,7 @@ export default function VaclyNominas() {
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
-                <History className="w-8 h-8 text-[#C6A664]" />
+                <ArrowUturnLeftIcon className="w-8 h-8 text-[#C6A664]" />
               </div>
               <div>
                 <h2 className="text-xl font-bold text-slate-800">Historial de Nóminas</h2>
@@ -797,9 +794,9 @@ export default function VaclyNominas() {
               className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10"
             >
               {isLoadingHistorial ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <ArrowPathIcon className="w-4 h-4 animate-spin" />
               ) : (
-                <RefreshCw className="w-4 h-4" />
+                <ArrowPathIcon className="w-4 h-4" />
               )}
               <span className="ml-2">Actualizar</span>
             </Button>
@@ -807,12 +804,12 @@ export default function VaclyNominas() {
 
           {isLoadingHistorial && historialNominas.length === 0 ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-[#C6A664]" />
+              <ArrowPathIcon className="w-8 h-8 animate-spin text-[#C6A664]" />
             </div>
           ) : historialNominas.length === 0 ? (
             <div className="text-center py-16 bg-slate-50 rounded-xl">
               <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5 flex items-center justify-center mx-auto mb-4">
-                <History className="w-10 h-10 text-[#C6A664]/50" />
+                <ArrowUturnLeftIcon className="w-10 h-10 text-[#C6A664]/50" />
               </div>
               <h3 className="text-lg font-semibold text-slate-600 mb-1">Sin historial</h3>
               <p className="text-slate-500 text-sm">No hay nóminas procesadas todavía</p>
@@ -846,7 +843,7 @@ export default function VaclyNominas() {
                               />
                             ) : (
                               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                                <User className="w-4 h-4 text-white" />
+                                <UserIcon className="w-4 h-4 text-white" />
                               </div>
                             )}
                             <div>
@@ -862,7 +859,7 @@ export default function VaclyNominas() {
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex items-center justify-center gap-1.5 text-sm text-slate-600">
-                            <Calendar className="w-3.5 h-3.5" />
+                            <CalendarIcon className="w-3.5 h-3.5" />
                             {nomina.period_start ? new Date(nomina.period_start).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' }) : '—'}
                           </div>
                         </TableCell>
@@ -895,7 +892,7 @@ export default function VaclyNominas() {
                               className="h-7 w-7 p-0 text-slate-400 hover:text-primary hover:bg-primary/10"
                               title="Ver detalles"
                             >
-                              <Eye className="w-3.5 h-3.5" />
+                              <EyeIcon className="w-3.5 h-3.5" />
                             </Button>
                             <Button
                               variant="ghost"
@@ -904,7 +901,7 @@ export default function VaclyNominas() {
                               className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                               title="Eliminar"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <TrashIcon className="w-3.5 h-3.5" />
                             </Button>
                           </div>
                         </TableCell>
@@ -952,7 +949,7 @@ export default function VaclyNominas() {
             <DialogHeader className="px-6 py-4 border-b bg-slate-50">
               <DialogTitle className="text-xl font-bold text-slate-800 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-white" />
+                  <DocumentTextIcon className="w-5 h-5 text-white" />
                 </div>
                 {viewerDocument?.nominaData?.employee?.name || `Página ${viewerDocument?.pageNumber}`}
               </DialogTitle>
@@ -977,7 +974,7 @@ export default function VaclyNominas() {
                       <Card className="border-0 shadow-lg bg-gradient-to-br from-[#C6A664]/10 to-[#B8964A]/10">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-2 mb-2">
-                            <DollarSign className="w-5 h-5 text-[#C6A664]" />
+                            <CurrencyDollarIcon className="w-5 h-5 text-[#C6A664]" />
                             <span className="text-sm font-medium text-[#1B2A41]">Salario Bruto</span>
                           </div>
                           <p className="text-3xl font-bold text-[#1B2A41]">
@@ -989,7 +986,7 @@ export default function VaclyNominas() {
                       <Card className="border-0 shadow-lg bg-gradient-to-br from-emerald-50 to-green-50">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-2 mb-2">
-                            <CreditCard className="w-5 h-5 text-emerald-600" />
+                            <CreditCardIcon className="w-5 h-5 text-emerald-600" />
                             <span className="text-sm font-medium text-emerald-700">Salario Neto</span>
                           </div>
                           <p className="text-3xl font-bold text-emerald-900">
@@ -1001,7 +998,7 @@ export default function VaclyNominas() {
                       <Card className="border-0 shadow-lg bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-2 mb-2">
-                            <Building2 className="w-5 h-5 text-[#C6A664]" />
+                            <BuildingOffice2Icon className="w-5 h-5 text-[#C6A664]" />
                             <span className="text-sm font-medium text-[#1B2A41]">Coste Empresa</span>
                           </div>
                           <p className="text-3xl font-bold text-[#1B2A41]">
@@ -1013,7 +1010,7 @@ export default function VaclyNominas() {
                       <Card className="border-0 shadow-lg bg-gradient-to-br from-slate-50 to-gray-50">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-2 mb-2">
-                            <TrendingUp className="w-5 h-5 text-slate-600" />
+                            <ArrowTrendingUpIcon className="w-5 h-5 text-slate-600" />
                             <span className="text-sm font-medium text-slate-700">Base SS</span>
                           </div>
                           <p className="text-3xl font-bold text-slate-900">
@@ -1029,7 +1026,7 @@ export default function VaclyNominas() {
                         <CardHeader className="pb-3">
                           <CardTitle className="text-base flex items-center gap-2">
                             <div className="w-8 h-8 rounded-lg bg-[#C6A664]/10 flex items-center justify-center">
-                              <Building2 className="w-4 h-4 text-[#C6A664]" />
+                              <BuildingOffice2Icon className="w-4 h-4 text-[#C6A664]" />
                             </div>
                             Datos del Empleado
                           </CardTitle>
@@ -1053,7 +1050,7 @@ export default function VaclyNominas() {
                         <CardHeader className="pb-3">
                           <CardTitle className="text-base flex items-center gap-2">
                             <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
-                              <Building2 className="w-4 h-4 text-emerald-600" />
+                              <BuildingOffice2Icon className="w-4 h-4 text-emerald-600" />
                             </div>
                             Datos de la Empresa
                           </CardTitle>
@@ -1179,7 +1176,7 @@ export default function VaclyNominas() {
                             rel="noopener noreferrer"
                             className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
                           >
-                            <Eye className="w-4 h-4 inline mr-2" />
+                            <EyeIcon className="w-4 h-4 inline mr-2" />
                             Abrir en nueva pestaña
                           </a>
                           <a
@@ -1187,7 +1184,7 @@ export default function VaclyNominas() {
                             download
                             className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium"
                           >
-                            <Download className="w-4 h-4 inline mr-2" />
+                            <ArrowDownTrayIcon className="w-4 h-4 inline mr-2" />
                             Descargar PDF
                           </a>
                         </div>
@@ -1217,7 +1214,7 @@ export default function VaclyNominas() {
                         rel="noopener noreferrer"
                         className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
                       >
-                        <Eye className="w-4 h-4 inline mr-2" />
+                        <EyeIcon className="w-4 h-4 inline mr-2" />
                         Abrir en nueva pestaña
                       </a>
                       <a
@@ -1225,7 +1222,7 @@ export default function VaclyNominas() {
                         download
                         className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium"
                       >
-                        <Download className="w-4 h-4 inline mr-2" />
+                        <ArrowDownTrayIcon className="w-4 h-4 inline mr-2" />
                         Descargar PDF
                       </a>
                     </div>

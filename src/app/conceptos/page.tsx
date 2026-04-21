@@ -2,10 +2,21 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Coins, Plus, Search, Trash2, Pencil, X, RefreshCw,
-  Check, XCircle, BookOpen, ChevronDown, ToggleLeft, ToggleRight,
-  HelpCircle, Info
-} from 'lucide-react'
+  ArrowPathIcon,
+  BanknotesIcon,
+  BookOpenIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  InformationCircleIcon,
+  MagnifyingGlassIcon,
+  PencilSquareIcon,
+  PlusIcon,
+  QuestionMarkCircleIcon,
+  TrashIcon,
+  XCircleIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -409,14 +420,14 @@ export default function ConceptosPage() {
             disabled={isLoading}
             className="gap-2"
           >
-            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+            <ArrowPathIcon className={cn("w-4 h-4", isLoading && "animate-spin")} />
             Actualizar
           </Button>
           <Button
             onClick={handleOpenCreate}
             className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
           >
-            <Plus className="w-4 h-4" />
+            <PlusIcon className="w-4 h-4" />
             Nuevo Concepto
           </Button>
         </div>
@@ -428,7 +439,7 @@ export default function ConceptosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1B2A41] shadow-sm">
-                  <Coins className="h-4 w-4 text-white" />
+                  <BanknotesIcon className="h-4 w-4 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Total</CardTitle>
               </div>
@@ -443,7 +454,7 @@ export default function ConceptosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 shadow-sm">
-                  <Check className="h-4 w-4 text-white" />
+                  <CheckIcon className="h-4 w-4 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Salariales</CardTitle>
               </div>
@@ -458,7 +469,7 @@ export default function ConceptosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 shadow-sm">
-                  <BookOpen className="h-4 w-4 text-white" />
+                  <BookOpenIcon className="h-4 w-4 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">No Salariales</CardTitle>
               </div>
@@ -473,7 +484,7 @@ export default function ConceptosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#C6A664] shadow-sm">
-                  <ToggleRight className="h-4 w-4 text-white" />
+                  <CheckCircleIcon className="h-4 w-4 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Activos</CardTitle>
               </div>
@@ -489,7 +500,7 @@ export default function ConceptosPage() {
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative flex-1 w-full sm:w-auto">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
                   placeholder="Buscar por nombre o código..."
                   value={filterSearch}
@@ -522,7 +533,7 @@ export default function ConceptosPage() {
                   onClick={clearFilters}
                   className="h-9 gap-1 text-slate-500 hover:text-slate-700"
                 >
-                  <X className="w-4 h-4" />
+                  <XMarkIcon className="w-4 h-4" />
                   Limpiar
                 </Button>
               )}
@@ -546,7 +557,7 @@ export default function ConceptosPage() {
           /* Empty state */
           <div className="text-center py-20 bg-white rounded-2xl border border-slate-200 shadow-sm">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5 flex items-center justify-center mx-auto mb-4">
-              <Coins className="w-10 h-10 text-[#C6A664]/50" />
+              <BanknotesIcon className="w-10 h-10 text-[#C6A664]/50" />
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">Sin conceptos salariales</h3>
             <p className="text-slate-500 max-w-md mx-auto mb-6">
@@ -559,7 +570,7 @@ export default function ConceptosPage() {
                 onClick={handleOpenCreate}
                 className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
               >
-                <Plus className="w-4 h-4" />
+                <PlusIcon className="w-4 h-4" />
                 Crear Concepto
               </Button>
             )}
@@ -597,10 +608,10 @@ export default function ConceptosPage() {
                         </div>
                         {concept.educational_tooltip && (
                           <div className="relative group">
-                            <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help flex-shrink-0" />
+                            <QuestionMarkCircleIcon className="w-3.5 h-3.5 text-slate-400 cursor-help flex-shrink-0" />
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-3 bg-[#1B2A41] text-white text-xs rounded-lg shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50">
                               <div className="flex items-start gap-2">
-                                <Info className="w-3.5 h-3.5 text-[#C6A664] flex-shrink-0 mt-0.5" />
+                                <InformationCircleIcon className="w-3.5 h-3.5 text-[#C6A664] flex-shrink-0 mt-0.5" />
                                 <span>{concept.educational_tooltip}</span>
                               </div>
                               <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 bg-[#1B2A41] rotate-45" />
@@ -622,16 +633,16 @@ export default function ConceptosPage() {
                     </TableCell>
                     <TableCell className="text-center">
                       {concept.cotizes_ss ? (
-                        <Check className="w-4 h-4 text-emerald-600 mx-auto" />
+                        <CheckIcon className="w-4 h-4 text-emerald-600 mx-auto" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-slate-300 mx-auto" />
+                        <XCircleIcon className="w-4 h-4 text-slate-300 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {concept.tributes_irpf ? (
-                        <Check className="w-4 h-4 text-emerald-600 mx-auto" />
+                        <CheckIcon className="w-4 h-4 text-emerald-600 mx-auto" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-slate-300 mx-auto" />
+                        <XCircleIcon className="w-4 h-4 text-slate-300 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
@@ -647,12 +658,12 @@ export default function ConceptosPage() {
                       >
                         {concept.active ? (
                           <>
-                            <ToggleRight className="w-3.5 h-3.5" />
+                            <CheckCircleIcon className="w-3.5 h-3.5" />
                             Sí
                           </>
                         ) : (
                           <>
-                            <ToggleLeft className="w-3.5 h-3.5" />
+                            <XCircleIcon className="w-3.5 h-3.5" />
                             No
                           </>
                         )}
@@ -667,7 +678,7 @@ export default function ConceptosPage() {
                           className="h-7 w-7 p-0 text-slate-400 hover:text-[#C6A664] hover:bg-[#C6A664]/10"
                           title="Editar concepto"
                         >
-                          <Pencil className="w-3.5 h-3.5" />
+                          <PencilSquareIcon className="w-3.5 h-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -676,7 +687,7 @@ export default function ConceptosPage() {
                           className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                           title="Eliminar concepto"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <TrashIcon className="w-3.5 h-3.5" />
                         </Button>
                       </div>
                     </TableCell>
@@ -722,10 +733,10 @@ export default function ConceptosPage() {
                   className="w-full justify-between border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/5 hover:border-[#C6A664]/50"
                 >
                   <span className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-[#C6A664]" />
+                    <BookOpenIcon className="w-4 h-4 text-[#C6A664]" />
                     Añadir Predefinido
                   </span>
-                  <ChevronDown className={cn("w-4 h-4 transition-transform", showPredefined && "rotate-180")} />
+                  <ChevronDownIcon className={cn("w-4 h-4 transition-transform", showPredefined && "rotate-180")} />
                 </Button>
 
                 {showPredefined && (
@@ -825,7 +836,7 @@ export default function ConceptosPage() {
             {/* Cotización y tributación */}
             <div className="rounded-lg border border-slate-200 p-4 space-y-4 bg-slate-50/50">
               <h4 className="text-sm font-semibold text-[#1B2A41] flex items-center gap-2">
-                <Coins className="w-4 h-4" />
+                <BanknotesIcon className="w-4 h-4" />
                 Cotización y Tributación
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -902,7 +913,7 @@ export default function ConceptosPage() {
             {/* Educational Tooltip */}
             <div className="space-y-2">
               <Label className="text-slate-700 flex items-center gap-2">
-                <HelpCircle className="w-4 h-4 text-[#C6A664]" />
+                <QuestionMarkCircleIcon className="w-4 h-4 text-[#C6A664]" />
                 Tooltip Educativo
               </Label>
               <textarea

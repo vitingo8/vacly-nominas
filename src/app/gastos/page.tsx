@@ -1,12 +1,22 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { 
-  Receipt, Upload, Sparkles, PiggyBank, TrendingDown, Wallet,
-  LayoutGrid, List, Plus, Calendar, Eye, Trash2, History,
-  Download, CheckCircle, AlertCircle, X, Building2, Tag, User,
-  RefreshCw, Search, FileText
-} from 'lucide-react'
+import {
+  ArrowPathIcon,
+  ArrowTrendingDownIcon,
+  ClipboardDocumentListIcon,
+  DocumentTextIcon,
+  EyeIcon,
+  ListBulletIcon,
+  PlusIcon,
+  SparklesIcon,
+  Squares2X2Icon,
+  TrashIcon,
+  UserIcon,
+  WalletIcon,
+  ArrowUturnLeftIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -600,7 +610,7 @@ export default function GastosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shadow-sm">
-                  <TrendingDown className="h-4 w-4 text-white" />
+                  <ArrowTrendingDownIcon className="h-4 w-4 text-white" />
                 </div>
                 <div>
                   <CardTitle className="text-sm font-semibold text-slate-700">Gastos Este Mes</CardTitle>
@@ -621,7 +631,7 @@ export default function GastosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#1B2A41] to-[#C6A664] shadow-sm">
-                  <Wallet className="h-4 w-4 text-white" />
+                  <WalletIcon className="h-4 w-4 text-white" />
                 </div>
                 <div>
                   <CardTitle className="text-sm font-semibold text-slate-700">Total Gastos</CardTitle>
@@ -651,7 +661,7 @@ export default function GastosPage() {
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4 mr-2" />
+                <SparklesIcon className="w-4 h-4 mr-2" />
                 Gasto con IA
               </>
             )}
@@ -669,7 +679,7 @@ export default function GastosPage() {
             variant="outline"
             className="flex-1 h-10 border border-[#1B2A41] text-[#1B2A41] hover:bg-[#1B2A41] hover:text-white rounded-lg text-sm font-medium"
           >
-            <Plus className="w-4 h-4 mr-2" />
+            <PlusIcon className="w-4 h-4 mr-2" />
             Nuevo Gasto Manual
           </Button>
         </div>
@@ -697,7 +707,7 @@ export default function GastosPage() {
                 viewMode === 'grid' ? "bg-white shadow-sm text-[#1B2A41]" : "text-slate-500 hover:text-slate-700"
               )}
             >
-              <LayoutGrid className="w-5 h-5" />
+              <Squares2X2Icon className="w-5 h-5" />
             </button>
             <button
               onClick={() => setViewMode('list')}
@@ -706,7 +716,7 @@ export default function GastosPage() {
                 viewMode === 'list' ? "bg-white shadow-sm text-[#1B2A41]" : "text-slate-500 hover:text-slate-700"
               )}
             >
-              <List className="w-5 h-5" />
+              <ListBulletIcon className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -719,7 +729,7 @@ export default function GastosPage() {
         ) : expenses.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 shadow-sm">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5 flex items-center justify-center mx-auto mb-4">
-              <Receipt className="w-10 h-10 text-[#C6A664]/50" />
+              <ClipboardDocumentListIcon className="w-10 h-10 text-[#C6A664]/50" />
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">Sin gastos</h3>
             <p className="text-slate-500 max-w-md mx-auto">
@@ -760,7 +770,7 @@ export default function GastosPage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center">
-                  <History className="w-6 h-6 text-[#C6A664]" />
+                  <ArrowUturnLeftIcon className="w-6 h-6 text-[#C6A664]" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-[#1B2A41]">Historial de Gastos</h2>
@@ -822,7 +832,7 @@ export default function GastosPage() {
                         }}
                         className="h-9 gap-1"
                       >
-                        <X className="w-4 h-4" />
+                        <XMarkIcon className="w-4 h-4" />
                         Limpiar
                       </Button>
                     )}
@@ -835,7 +845,7 @@ export default function GastosPage() {
                   disabled={isLoading}
                   className="gap-2"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  <ArrowPathIcon className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                   Actualizar
                 </Button>
               </div>
@@ -869,13 +879,13 @@ export default function GastosPage() {
                             />
                           ) : (
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1B2A41] to-slate-700 flex items-center justify-center flex-shrink-0">
-                              <User className="w-4 h-4 text-white" />
+                              <UserIcon className="w-4 h-4 text-white" />
                             </div>
                           )}
                           <div className="flex items-center gap-2">
                             {expense.image && (
                               <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">
-                                <Sparkles className="w-3 h-3 mr-1" />
+                                <SparklesIcon className="w-3 h-3 mr-1" />
                                 IA
                               </Badge>
                             )}
@@ -929,7 +939,7 @@ export default function GastosPage() {
                             className="h-7 w-7 p-0 text-slate-400 hover:text-primary hover:bg-primary/10"
                             title="Ver ticket digital"
                           >
-                            <FileText className="w-3.5 h-3.5" />
+                            <DocumentTextIcon className="w-3.5 h-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -938,7 +948,7 @@ export default function GastosPage() {
                             className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                             title="Eliminar"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <TrashIcon className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </TableCell>
@@ -1165,7 +1175,7 @@ export default function GastosPage() {
                   disabled={isLoading}
                   className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
                 >
-                  <Sparkles className="w-4 h-4 mr-2" />
+                  <SparklesIcon className="w-4 h-4 mr-2" />
                   {isLoading ? 'Guardando...' : 'Confirmar y Guardar'}
                 </Button>
               </div>
@@ -1220,7 +1230,7 @@ export default function GastosPage() {
                     <div className="space-y-4">
                       <div className="flex items-center gap-3 pb-4 border-b">
                         <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#1B2A41] to-slate-700 flex items-center justify-center">
-                          <Receipt className="w-6 h-6 text-white" />
+                          <ClipboardDocumentListIcon className="w-6 h-6 text-white" />
                         </div>
                         <div>
                           <h3 className="font-bold text-lg text-slate-800">{selectedExpense.concept}</h3>
@@ -1269,7 +1279,7 @@ export default function GastosPage() {
                         setShowImageDialog(true)
                       }}
                     >
-                      <Eye className="w-4 h-4 mr-2" />
+                      <EyeIcon className="w-4 h-4 mr-2" />
                       Ver más grande
                     </Button>
                   </div>

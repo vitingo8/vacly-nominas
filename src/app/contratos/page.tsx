@@ -2,10 +2,23 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  FileText, Plus, Search, Trash2, Pencil, AlertTriangle,
-  Clock, Users, Briefcase, CalendarDays, X, RefreshCw,
-  ChevronDown, Sun, Moon, Upload, Loader2, Sparkles, CheckCircle2, User
-} from 'lucide-react'
+  ArrowPathIcon,
+  ArrowUpTrayIcon,
+  BriefcaseIcon,
+  CalendarDaysIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  DocumentTextIcon,
+  ExclamationTriangleIcon,
+  MagnifyingGlassIcon,
+  PencilSquareIcon,
+  PlusIcon,
+  SparklesIcon,
+  TrashIcon,
+  UserIcon,
+  UserGroupIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -455,7 +468,7 @@ export default function ContratosPage() {
             disabled={isLoading}
             className="gap-2"
           >
-            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+            <ArrowPathIcon className={cn("w-4 h-4", isLoading && "animate-spin")} />
             Actualizar
           </Button>
           <Button
@@ -463,14 +476,14 @@ export default function ContratosPage() {
             variant="outline"
             className="gap-2 border-[#1B2A41] text-[#1B2A41] hover:bg-[#1B2A41]/5"
           >
-            <Plus className="w-4 h-4" />
+            <PlusIcon className="w-4 h-4" />
             Nuevo Contrato
           </Button>
           <Button
             onClick={() => setIsUploadModalOpen(true)}
             className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white gap-2"
           >
-            <Sparkles className="w-4 h-4" />
+            <SparklesIcon className="w-4 h-4" />
             Subir PDF con IA
           </Button>
         </div>
@@ -480,7 +493,7 @@ export default function ContratosPage() {
           <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50/80 p-4 backdrop-blur-sm">
             <div className="flex items-start gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 flex-shrink-0">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                <ExclamationTriangleIcon className="h-5 w-5 text-amber-600" />
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-sm font-semibold text-amber-800">
@@ -496,7 +509,7 @@ export default function ContratosPage() {
                       className="bg-amber-100 text-amber-800 border-amber-300 cursor-pointer hover:bg-amber-200 transition-colors"
                       onClick={() => handleOpenEdit(c)}
                     >
-                      <Clock className="w-3 h-3 mr-1" />
+                      <ClockIcon className="w-3 h-3 mr-1" />
                       {getEmployeeName(c)} — vence {formatDate(c.end_date)}
                     </Badge>
                   ))}
@@ -513,7 +526,7 @@ export default function ContratosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1B2A41] shadow-sm">
-                  <FileText className="h-4 w-4 text-white" />
+                  <DocumentTextIcon className="h-4 w-4 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Total Contratos</CardTitle>
               </div>
@@ -528,7 +541,7 @@ export default function ContratosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 shadow-sm">
-                  <Users className="h-4 w-4 text-white" />
+                  <UserGroupIcon className="h-4 w-4 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Contratos Activos</CardTitle>
               </div>
@@ -543,7 +556,7 @@ export default function ContratosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#C6A664] shadow-sm">
-                  <Briefcase className="h-4 w-4 text-white" />
+                  <BriefcaseIcon className="h-4 w-4 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Temporales</CardTitle>
               </div>
@@ -559,7 +572,7 @@ export default function ContratosPage() {
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative flex-1 w-full sm:w-auto">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
                   placeholder="Buscar por nombre de empleado..."
                   value={filterName}
@@ -594,7 +607,7 @@ export default function ContratosPage() {
                   onClick={clearFilters}
                   className="h-9 gap-1 text-slate-500 hover:text-slate-700"
                 >
-                  <X className="w-4 h-4" />
+                  <XMarkIcon className="w-4 h-4" />
                   Limpiar
                 </Button>
               )}
@@ -618,7 +631,7 @@ export default function ContratosPage() {
           /* Empty state */
           <div className="text-center py-20 bg-white rounded-2xl border border-slate-200 shadow-sm">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5 flex items-center justify-center mx-auto mb-4">
-              <FileText className="w-10 h-10 text-[#C6A664]/50" />
+              <DocumentTextIcon className="w-10 h-10 text-[#C6A664]/50" />
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">Sin contratos</h3>
             <p className="text-slate-500 max-w-md mx-auto mb-6">
@@ -631,7 +644,7 @@ export default function ContratosPage() {
                 onClick={handleOpenCreate}
                 className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
               >
-                <Plus className="w-4 h-4" />
+                <PlusIcon className="w-4 h-4" />
                 Crear Contrato
               </Button>
             )}
@@ -721,7 +734,7 @@ export default function ContratosPage() {
                             className="h-7 w-7 p-0 text-slate-400 hover:text-[#C6A664] hover:bg-[#C6A664]/10"
                             title="Editar contrato"
                           >
-                            <Pencil className="w-3.5 h-3.5" />
+                            <PencilSquareIcon className="w-3.5 h-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -730,7 +743,7 @@ export default function ContratosPage() {
                             className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                             title="Eliminar contrato"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <TrashIcon className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </TableCell>
@@ -866,7 +879,7 @@ export default function ContratosPage() {
             {/* Jornada section */}
             <div className="rounded-lg border border-slate-200 p-4 space-y-4 bg-slate-50/50">
               <h4 className="text-sm font-semibold text-[#1B2A41] flex items-center gap-2">
-                <CalendarDays className="w-4 h-4" />
+                <CalendarDaysIcon className="w-4 h-4" />
                 Jornada Laboral
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1114,7 +1127,7 @@ export default function ContratosPage() {
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-[#1B2A41]">
-              <Sparkles className="w-5 h-5 text-[#C6A664]" />
+              <SparklesIcon className="w-5 h-5 text-[#C6A664]" />
               Subir Contrato en PDF con IA
             </DialogTitle>
             <DialogDescription>
@@ -1126,7 +1139,7 @@ export default function ContratosPage() {
             {/* File upload */}
             {!uploadedFile && !extractedData && (
               <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-[#C6A664] transition-colors">
-                <Upload className="w-12 h-12 mx-auto mb-3 text-slate-400" />
+                <ArrowUpTrayIcon className="w-12 h-12 mx-auto mb-3 text-slate-400" />
                 <p className="text-sm text-slate-600 mb-4">
                   Arrastra un archivo PDF aquí o haz clic para seleccionar
                 </p>
@@ -1151,7 +1164,7 @@ export default function ContratosPage() {
               <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <FileText className="w-8 h-8 text-[#C6A664]" />
+                    <DocumentTextIcon className="w-8 h-8 text-[#C6A664]" />
                     <div>
                       <p className="font-medium text-sm">{uploadedFile.name}</p>
                       <p className="text-xs text-slate-500">
@@ -1165,7 +1178,7 @@ export default function ContratosPage() {
                     onClick={() => setUploadedFile(null)}
                     disabled={aiProcessing}
                   >
-                    <X className="w-4 h-4" />
+                    <XMarkIcon className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
@@ -1176,8 +1189,8 @@ export default function ContratosPage() {
               <div className="flex items-center justify-center py-8">
                 <div className="text-center space-y-3">
                   <div className="relative inline-block">
-                    <Loader2 className="w-12 h-12 animate-spin text-[#C6A664]" />
-                    <Sparkles className="w-5 h-5 text-[#C6A664] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                    <ArrowPathIcon className="w-12 h-12 animate-spin text-[#C6A664]" />
+                    <SparklesIcon className="w-5 h-5 text-[#C6A664] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
                   </div>
                   <p className="text-sm font-medium text-slate-700">
                     Claude Haiku está leyendo el contrato...
@@ -1191,7 +1204,7 @@ export default function ContratosPage() {
             {extractedData && (
               <div className="border border-emerald-200 rounded-lg p-4 bg-emerald-50/50">
                 <div className="flex items-start gap-3 mb-3">
-                  <Sparkles className="w-5 h-5 text-emerald-600 mt-0.5" />
+                  <SparklesIcon className="w-5 h-5 text-emerald-600 mt-0.5" />
                   <div className="flex-1">
                     <h4 className="font-semibold text-sm text-emerald-900">
                       Datos extraídos correctamente
@@ -1288,12 +1301,12 @@ export default function ContratosPage() {
             >
               {aiProcessing ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <ArrowPathIcon className="w-4 h-4 animate-spin" />
                   Procesando con IA...
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4" />
+                  <SparklesIcon className="w-4 h-4" />
                   Procesar Automáticamente
                 </>
               )}
@@ -1307,7 +1320,7 @@ export default function ContratosPage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-green-600">
-              <CheckCircle2 className="w-5 h-5" />
+              <CheckCircleIcon className="w-5 h-5" />
               ¡Contrato Procesado Correctamente!
             </DialogTitle>
             <DialogDescription>
@@ -1320,7 +1333,7 @@ export default function ContratosPage() {
               {/* Employee Info */}
               <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
                 <div className="flex items-center gap-2 mb-2">
-                  <User className="w-4 h-4 text-[#C6A664]" />
+                  <UserIcon className="w-4 h-4 text-[#C6A664]" />
                   <h3 className="font-semibold text-sm text-slate-700">Empleado</h3>
                 </div>
                 <div className="space-y-1 text-sm">
@@ -1344,7 +1357,7 @@ export default function ContratosPage() {
               {/* Contract Info */}
               <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
                 <div className="flex items-center gap-2 mb-2">
-                  <FileText className="w-4 h-4 text-[#C6A664]" />
+                  <DocumentTextIcon className="w-4 h-4 text-[#C6A664]" />
                   <h3 className="font-semibold text-sm text-slate-700">Contrato</h3>
                 </div>
                 <div className="space-y-1 text-sm">
@@ -1368,7 +1381,7 @@ export default function ContratosPage() {
 
               {/* Message */}
               <div className="flex items-start gap-2 text-sm text-slate-600 bg-green-50 border border-green-200 rounded-lg p-3">
-                <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                <CheckCircleIcon className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                 <p>{processResult.message}</p>
               </div>
             </div>

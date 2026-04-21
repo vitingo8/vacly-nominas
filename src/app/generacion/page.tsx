@@ -3,11 +3,25 @@
 import { useState, useCallback, useMemo, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
-  Calculator, Users, Download, CheckCircle2, AlertCircle,
-  Search, Eye, Calendar, Loader2, RefreshCw,
-  FileText, TrendingUp, ChevronDown, ListChecks, History,
-  FileArchive, FileCode, Database, FileUp
-} from 'lucide-react'
+  ArchiveBoxIcon,
+  ArrowDownTrayIcon,
+  ArrowPathIcon,
+  ArrowTrendingUpIcon,
+  ArrowUpTrayIcon,
+  ArrowUturnLeftIcon,
+  CalculatorIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  ChevronDownIcon,
+  CircleStackIcon,
+  ClipboardDocumentCheckIcon,
+  CodeBracketIcon,
+  DocumentTextIcon,
+  ExclamationCircleIcon,
+  EyeIcon,
+  UserGroupIcon,
+  MagnifyingGlassIcon,
+} from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -667,7 +681,7 @@ function GeneracionContent() {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <Card className="max-w-md w-full">
           <CardContent className="pt-6 text-center">
-            <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+            <ExclamationCircleIcon className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
             <h2 className="text-lg font-semibold mb-2">Empresa no especificada</h2>
             <p className="text-sm text-muted-foreground">
               Añade <code className="bg-slate-100 px-1 rounded">?company_id=ID</code> a la URL para acceder a esta página.
@@ -688,11 +702,11 @@ function GeneracionContent() {
         }}>
           <TabsList className="mb-6 bg-white border">
             <TabsTrigger value="generar" className="data-[state=active]:bg-[#1B2A41] data-[state=active]:text-white gap-2">
-              <ListChecks className="w-4 h-4" />
+              <ClipboardDocumentCheckIcon className="w-4 h-4" />
               Generar Nóminas
             </TabsTrigger>
             <TabsTrigger value="historico" className="data-[state=active]:bg-[#1B2A41] data-[state=active]:text-white gap-2">
-              <History className="w-4 h-4" />
+              <ArrowUturnLeftIcon className="w-4 h-4" />
               Histórico
             </TabsTrigger>
           </TabsList>
@@ -721,7 +735,7 @@ function GeneracionContent() {
                           <option key={i} value={i + 1}>{name}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -741,7 +755,7 @@ function GeneracionContent() {
                           <option key={y} value={y}>{y}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -752,9 +766,9 @@ function GeneracionContent() {
                     className="bg-[#1B2A41] hover:bg-[#1B2A41]/90"
                   >
                     {loadingEmployees ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <ArrowPathIcon className="w-4 h-4 animate-spin" />
                     ) : (
-                      <Users className="w-4 h-4" />
+                      <UserGroupIcon className="w-4 h-4" />
                     )}
                     Cargar Empleados
                   </Button>
@@ -772,9 +786,9 @@ function GeneracionContent() {
                         className="border-[#C6A664] text-[#C6A664] hover:bg-[#C6A664]/10"
                       >
                         {generating ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
                         ) : (
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircleIcon className="w-4 h-4" />
                         )}
                         Generar Seleccionadas ({summary.selected})
                       </Button>
@@ -784,9 +798,9 @@ function GeneracionContent() {
                         className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white"
                       >
                         {generating ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
                         ) : (
-                          <Calculator className="w-4 h-4" />
+                          <CalculatorIcon className="w-4 h-4" />
                         )}
                         Generar Todas
                       </Button>
@@ -814,7 +828,7 @@ function GeneracionContent() {
               <Card className="mb-6 border-l-4 border-l-[#C6A664]">
                 <CardContent className="pt-5 pb-4">
                   <div className="flex items-start gap-3">
-                    <CheckCircle2 className="w-5 h-5 text-[#C6A664] mt-0.5 shrink-0" />
+                    <CheckCircleIcon className="w-5 h-5 text-[#C6A664] mt-0.5 shrink-0" />
                     <div className="flex-1">
                       <h3 className="font-semibold text-sm mb-1">Resultado de la generación</h3>
                       <p className="text-sm text-muted-foreground mb-3">
@@ -827,7 +841,7 @@ function GeneracionContent() {
                         <div className="space-y-1">
                           {generationResults.filter(r => !r.success).map((r, i) => (
                             <div key={i} className="flex items-center gap-2 text-sm text-red-600">
-                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              <ExclamationCircleIcon className="w-3.5 h-3.5 shrink-0" />
                               <span>{r.employeeName}: {r.error}</span>
                             </div>
                           ))}
@@ -852,7 +866,7 @@ function GeneracionContent() {
               <Card className="mb-6 border-l-4 border-l-red-500">
                 <CardContent className="pt-5 pb-4">
                   <div className="flex items-center gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-500" />
+                    <ExclamationCircleIcon className="w-5 h-5 text-red-500" />
                     <span className="text-sm text-red-700">{loadError}</span>
                   </div>
                 </CardContent>
@@ -865,7 +879,7 @@ function GeneracionContent() {
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <AlertCircle className="w-5 h-5 text-amber-600" />
+                      <ExclamationCircleIcon className="w-5 h-5 text-amber-600" />
                       <CardTitle className="text-base">
                         Empleados sin contrato activo ({employeesWithoutContract.length})
                       </CardTitle>
@@ -910,7 +924,7 @@ function GeneracionContent() {
                             setContractModalOpen(true)
                           }}
                         >
-                          <FileText className="w-3.5 h-3.5 mr-1.5" />
+                          <DocumentTextIcon className="w-3.5 h-3.5 mr-1.5" />
                           Crear manualmente
                         </Button>
                         <Button
@@ -922,7 +936,7 @@ function GeneracionContent() {
                             setContractModalOpen(true)
                           }}
                         >
-                          <FileUp className="w-3.5 h-3.5 mr-1.5" />
+                          <ArrowUpTrayIcon className="w-3.5 h-3.5 mr-1.5" />
                           Subir PDF con IA
                         </Button>
                       </div>
@@ -939,7 +953,7 @@ function GeneracionContent() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="bg-[#1B2A41]/10 p-2 rounded-lg">
-                        <Users className="w-4 h-4 text-[#1B2A41]" />
+                        <UserGroupIcon className="w-4 h-4 text-[#1B2A41]" />
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Empleados</p>
@@ -952,7 +966,7 @@ function GeneracionContent() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="bg-[#C6A664]/10 p-2 rounded-lg">
-                        <TrendingUp className="w-4 h-4 text-[#C6A664]" />
+                        <ArrowTrendingUpIcon className="w-4 h-4 text-[#C6A664]" />
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Total Bruto</p>
@@ -965,7 +979,7 @@ function GeneracionContent() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="bg-emerald-500/10 p-2 rounded-lg">
-                        <Download className="w-4 h-4 text-emerald-600" />
+                        <ArrowDownTrayIcon className="w-4 h-4 text-emerald-600" />
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Total Neto</p>
@@ -978,7 +992,7 @@ function GeneracionContent() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="bg-blue-500/10 p-2 rounded-lg">
-                        <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                        <CheckCircleIcon className="w-4 h-4 text-blue-600" />
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Seleccionadas</p>
@@ -1002,7 +1016,7 @@ function GeneracionContent() {
                       </CardDescription>
                     </div>
                     <Button variant="ghost" size="sm" onClick={recalculateAll}>
-                      <RefreshCw className="w-4 h-4 mr-1" />
+                      <ArrowPathIcon className="w-4 h-4 mr-1" />
                       Recalcular
                     </Button>
                   </div>
@@ -1223,13 +1237,13 @@ function GeneracionContent() {
             ) : !loadingEmployees && !loadError ? (
               <Card>
                 <CardContent className="py-16 text-center">
-                  <Users className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <UserGroupIcon className="w-12 h-12 text-slate-300 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold mb-1">Sin empleados cargados</h3>
                   <p className="text-sm text-muted-foreground mb-4">
                     Selecciona el mes y año, luego pulsa &quot;Cargar Empleados&quot; para comenzar.
                   </p>
                   <Button onClick={loadEmployees} className="bg-[#1B2A41] hover:bg-[#1B2A41]/90">
-                    <Users className="w-4 h-4" />
+                    <UserGroupIcon className="w-4 h-4" />
                     Cargar Empleados
                   </Button>
                 </CardContent>
@@ -1258,7 +1272,7 @@ function GeneracionContent() {
                           <option key={i} value={i + 1}>{name}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -1275,7 +1289,7 @@ function GeneracionContent() {
                           <option key={y} value={y}>{y}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -1293,14 +1307,14 @@ function GeneracionContent() {
                         <option value="sent">Enviada</option>
                         <option value="paid">Pagada</option>
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
                   <div className="space-y-1.5 flex-1 min-w-[200px]">
                     <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Buscar empleado</Label>
                     <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+                      <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
                       <Input
                         placeholder="Nombre o DNI..."
                         value={historyEmployee}
@@ -1311,7 +1325,7 @@ function GeneracionContent() {
                   </div>
 
                   <Button onClick={loadHistory} disabled={historyLoading} className="bg-[#1B2A41] hover:bg-[#1B2A41]/90">
-                    {historyLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                    {historyLoading ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <MagnifyingGlassIcon className="w-4 h-4" />}
                     Buscar
                   </Button>
                 </div>
@@ -1337,9 +1351,9 @@ function GeneracionContent() {
                       className="bg-white hover:bg-slate-50"
                     >
                       {downloadingPDFs ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
                       ) : (
-                        <FileArchive className="w-4 h-4 mr-2" />
+                        <ArchiveBoxIcon className="w-4 h-4 mr-2" />
                       )}
                       Descargar PDFs (ZIP)
                     </Button>
@@ -1351,9 +1365,9 @@ function GeneracionContent() {
                       className="bg-white hover:bg-slate-50"
                     >
                       {generatingSEPA ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
                       ) : (
-                        <FileCode className="w-4 h-4 mr-2" />
+                        <CodeBracketIcon className="w-4 h-4 mr-2" />
                       )}
                       Generar SEPA
                     </Button>
@@ -1365,9 +1379,9 @@ function GeneracionContent() {
                       className="bg-white hover:bg-slate-50"
                     >
                       {generatingRED ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
                       ) : (
-                        <Database className="w-4 h-4 mr-2" />
+                        <CircleStackIcon className="w-4 h-4 mr-2" />
                       )}
                       Generar RED
                     </Button>
@@ -1387,7 +1401,7 @@ function GeneracionContent() {
               <CardContent className="p-0">
                 {historyLoading ? (
                   <div className="flex items-center justify-center py-16">
-                    <Loader2 className="w-6 h-6 animate-spin text-[#C6A664]" />
+                    <ArrowPathIcon className="w-6 h-6 animate-spin text-[#C6A664]" />
                   </div>
                 ) : historico.length > 0 ? (
                   <Table>
@@ -1419,7 +1433,7 @@ function GeneracionContent() {
                             </TableCell>
                             <TableCell className="py-3">
                               <div className="flex items-center gap-1.5">
-                                <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                                <CalendarIcon className="w-3.5 h-3.5 text-muted-foreground" />
                                 <span className="text-sm">
                                   {MONTH_NAMES[periodMonth]} {periodYear}
                                 </span>
@@ -1446,7 +1460,7 @@ function GeneracionContent() {
                                 onClick={() => setDetailNomina(nomina)}
                                 className="text-[#1B2A41] hover:text-[#C6A664]"
                               >
-                                <Eye className="w-4 h-4" />
+                                <EyeIcon className="w-4 h-4" />
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -1456,7 +1470,7 @@ function GeneracionContent() {
                   </Table>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-16">
-                    <FileText className="w-12 h-12 text-slate-300 mb-4" />
+                    <DocumentTextIcon className="w-12 h-12 text-slate-300 mb-4" />
                     <h3 className="text-lg font-semibold mb-1">Sin resultados</h3>
                     <p className="text-sm text-muted-foreground">
                       No se encontraron nóminas con los filtros seleccionados.
@@ -1478,7 +1492,7 @@ function GeneracionContent() {
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-[#C6A664]" />
+                  <DocumentTextIcon className="w-5 h-5 text-[#C6A664]" />
                   Detalle de Nómina
                 </DialogTitle>
                 <DialogDescription>
@@ -1663,7 +1677,7 @@ function LoadingFallback() {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
       <div className="flex flex-col items-center gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-[#C6A664]" />
+        <ArrowPathIcon className="w-8 h-8 animate-spin text-[#C6A664]" />
         <p className="text-sm text-muted-foreground">Cargando...</p>
       </div>
     </div>
