@@ -129,7 +129,7 @@ What to extract:
 Color palette from tailwind.config.js
 CSS variables from globals.css
 Existing component patterns
-Icon library used (lucide-react, heroicons, etc.)
+Icon library used (e.g. @heroicons/react)
 
 YOU MUST USE ONLY THESE COLORS - Do not create a new palette
 
@@ -391,7 +391,7 @@ Design system - Extract corporate identity
 tailwind.config.js - Color palette
 globals.css - CSS variables
 Existing component patterns
-Icon library (lucide-react, heroicons, etc.)
+Icon library (e.g. @heroicons/react)
 
 
 
