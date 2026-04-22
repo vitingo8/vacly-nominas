@@ -426,6 +426,31 @@ export async function POST(request: NextRequest) {
       .eq('company_id', companyId)
       .maybeSingle()
 
+    // Cargar datos reales de la empresa desde `companies` (company_id/company/cif/…)
+    // para que las nóminas y PDFs muestren el nombre/CIF correctos.
+    const { data: companyRow } = await supabase
+      .from('companies')
+      .select('company, cif, address, logo_url, phone, email')
+      .eq('company_id', companyId)
+      .maybeSingle()
+    const resolvedCompany = {
+      name:
+        (payrollConfig as any)?.company_legal_name
+        || (companyRow as any)?.company
+        || (companyData as any)?.name
+        || 'Empresa',
+      cif:
+        (payrollConfig as any)?.company_tax_id
+        || (companyRow as any)?.cif
+        || (companyData as any)?.cif
+        || '',
+      ccc: (payrollConfig as any)?.ss_account_code || (companyData as any)?.ccc || '',
+      address: (companyRow as any)?.address || (companyData as any)?.address || '',
+      phone: (companyRow as any)?.phone || (companyData as any)?.phone || '',
+      email: (companyRow as any)?.email || (companyData as any)?.email || '',
+      logo_url: (companyRow as any)?.logo_url || (companyData as any)?.logo_url || '',
+    }
+
     // Build config from payroll_config or use defaults
     let config: PayrollConfigInput = { ...DEFAULT_CONFIG_2025 }
     if (payrollConfig?.annual_parameters) {
@@ -725,7 +750,7 @@ export async function POST(request: NextRequest) {
             dni: emp.dni,
             social_security_number: emp.ssNumber,
           },
-          company: companyData || {},
+          company: { ...(companyData || {}), ...resolvedCompany },
           perceptions,
           deductions,
           contributions,
@@ -787,7 +812,6 @@ export async function POST(request: NextRequest) {
         }
 
         // Generate PDF payslip
-        let pdfUrl: string | null = null
         try {
           // Extraer código IBAN en "entidad + cuenta" estilo español (BBBB CCCC DD NNNNNNNNNN)
           const rawIban = (emp.iban || '').replace(/\s+/g, '')
@@ -797,10 +821,10 @@ export async function POST(request: NextRequest) {
           // Prepare data for PDF generator
           const pdfData: PayslipPDFData = {
             company: {
-              name: (companyData?.name as string) || 'Empresa',
-              cif: (companyData?.cif as string) || '',
-              ccc: (companyData?.ccc as string) || '',
-              address: (companyData?.address as string) || '',
+              name: resolvedCompany.name,
+              cif: resolvedCompany.cif,
+              ccc: resolvedCompany.ccc,
+              address: resolvedCompany.address,
             },
             employee: {
               name: emp.employeeName,
@@ -853,7 +877,7 @@ export async function POST(request: NextRequest) {
             bankEntity,
             bankAccount,
             issueDate: new Date().toISOString().split('T')[0],
-            issuePlace: (companyData?.address as string || '').split(',').slice(-1)[0]?.trim() || undefined,
+            issuePlace: (resolvedCompany.address || '').split(',').slice(-1)[0]?.trim() || undefined,
           }
 
           // Generate PDF
@@ -879,16 +903,15 @@ export async function POST(request: NextRequest) {
           if (uploadError) {
             console.error('Error uploading PDF:', uploadError)
           } else {
-            const { data: urlData } = supabase.storage
-              .from('Nominas')
-              .getPublicUrl(pdfObjectPath)
-
-            pdfUrl = urlData.publicUrl
-
-            await supabase
+            // La tabla `nominas` guarda únicamente `document_name` (ruta en Storage).
+            // La URL firmada se genera on-demand en /api/download-pdfs y en la UI.
+            const { error: docErr } = await supabase
               .from('nominas')
-              .update({ pdf_url: pdfUrl, document_name: pdfObjectPath })
+              .update({ document_name: pdfObjectPath })
               .eq('id', savedNomina.id)
+            if (docErr) {
+              console.error('Error updating nomina.document_name:', docErr)
+            }
           }
         } catch (pdfError) {
           console.error('Error generating PDF:', pdfError)

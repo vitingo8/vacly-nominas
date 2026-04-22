@@ -18,11 +18,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Resolver datos legales desde BBDD; antes llegaban del cliente vía prompt().
+    // Resolver datos legales desde BBDD (schema real: companies.company_id/
+    // company/cif; payroll_config.company_legal_name/company_tax_id/
+    // ss_account_code/cnae). Fallback al payload sólo si faltan en BBDD.
     const { data: companyRow } = await supabase
       .from('companies')
-      .select('name, tax_id')
-      .eq('id', companyId)
+      .select('company, cif')
+      .eq('company_id', companyId)
       .maybeSingle()
     const { data: pc } = await supabase
       .from('payroll_config')
@@ -32,24 +34,30 @@ export async function POST(request: NextRequest) {
 
     const companyData = {
       companyName:
-        pc?.company_legal_name
-        || (companyRow as any)?.name
+        (pc as any)?.company_legal_name
+        || (companyRow as any)?.company
         || inputCompanyData?.companyName
         || '',
-      ccc: pc?.ss_account_code || inputCompanyData?.ccc || '',
+      ccc: (pc as any)?.ss_account_code || inputCompanyData?.ccc || '',
       cif:
-        pc?.company_tax_id
-        || (companyRow as any)?.tax_id
+        (pc as any)?.company_tax_id
+        || (companyRow as any)?.cif
         || inputCompanyData?.cif
         || '',
-      cnae: pc?.cnae || inputCompanyData?.cnae || '0000',
+      cnae: (pc as any)?.cnae || inputCompanyData?.cnae || '0000',
     }
 
-    if (!companyData.ccc || !companyData.companyName || !companyData.cif) {
+    const missing: string[] = []
+    if (!companyData.companyName) missing.push('nombre (companies.company o payroll_config.company_legal_name)')
+    if (!companyData.ccc) missing.push('Código Cuenta Cotización (payroll_config.ss_account_code)')
+    if (!companyData.cif) missing.push('CIF (companies.cif o payroll_config.company_tax_id)')
+    if (missing.length > 0) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Faltan datos legales de la empresa (payroll_config.company_legal_name, ss_account_code, company_tax_id).',
+          error: `Faltan datos legales de la empresa: ${missing.join(', ')}.`,
+          hint: 'Configura estos valores en payroll_config (tabla Supabase) para poder generar el fichero RED.',
+          missing,
         },
         { status: 400 },
       )

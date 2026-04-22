@@ -20,37 +20,54 @@ export async function POST(request: NextRequest) {
 
     // Resolver datos de la empresa SIEMPRE desde la BBDD (nunca del cliente),
     // con fallback al payload sólo si faltan en BBDD.
+    // Schema real:
+    //   companies:      company_id (PK), company, cif
+    //   payroll_config: company_id, company_legal_name, company_tax_id,
+    //                   bank_iban, bank_bic
     const { data: companyRow } = await supabase
       .from('companies')
-      .select('name, bank_iban, bank_bic, tax_id')
-      .eq('id', companyId)
+      .select('company, cif')
+      .eq('company_id', companyId)
       .maybeSingle()
     const { data: pc } = await supabase
       .from('payroll_config')
-      .select('company_legal_name, company_tax_id')
+      .select('company_legal_name, company_tax_id, bank_iban, bank_bic')
       .eq('company_id', companyId)
       .maybeSingle()
 
     const companyData = {
       companyName:
-        pc?.company_legal_name
-        || (companyRow as any)?.name
+        (pc as any)?.company_legal_name
+        || (companyRow as any)?.company
         || inputCompanyData?.companyName
         || '',
-      companyIBAN: (companyRow as any)?.bank_iban || inputCompanyData?.companyIBAN || '',
-      companyBIC: (companyRow as any)?.bank_bic || inputCompanyData?.companyBIC || '',
+      companyIBAN:
+        (pc as any)?.bank_iban
+        || inputCompanyData?.companyIBAN
+        || '',
+      companyBIC:
+        (pc as any)?.bank_bic
+        || inputCompanyData?.companyBIC
+        || '',
       companyCIF:
-        pc?.company_tax_id
-        || (companyRow as any)?.tax_id
+        (pc as any)?.company_tax_id
+        || (companyRow as any)?.cif
         || inputCompanyData?.companyCIF
         || '',
     }
 
-    if (!companyData.companyName || !companyData.companyIBAN || !companyData.companyBIC) {
+    const missing: string[] = []
+    if (!companyData.companyName) missing.push('nombre de empresa (companies.company o payroll_config.company_legal_name)')
+    if (!companyData.companyIBAN) missing.push('IBAN del ordenante (payroll_config.bank_iban)')
+    if (!companyData.companyCIF) missing.push('CIF (companies.cif o payroll_config.company_tax_id)')
+    // BIC es recomendado, no bloqueante.
+    if (missing.length > 0) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Faltan datos de la empresa (name/bank_iban/bank_bic en companies o payroll_config).',
+          error: `Faltan datos bancarios de la empresa: ${missing.join(', ')}.`,
+          hint: 'Configura estos valores en payroll_config (tabla Supabase) para la empresa indicada.',
+          missing,
         },
         { status: 400 },
       )
@@ -151,7 +168,8 @@ export async function POST(request: NextRequest) {
     const sepaCompanyData: SEPACompanyData = {
       companyName: companyData.companyName,
       companyIBAN: companyData.companyIBAN,
-      companyBIC: companyData.companyBIC,
+      // BIC opcional: si no hay, algunos bancos lo infieren del IBAN.
+      companyBIC: companyData.companyBIC || '',
       executionDate,
       companyCIF: companyData.companyCIF,
     }

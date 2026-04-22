@@ -208,6 +208,7 @@ function GeneracionContent() {
   const [generatingSEPA, setGeneratingSEPA] = useState(false)
   const [generatingRED, setGeneratingRED] = useState(false)
   const [historyTotal, setHistoryTotal] = useState(0)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   // ── Detail dialog ──
   const [detailNomina, setDetailNomina] = useState<NominaHistorico | null>(null)
@@ -589,6 +590,7 @@ function GeneracionContent() {
     const year = historyYear || selectedYear
 
     setDownloadingPDFs(true)
+    setExportError(null)
     try {
       const res = await fetch('/api/download-pdfs', {
         method: 'POST',
@@ -597,12 +599,16 @@ function GeneracionContent() {
       })
 
       if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || 'Error al descargar PDFs')
+        let msg = `Error ${res.status} al descargar PDFs`
+        try {
+          const data = await res.json()
+          msg = data.error || msg
+          if (data.details) msg += ` — ${Array.isArray(data.details) ? data.details.join('; ') : data.details}`
+        } catch {}
+        setExportError(msg)
         return
       }
 
-      // Download ZIP file
       const blob = await res.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -613,7 +619,7 @@ function GeneracionContent() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al descargar PDFs')
+      setExportError(err instanceof Error ? err.message : 'Error al descargar PDFs')
     } finally {
       setDownloadingPDFs(false)
     }
@@ -626,8 +632,8 @@ function GeneracionContent() {
     const year = historyYear || selectedYear
 
     setGeneratingSEPA(true)
+    setExportError(null)
     try {
-      // El endpoint /api/sepa resuelve companyData desde `companies` y `payroll_config`.
       const res = await fetch('/api/sepa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -639,12 +645,16 @@ function GeneracionContent() {
       })
 
       if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || 'Error al generar fichero SEPA')
+        let msg = `Error ${res.status} al generar SEPA`
+        try {
+          const data = await res.json()
+          msg = data.error || msg
+          if (data.hint) msg += ` — ${data.hint}`
+        } catch {}
+        setExportError(msg)
         return
       }
 
-      // Download SEPA XML
       const blob = await res.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -655,7 +665,7 @@ function GeneracionContent() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al generar SEPA')
+      setExportError(err instanceof Error ? err.message : 'Error al generar SEPA')
     } finally {
       setGeneratingSEPA(false)
     }
@@ -668,8 +678,8 @@ function GeneracionContent() {
     const year = historyYear || selectedYear
 
     setGeneratingRED(true)
+    setExportError(null)
     try {
-      // El endpoint /api/red resuelve companyData desde `companies` y `payroll_config`.
       const res = await fetch('/api/red', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -681,12 +691,16 @@ function GeneracionContent() {
       })
 
       if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || 'Error al generar fichero RED')
+        let msg = `Error ${res.status} al generar RED`
+        try {
+          const data = await res.json()
+          msg = data.error || msg
+          if (data.hint) msg += ` — ${data.hint}`
+        } catch {}
+        setExportError(msg)
         return
       }
 
-      // Download RED file
       const blob = await res.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -697,7 +711,7 @@ function GeneracionContent() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al generar RED')
+      setExportError(err instanceof Error ? err.message : 'Error al generar RED')
     } finally {
       setGeneratingRED(false)
     }
@@ -902,64 +916,6 @@ function GeneracionContent() {
               </Card>
             )}
 
-            {/* ── Banner convenio activo / sin convenio ── */}
-            {employees.length > 0 && (() => {
-              const noContractCount = employees.filter(e => !e.hasActiveContract).length
-              if (noContractCount === 0 && !companyAgreement) return null
-              return (
-                <Card
-                  className={cn(
-                    'mb-6 border-l-4',
-                    companyAgreement ? 'border-l-[#C6A664] bg-[#C6A664]/5' : 'border-l-amber-500 bg-amber-50/30',
-                  )}
-                >
-                  <CardContent className="pt-5 pb-4">
-                    <div className="flex items-start gap-3">
-                      {companyAgreement ? (
-                        <CheckCircleIcon className="w-5 h-5 text-[#C6A664] mt-0.5 shrink-0" />
-                      ) : (
-                        <ExclamationCircleIcon className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-                      )}
-                      <div className="flex-1 text-sm">
-                        {companyAgreement ? (
-                          <>
-                            <p className="font-semibold text-[#1B2A41]">
-                              Convenio activo de la empresa aplicado automáticamente
-                            </p>
-                            <p className="text-muted-foreground mt-0.5">
-                              Los empleados sin contrato se calculan usando los valores
-                              canónicos del convenio (base, pagas, antigüedad). Puedes
-                              generar la nómina directamente o auto-crear un contrato
-                              formal con un clic.
-                              {companyAgreement.defaults && (
-                                <span className="block mt-1 text-xs">
-                                  Defaults: {companyAgreement.defaults.weekly_hours ?? 40}h/sem ·{' '}
-                                  {companyAgreement.defaults.number_of_bonuses ?? 2} pagas ·{' '}
-                                  {companyAgreement.defaults.province || 'sin provincia'}
-                                  {companyAgreement.defaults.default_professional_category && (
-                                    <> · cat. default &quot;{companyAgreement.defaults.default_professional_category}&quot;</>
-                                  )}
-                                </span>
-                              )}
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="font-semibold text-amber-800">
-                              {noContractCount} empleado(s) sin contrato y sin convenio asignado
-                            </p>
-                            <p className="text-amber-700 mt-0.5">
-                              Asigna un convenio colectivo a la empresa para poder generar
-                              nóminas sin contrato, o crea el contrato manualmente.
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })()}
 
             {/* ── Summary Cards ── */}
             {employees.length > 0 && (
@@ -1381,6 +1337,21 @@ function GeneracionContent() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* ── Export error banner ── */}
+            {exportError && (
+              <Card className="mb-6 border-l-4 border-l-red-500">
+                <CardContent className="pt-5 pb-4">
+                  <div className="flex items-start gap-3">
+                    <ExclamationCircleIcon className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
+                    <div className="flex-1 text-sm text-red-700">{exportError}</div>
+                    <Button variant="ghost" size="sm" onClick={() => setExportError(null)}>
+                      Cerrar
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* ── Export Actions ── */}
             {historico.length > 0 && (
