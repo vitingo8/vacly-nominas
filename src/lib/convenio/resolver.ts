@@ -1,12 +1,8 @@
 // ============================================================================
-// resolver.ts — ahora es un pass-through sobre @vacly/payroll-core
-// ============================================================================
-// Todo el cálculo + resolución vive en packages/payroll-core. Mantenemos esta
-// fachada para no romper los imports existentes en src/**.
+// resolver.ts — pass-through sobre la copia local de payroll-core
 // ============================================================================
 
 export {
-  // Types
   type AgreementLookup,
   type SeniorityRule,
   type ExtraPay,
@@ -16,7 +12,7 @@ export {
   type ResolveAgreementInput,
   AgreementNotAssignedError,
   AgreementOutOfForceError,
-} from '@vacly/payroll-core';
+} from '../payroll-core';
 
 export {
   fetchAgreementForCompany,
@@ -30,4 +26,4 @@ export {
   extractPaymentMonth,
   getExtraPaysForMonth,
   computeProratedBonuses,
-} from '@vacly/payroll-core/resolver';
+} from '../payroll-core/resolver';
