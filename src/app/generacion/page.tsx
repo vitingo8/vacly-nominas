@@ -80,6 +80,22 @@ interface EmployeeRow {
   selected: boolean
   // Generation status
   generated: boolean
+  // Contrato / convenio
+  hasActiveContract: boolean
+  usingAgreementDefaults: boolean
+}
+
+interface CompanyAgreementSummary {
+  agreement_id: string
+  defaults: {
+    province?: string | null
+    weekly_hours?: number | null
+    trial_period_months?: number | null
+    number_of_bonuses?: number | null
+    vacation_days_per_year?: number | null
+    default_professional_category?: string | null
+    default_cotization_group?: number | null
+  } | null
 }
 
 interface NominaHistorico {
@@ -171,12 +187,13 @@ function GeneracionContent() {
 
   // ── Tab 1: Generation state ──
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
-  const [employeesWithoutContract, setEmployeesWithoutContract] = useState<any[]>([])
+  const [companyAgreement, setCompanyAgreement] = useState<CompanyAgreementSummary | null>(null)
   const [loadingEmployees, setLoadingEmployees] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
   const [generationResults, setGenerationResults] = useState<GenerationResult[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [autoCreatingContractFor, setAutoCreatingContractFor] = useState<string | null>(null)
 
   // ── Tab 2: History state ──
   const [historico, setHistorico] = useState<NominaHistorico[]>([])
@@ -309,17 +326,23 @@ function GeneracionContent() {
         throw new Error(data.error || 'Error al cargar empleados')
       }
 
+      // Guardar info del convenio activo (si la empresa tiene alguno asignado).
+      const agreementInfo: CompanyAgreementSummary | null = data.companyAgreement || null
+      setCompanyAgreement(agreementInfo)
+
       const rows: EmployeeRow[] = (data.employees || []).map((emp: any) => {
         const comp = emp.compensation || {}
         const contract = emp.contracts?.[0] || {}
+        const hasActiveContract = !!emp.hasActiveContract
+        const defaults = agreementInfo?.defaults || {}
 
         // Calculate actual working days for the selected month (weekdays only)
         const daysInMonth = getDaysInMonth(selectedMonth, selectedYear)
-        let businessDays = 0
-        for (let d = 1; d <= daysInMonth; d++) {
-          const dayOfWeek = new Date(selectedYear, selectedMonth - 1, d).getDay()
-          if (dayOfWeek !== 0 && dayOfWeek !== 6) businessDays++
-        }
+
+        // Sin contrato → usamos los defaults del convenio de la empresa (sin mocks).
+        const numberOfBonuses =
+          comp.numberOfBonuses
+          || (hasActiveContract ? 2 : Number(defaults.number_of_bonuses) || 2)
 
         const row: EmployeeRow = {
           id: emp.id,
@@ -329,11 +352,14 @@ function GeneracionContent() {
           iban: emp.iban || '',
           imageUrl: emp.image_url || null,
           baseSalary: comp.baseSalaryMonthly || contract.agreed_base_salary || 0,
-          cotizationGroup: comp.cotizationGroup || contract.cotization_group || 7,
+          cotizationGroup:
+            comp.cotizationGroup
+            || contract.cotization_group
+            || (hasActiveContract ? 7 : Number(defaults.default_cotization_group) || 7),
           irpfPercentage: comp.irpfPercentage || 0,
           fixedComplements: comp.fixedComplements || 0,
           proratedBonuses: comp.proratedBonuses || 0,
-          numberOfBonuses: comp.numberOfBonuses || 2,
+          numberOfBonuses,
           contractType: contract.contract_type || 'permanent',
           fullTime: contract.full_time !== false,
           workdayPercentage: contract.workday_percentage || 100,
@@ -351,6 +377,8 @@ function GeneracionContent() {
           payslipResult: null,
           selected: true,
           generated: false,
+          hasActiveContract,
+          usingAgreementDefaults: !hasActiveContract && !!agreementInfo,
         }
 
         // Auto-calculate proratedBonuses if not set
@@ -362,15 +390,38 @@ function GeneracionContent() {
       })
 
       setEmployees(rows)
-      setEmployeesWithoutContract(data.employeesWithoutContract || [])
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Error desconocido')
       setEmployees([])
-      setEmployeesWithoutContract([])
+      setCompanyAgreement(null)
     } finally {
       setLoadingEmployees(false)
     }
   }, [companyId, selectedMonth, selectedYear, calculateRow])
+
+  // ── Auto-crear contrato desde convenio para un empleado ─────────────
+  const autoCreateContract = useCallback(async (employeeId: string) => {
+    if (!companyId) return
+    setAutoCreatingContractFor(employeeId)
+    try {
+      const res = await fetch('/api/contratos/auto-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, employeeId }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        alert(data.error || 'No se pudo auto-crear el contrato desde el convenio.')
+        return
+      }
+      // Recarga empleados para reflejar el nuevo contrato y la base salarial.
+      await loadEmployees()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al auto-crear contrato')
+    } finally {
+      setAutoCreatingContractFor(null)
+    }
+  }, [companyId, loadEmployees])
 
   // ── Update a variable for a specific row ──
   const updateVariable = useCallback((index: number, field: keyof EmployeeRow, value: number) => {
@@ -851,78 +902,64 @@ function GeneracionContent() {
               </Card>
             )}
 
-            {/* ── Employees Without Contract ── */}
-            {employeesWithoutContract.length > 0 && (
-              <Card className="mb-6 border-l-4 border-l-amber-500 bg-amber-50/30">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <ExclamationCircleIcon className="w-5 h-5 text-amber-600" />
-                      <CardTitle className="text-base">
-                        Empleados sin contrato activo ({employeesWithoutContract.length})
-                      </CardTitle>
-                    </div>
-                  </div>
-                  <CardDescription>
-                    Los siguientes empleados no tienen un contrato activo. Debes crear un contrato antes de poder generar nóminas.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {employeesWithoutContract.map((emp: any) => (
-                    <div
-                      key={emp.id}
-                      className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-200"
-                    >
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className="w-9 h-9 rounded-full flex-shrink-0 overflow-hidden border border-slate-200 bg-gradient-to-br from-[#1B2A41] to-slate-600 flex items-center justify-center">
-                          {emp.image_url ? (
-                            <img src={emp.image_url} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <span className="text-xs font-bold text-white">{(emp.first_name || '?').charAt(0).toUpperCase()}</span>
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm">
-                            {emp.first_name} {emp.last_name}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {emp.nif && `NIF: ${emp.nif}`}
-                            {emp.social_security_number && ` • NSS: ${emp.social_security_number}`}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs"
-                          onClick={() => {
-                            setContractModalEmployee({ id: emp.id, first_name: emp.first_name, last_name: emp.last_name })
-                            setContractModalMode('create')
-                            setContractModalOpen(true)
-                          }}
-                        >
-                          <DocumentTextIcon className="w-3.5 h-3.5 mr-1.5" />
-                          Crear manualmente
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="text-xs bg-[#C6A664] hover:bg-[#C6A664]/90"
-                          onClick={() => {
-                            setContractModalEmployee({ id: emp.id, first_name: emp.first_name, last_name: emp.last_name })
-                            setContractModalMode('upload_pdf')
-                            setContractModalOpen(true)
-                          }}
-                        >
-                          <ArrowUpTrayIcon className="w-3.5 h-3.5 mr-1.5" />
-                          Subir PDF con IA
-                        </Button>
+            {/* ── Banner convenio activo / sin convenio ── */}
+            {employees.length > 0 && (() => {
+              const noContractCount = employees.filter(e => !e.hasActiveContract).length
+              if (noContractCount === 0 && !companyAgreement) return null
+              return (
+                <Card
+                  className={cn(
+                    'mb-6 border-l-4',
+                    companyAgreement ? 'border-l-[#C6A664] bg-[#C6A664]/5' : 'border-l-amber-500 bg-amber-50/30',
+                  )}
+                >
+                  <CardContent className="pt-5 pb-4">
+                    <div className="flex items-start gap-3">
+                      {companyAgreement ? (
+                        <CheckCircleIcon className="w-5 h-5 text-[#C6A664] mt-0.5 shrink-0" />
+                      ) : (
+                        <ExclamationCircleIcon className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+                      )}
+                      <div className="flex-1 text-sm">
+                        {companyAgreement ? (
+                          <>
+                            <p className="font-semibold text-[#1B2A41]">
+                              Convenio activo de la empresa aplicado automáticamente
+                            </p>
+                            <p className="text-muted-foreground mt-0.5">
+                              Los empleados sin contrato se calculan usando los valores
+                              canónicos del convenio (base, pagas, antigüedad). Puedes
+                              generar la nómina directamente o auto-crear un contrato
+                              formal con un clic.
+                              {companyAgreement.defaults && (
+                                <span className="block mt-1 text-xs">
+                                  Defaults: {companyAgreement.defaults.weekly_hours ?? 40}h/sem ·{' '}
+                                  {companyAgreement.defaults.number_of_bonuses ?? 2} pagas ·{' '}
+                                  {companyAgreement.defaults.province || 'sin provincia'}
+                                  {companyAgreement.defaults.default_professional_category && (
+                                    <> · cat. default &quot;{companyAgreement.defaults.default_professional_category}&quot;</>
+                                  )}
+                                </span>
+                              )}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-semibold text-amber-800">
+                              {noContractCount} empleado(s) sin contrato y sin convenio asignado
+                            </p>
+                            <p className="text-amber-700 mt-0.5">
+                              Asigna un convenio colectivo a la empresa para poder generar
+                              nóminas sin contrato, o crea el contrato manualmente.
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
+                  </CardContent>
+                </Card>
+              )
+            })()}
 
             {/* ── Summary Cards ── */}
             {employees.length > 0 && (
@@ -1059,14 +1096,49 @@ function GeneracionContent() {
                                     <span className="text-[11px] font-bold text-white">{emp.name.charAt(0).toUpperCase()}</span>
                                   )}
                                 </div>
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex-1">
                                   <p className="text-sm font-medium leading-tight truncate">{emp.name}</p>
-                                  <p className="text-[11px] text-muted-foreground">{emp.nif}</p>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <p className="text-[11px] text-muted-foreground">{emp.nif}</p>
+                                    {!emp.hasActiveContract && emp.usingAgreementDefaults && (
+                                      <Badge
+                                        title="Sin contrato activo: se usa el convenio colectivo asignado a la empresa"
+                                        className="bg-[#C6A664]/15 text-[#8F7430] border-[#C6A664]/40 text-[10px] px-1.5 py-0 shrink-0"
+                                      >
+                                        Convenio
+                                      </Badge>
+                                    )}
+                                    {!emp.hasActiveContract && !emp.usingAgreementDefaults && (
+                                      <Badge
+                                        title="Sin contrato ni convenio: asigna uno para poder generar nómina"
+                                        className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0 shrink-0"
+                                      >
+                                        Sin convenio
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </div>
                                 {emp.generated && (
                                   <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0 shrink-0">
                                     Generada
                                   </Badge>
+                                )}
+                                {!emp.hasActiveContract && companyAgreement && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={autoCreatingContractFor === emp.id}
+                                    onClick={() => autoCreateContract(emp.id)}
+                                    title="Crear un contrato formal a partir del convenio colectivo (base, jornada, pagas, provincia). Un clic."
+                                    className="h-7 px-2 text-[11px] text-[#1B2A41] hover:text-[#C6A664] shrink-0"
+                                  >
+                                    {autoCreatingContractFor === emp.id ? (
+                                      <ArrowPathIcon className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <DocumentTextIcon className="w-3 h-3 mr-1" />
+                                    )}
+                                    Crear contrato
+                                  </Button>
                                 )}
                               </div>
                             </TableCell>

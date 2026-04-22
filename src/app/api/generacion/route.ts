@@ -67,7 +67,13 @@ export async function GET(request: NextRequest) {
         .from('employees')
         .select(`
           id, first_name, last_name, nif, social_security_number, iban, compensation, status, image_url,
-          contracts!contracts_employee_id_fkey (id, contract_type, full_time, workday_percentage, agreed_base_salary, cotization_group, status)
+          position, sede, address, entry_date,
+          contracts!contracts_employee_id_fkey (
+            id, contract_type, full_time, workday_percentage, agreed_base_salary,
+            cotization_group, status, agreement_ref_id, professional_category,
+            start_date, work_center_address, occupation_code, weekly_hours,
+            trial_period_months
+          )
         `)
         .eq('company_id', companyId)
         .eq('status', 'Activo')
@@ -93,25 +99,81 @@ export async function GET(request: NextRequest) {
 
       console.log(`[load_employees] Loaded ${employees?.length || 0} employees`)
 
-      // Separate employees with and without active contracts
+      // Resuelve el convenio activo de la empresa para poder completar datos
+      // de empleados sin contrato (sin mocks: sólo si hay convenio asignado).
+      let companyAgreementId: string | null = null
+      let companyAgreementDefaults: any = null
+      let agreementDefaultBase = 0
+      try {
+        const { data: agrRows } = await (supabase as any).rpc('fn_agreement_for_company', {
+          p_company_id: companyId,
+          p_on_date: new Date().toISOString().slice(0, 10),
+        })
+        companyAgreementId = (Array.isArray(agrRows) ? agrRows[0]?.agreement_id : agrRows?.agreement_id) || null
+        if (companyAgreementId) {
+          const { data: defRows } = await (supabase as any).rpc('fn_agreement_defaults', {
+            p_agreement_id: companyAgreementId,
+          })
+          companyAgreementDefaults = Array.isArray(defRows) ? defRows[0] : defRows
+          // Base salarial orientativa (para preview client-side) a partir de la
+          // categoría y grupo por defecto del convenio. Se recalcula realmente
+          // en POST con fn_resolve_salary_base + parcialidad.
+          try {
+            const { data: baseVal } = await (supabase as any).rpc('fn_resolve_salary_base', {
+              p_agreement_id: companyAgreementId,
+              p_province: companyAgreementDefaults?.province ?? null,
+              p_year: new Date().getFullYear(),
+              p_grupo: companyAgreementDefaults?.default_cotization_group
+                ? `Grupo ${companyAgreementDefaults.default_cotization_group}`
+                : null,
+              p_nivel: null,
+              p_categoria: companyAgreementDefaults?.default_professional_category ?? null,
+            })
+            agreementDefaultBase = Number(baseVal ?? 0) || 0
+          } catch (_) {
+            // no-op: el preview mostrará 0 pero la generación real lo resolverá.
+          }
+        }
+      } catch (agrErr) {
+        console.warn('[load_employees] Could not resolve company agreement:', agrErr)
+      }
+
+      // Todos los empleados aparecen en la tabla: el flag hasActiveContract
+      // avisa al frontend de qué filas usarán el contrato virtual derivado del
+      // convenio. Sin mocks: si no hay convenio ni contrato, se marcará error
+      // al generar.
       const processed = (employees || []).map((emp: any) => {
         const activeContracts = (emp.contracts || []).filter((c: any) => c.status === 'active')
+        const comp = { ...(emp.compensation || {}) }
+        const hasActiveContract = activeContracts.length > 0
+        // Pre-rellena el salario base desde el convenio si el empleado no tiene
+        // contrato ni compensation.baseSalaryMonthly. Esto sólo afecta al
+        // preview de la UI; la generación real se hace con fn_resolve_salary_base.
+        if (!hasActiveContract && !comp.baseSalaryMonthly && agreementDefaultBase > 0) {
+          comp.baseSalaryMonthly = agreementDefaultBase
+        }
         return {
           ...emp,
+          compensation: comp,
           contracts: activeContracts,
-          hasActiveContract: activeContracts.length > 0
+          hasActiveContract,
+          hasAgreedBaseSalary:
+            activeContracts[0]?.agreed_base_salary > 0 || comp.baseSalaryMonthly > 0,
         }
       })
 
-      const withContracts = processed.filter(e => e.hasActiveContract)
-      const withoutContracts = processed.filter(e => !e.hasActiveContract)
-
-      console.log(`[load_employees] With contracts: ${withContracts.length}, Without contracts: ${withoutContracts.length}`)
+      console.log(
+        `[load_employees] ${processed.length} total — with contract: ${processed.filter(e => e.hasActiveContract).length}, without: ${processed.filter(e => !e.hasActiveContract).length}`,
+      )
 
       return NextResponse.json({
         success: true,
-        employees: withContracts,
-        employeesWithoutContract: withoutContracts,
+        employees: processed,
+        // Para compatibilidad con consumidores anteriores que separaban listas.
+        employeesWithoutContract: processed.filter((e: any) => !e.hasActiveContract),
+        companyAgreement: companyAgreementId
+          ? { agreement_id: companyAgreementId, defaults: companyAgreementDefaults }
+          : null,
       })
     }
 
@@ -270,10 +332,11 @@ function yearsBetween(startIso: string | null | undefined, refIso: string): numb
 }
 
 /**
- * A partir del contrato activo, resuelve el contexto del convenio colectivo y
- * deriva los importes concretos (base, antigüedad, prorrateo, paga extra del
- * mes) ajustados por parcialidad. Devuelve null si el contrato no tiene
- * `agreement_ref_id` (flujo legacy).
+ * A partir del contrato activo (real o virtual derivado del convenio), resuelve
+ * el contexto del convenio colectivo y deriva los importes concretos (base,
+ * antigüedad, prorrateo, paga extra del mes) ajustados por parcialidad.
+ * Devuelve null si no hay forma de resolver convenio (sin agreement_ref_id y
+ * sin convenio asignado a la empresa).
  */
 async function deriveAgreementForContract(
   supabase: ReturnType<typeof getSupabaseClient>,
@@ -288,7 +351,9 @@ async function deriveAgreementForContract(
   },
 ): Promise<AgreementDerived | null> {
   const contract = params.contract
-  if (!contract?.agreement_ref_id) return null
+  if (!contract) return null
+  // Si no hay agreement_ref_id en el contrato, dejamos que resolveAgreementContext
+  // resuelva el convenio activo de la empresa (flujo sin contrato explícito).
 
   const province = contract.work_center_address
     ? contract.work_center_address.split(',').slice(-1)[0].trim() || null
@@ -401,7 +466,7 @@ export async function POST(request: NextRequest) {
           const { data: c } = await supabase
             .from('contracts')
             .select(
-              'id, agreement_ref_id, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary',
+              'id, agreement_ref_id, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary, occupation_code',
             )
             .eq('id', emp.contractId)
             .maybeSingle()
@@ -410,7 +475,7 @@ export async function POST(request: NextRequest) {
           const { data: c } = await supabase
             .from('contracts')
             .select(
-              'id, agreement_ref_id, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary',
+              'id, agreement_ref_id, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary, occupation_code',
             )
             .eq('employee_id', emp.employeeId)
             .eq('status', 'active')
@@ -418,6 +483,61 @@ export async function POST(request: NextRequest) {
             .limit(1)
             .maybeSingle()
           activeContract = c
+        }
+
+        // Contrato virtual: si el empleado no tiene contrato real activo, sintetizamos
+        // uno a partir del convenio asignado a la empresa + datos del empleado (no
+        // hay mocks: si no existe convenio, se cae al flujo legacy con inputs).
+        let isVirtualContract = false
+        if (!activeContract) {
+          try {
+            const { data: agrRows } = await (supabase as any).rpc('fn_agreement_for_company', {
+              p_company_id: companyId,
+              p_on_date: periodStart,
+            })
+            const agreementId = (Array.isArray(agrRows) ? agrRows[0]?.agreement_id : agrRows?.agreement_id) || null
+            if (agreementId) {
+              const { data: defRows } = await (supabase as any).rpc('fn_agreement_defaults', {
+                p_agreement_id: agreementId,
+              })
+              const defaults = Array.isArray(defRows) ? defRows[0] : defRows
+              // Datos del empleado (position / sede / entry_date) para no caer en valores por defecto.
+              const { data: empRow } = await supabase
+                .from('employees')
+                .select('position, sede, address, entry_date, compensation')
+                .eq('id', emp.employeeId)
+                .maybeSingle()
+              const comp: any = (empRow?.compensation as any) || {}
+              activeContract = {
+                id: null,
+                agreement_ref_id: agreementId,
+                cotization_group: comp.cotizationGroup
+                  ?? emp.cotizationGroup
+                  ?? defaults?.default_cotization_group
+                  ?? 7,
+                professional_category:
+                  emp.professionalCategory
+                  ?? empRow?.position
+                  ?? defaults?.default_professional_category
+                  ?? null,
+                start_date: emp.contractStartDate
+                  ?? empRow?.entry_date
+                  ?? periodStart,
+                work_center_address: empRow?.sede
+                  ?? empRow?.address
+                  ?? defaults?.province
+                  ?? null,
+                agreed_base_salary: comp.baseSalaryMonthly ?? emp.baseSalaryMonthly ?? 0,
+                occupation_code: null,
+              }
+              isVirtualContract = true
+              console.log(
+                `[generacion] Virtual contract from convenio for ${emp.employeeName} (agreement=${agreementId})`,
+              )
+            }
+          } catch (virtErr) {
+            console.warn('[generacion] Could not synthesize virtual contract:', virtErr)
+          }
         }
 
         // Override desde el input si el caller lo pasa explícitamente
@@ -432,7 +552,7 @@ export async function POST(request: NextRequest) {
             ? 'integral'
             : 'prorated'
 
-        // Derivar del convenio (si existe agreement_ref_id)
+        // Derivar del convenio (contrato real o virtual basado en convenio)
         let derived: AgreementDerived | null = null
         try {
           if (activeContract?.agreement_ref_id) {
@@ -626,6 +746,8 @@ export async function POST(request: NextRequest) {
               ...payslipResult.warnings,
               ...(derived?.context.warnings ?? []),
             ],
+            virtual_contract: isVirtualContract,
+            contract_id: activeContract?.id ?? null,
             agreement: derived
               ? {
                   agreement_id: derived.context.lookup.agreementId,
