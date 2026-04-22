@@ -574,19 +574,9 @@ function GeneracionContent() {
     const month = historyMonth || selectedMonth
     const year = historyYear || selectedYear
 
-    // TODO: Get company data from config (for now, prompt user)
-    const companyName = prompt('Nombre de la empresa:')
-    const companyIBAN = prompt('IBAN de la empresa (cuenta de cargo):')
-    const companyBIC = prompt('BIC/SWIFT de la empresa:')
-    const companyCIF = prompt('CIF de la empresa (opcional):') || ''
-
-    if (!companyName || !companyIBAN || !companyBIC) {
-      alert('Datos de la empresa incompletos')
-      return
-    }
-
     setGeneratingSEPA(true)
     try {
+      // El endpoint /api/sepa resuelve companyData desde `companies` y `payroll_config`.
       const res = await fetch('/api/sepa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -594,7 +584,6 @@ function GeneracionContent() {
           companyId,
           month: Number(month),
           year: Number(year),
-          companyData: { companyName, companyIBAN, companyBIC, companyCIF },
         }),
       })
 
@@ -627,19 +616,9 @@ function GeneracionContent() {
     const month = historyMonth || selectedMonth
     const year = historyYear || selectedYear
 
-    // TODO: Get company data from config (for now, prompt user)
-    const companyName = prompt('Nombre de la empresa:')
-    const ccc = prompt('Código de Cuenta de Cotización (CCC - 11 dígitos):')
-    const cif = prompt('CIF de la empresa:')
-    const cnae = prompt('CNAE (4 dígitos, opcional):') || '0000'
-
-    if (!companyName || !ccc || !cif) {
-      alert('Datos de la empresa incompletos')
-      return
-    }
-
     setGeneratingRED(true)
     try {
+      // El endpoint /api/red resuelve companyData desde `companies` y `payroll_config`.
       const res = await fetch('/api/red', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -647,7 +626,6 @@ function GeneracionContent() {
           companyId,
           month: Number(month),
           year: Number(year),
-          companyData: { companyName, ccc, cif, cnae },
         }),
       })
 
@@ -662,7 +640,7 @@ function GeneracionContent() {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `RED_${ccc}_${year}${String(month).padStart(2, '0')}.txt`
+      a.download = `RED_${companyId}_${year}${String(month).padStart(2, '0')}.txt`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)

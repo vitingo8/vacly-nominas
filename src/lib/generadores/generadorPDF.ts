@@ -1,745 +1,593 @@
 // ============================================================================
-// generadorPDF.ts — Generador de nóminas en PDF (RECIBO DE SALARIOS)
-// Formato oficial español según modelo del Ministerio de Trabajo
-// Utiliza pdf-lib para la generación sin dependencias nativas
+// generadorPDF.ts — Recibo oficial de salarios (modelo Orden ESS/2098/2014)
+// ============================================================================
+//
+// Layout fiel al modelo oficial del Ministerio de Trabajo:
+//
+// ┌─────────────────────────────────────────────────────────────────────┐
+// │  TRABAJADOR ← datos trabajador            EMPRESA ← datos empresa  │
+// ├─────────────────────────────────────────────────────────────────────┤
+// │  Período de Liquidación: del ...   Total días: 30 / 30             │
+// ├─────────────────────────────────────────────────────────────────────┤
+// │  I. DEVENGOS                                                         │
+// │  1. Percepciones salariales    │   2. Percepciones no salariales   │
+// │  Salario Base        1.178,56  │   Indemnizaciones o suplidos      │
+// │  Antigüedad            353,57  │   ...                             │
+// │  EX.MARZO               63,84  │                                   │
+// │  ...                           │                                   │
+// ├─────────────────────────────────────────────────────────────────────┤
+// │  A. TOTAL DEVENGADO .........................         1.659,81 €   │
+// ├─────────────────────────────────────────────────────────────────────┤
+// │  II. DEDUCCIONES (tabla con %/importe)                              │
+// │  B. TOTAL A DEDUCIR .........................           X,XX €     │
+// ├─────────────────────────────────────────────────────────────────────┤
+// │  LÍQUIDO TOTAL A PERCIBIR (A - B) ...........           X,XX €     │
+// │  En [lugar] a [día] de [mes] de [año]                              │
+// │  Firma empresa                     Recibí trabajador                │
+// │  Entidad: ___      Cuenta: IBAN_____                                │
+// ├─────────────────────────────────────────────────────────────────────┤
+// │  DETERMINACIÓN BASES DE COTIZACIÓN / IRPF / APORTACIÓN EMPRESA      │
+// └─────────────────────────────────────────────────────────────────────┘
+//
+// Cumple Orden ESS/2098/2014 de 6 de noviembre (BOE 11/11/2014).
 // ============================================================================
 
-import { PDFDocument, PDFPage, PDFFont, StandardFonts, rgb, PDFPageDrawTextOptions } from 'pdf-lib';
+import { PDFDocument, PDFPage, PDFFont, StandardFonts, rgb } from 'pdf-lib';
 
 // ---------------------------------------------------------------------------
-// Tipos para los datos de la nómina PDF
+// Tipos
 // ---------------------------------------------------------------------------
 
-/** Datos de la empresa */
 export interface PayslipCompanyInfo {
-  /** Razón social / nombre de la empresa */
   name: string;
-  /** CIF de la empresa */
   cif: string;
-  /** Código de Cuenta de Cotización (CCC) */
   ccc: string;
-  /** Domicilio fiscal */
   address?: string;
 }
 
-/** Datos del trabajador */
 export interface PayslipEmployeeInfo {
-  /** Nombre completo del trabajador */
   name: string;
-  /** NIF / DNI del trabajador */
   nif: string;
-  /** Número de afiliación a la Seguridad Social (NSS) */
   nss: string;
-  /** Categoría profesional */
   category: string;
-  /** Grupo de cotización (1-11) */
   cotizationGroup: number;
-  /** Antigüedad en la empresa (fecha de alta) */
-  startDate?: string;
+  startDate?: string;     // Fecha antigüedad
+  address?: string;       // Domicilio trabajador
+  job?: string;           // Puesto de trabajo
+  cnoCode?: string;       // Código CNO
 }
 
-/** Línea de devengo (percepción salarial o no salarial) */
 export interface PayslipAccrualLine {
-  /** Código del concepto (ej: "001", "002") */
   code: string;
-  /** Descripción del concepto (ej: "Salario base", "Plus convenio") */
   concept: string;
-  /** Importe en euros */
   amount: number;
 }
 
-/** Línea de deducción (cotización SS o IRPF) */
 export interface PayslipDeductionLine {
-  /** Código del concepto */
   code: string;
-  /** Descripción del concepto (ej: "Contingencias comunes") */
   concept: string;
-  /** Base sobre la que se aplica el porcentaje */
   base: number;
-  /** Porcentaje aplicado (ej: 4.70) */
   rate: number;
-  /** Importe resultante */
   amount: number;
 }
 
-/** Línea de aportación empresarial a la Seguridad Social */
 export interface PayslipContributionLine {
-  /** Descripción del concepto */
   concept: string;
-  /** Base de cotización */
   base: number;
-  /** Porcentaje aplicado */
   rate: number;
-  /** Importe de la aportación */
   amount: number;
 }
 
-/** Datos completos para generar la nómina en PDF */
 export interface PayslipPDFData {
-  /** Datos de la empresa */
   company: PayslipCompanyInfo;
-  /** Datos del trabajador */
   employee: PayslipEmployeeInfo;
-  /** Período de liquidación: fecha de inicio (YYYY-MM-DD) */
-  periodStart: string;
-  /** Período de liquidación: fecha de fin (YYYY-MM-DD) */
-  periodEnd: string;
-  /** Días trabajados en el período */
+  periodStart: string;    // YYYY-MM-DD
+  periodEnd: string;      // YYYY-MM-DD
   workedDays: number;
-  /** Días totales del período (naturales) */
   totalDays: number;
 
-  // --- Devengos ---
-  /** Percepciones salariales */
   salaryAccruals: PayslipAccrualLine[];
-  /** Percepciones no salariales */
   nonSalaryAccruals: PayslipAccrualLine[];
-
-  // --- Deducciones del trabajador ---
-  /** Deducciones de Seguridad Social + IRPF + otras */
   deductions: PayslipDeductionLine[];
-
-  // --- Aportación empresarial ---
-  /** Cotizaciones de la empresa a la Seguridad Social */
   companyContributions: PayslipContributionLine[];
 
-  // --- Totales ---
-  /** Total devengos (bruto) */
   totalAccruals: number;
-  /** Total deducciones del trabajador */
   totalDeductions: number;
-  /** Líquido a percibir (neto) */
   netPay: number;
 
-  // --- Bases de cotización ---
-  /** Base de contingencias comunes */
   baseCC: number;
-  /** Base de contingencias profesionales (AT/EP) */
   baseCP: number;
-  /** Base sujeta a retención de IRPF */
   baseIRPF: number;
-  /** Tipo de retención IRPF aplicado (%) */
   irpfRate: number;
 
-  // --- Datos bancarios y firma ---
-  /** IBAN de la cuenta del trabajador */
+  // Opcionales para la sección "Determinación bases"
+  remuneracionMensualCC?: number;   // base CC sin prorrata
+  prorrataPagasCC?: number;         // prorrata mensual pagas extras
+
   iban: string;
-  /** Fecha de emisión del recibo (YYYY-MM-DD) */
-  issueDate: string;
+  bankEntity?: string;
+  bankAccount?: string;
+  issueDate: string;       // YYYY-MM-DD
+  issuePlace?: string;     // Ej: "TORTOSA"
 }
 
 // ---------------------------------------------------------------------------
-// Constantes de diseño del documento
+// Constantes de diseño
 // ---------------------------------------------------------------------------
 
-/** Márgenes del documento en puntos (1 punto = 1/72 pulgadas) */
-const MARGIN = {
-  left: 40,
-  right: 40,
-  top: 40,
-  bottom: 40,
-} as const;
+const PAGE = { width: 595.28, height: 841.89 };
+const MARGIN = { left: 28, right: 28, top: 28, bottom: 28 };
 
-/** Tamaños de fuente */
-const FONT_SIZE = {
-  title: 12,
-  sectionHeader: 9,
-  normal: 7.5,
-  small: 6.5,
-  footer: 7,
-} as const;
+const FONT = {
+  title: 10.5,
+  section: 9,
+  normal: 8,
+  small: 7,
+  tiny: 6.5,
+};
 
-/** Colores */
-const COLORS = {
-  black: rgb(0, 0, 0),
-  darkGray: rgb(0.3, 0.3, 0.3),
-  mediumGray: rgb(0.5, 0.5, 0.5),
-  lightGray: rgb(0.85, 0.85, 0.85),
-  headerBg: rgb(0.92, 0.92, 0.92),
-  white: rgb(1, 1, 1),
-  accentBlue: rgb(0.15, 0.25, 0.45),
-} as const;
-
-/** Altura de línea por tamaño de fuente */
-const LINE_HEIGHT = {
-  title: 16,
-  sectionHeader: 14,
-  normal: 11,
+const LH = {
+  normal: 10.5,
   small: 9,
-  footer: 10,
-} as const;
+  tiny: 8,
+};
+
+const C = {
+  black: rgb(0, 0, 0),
+  darkGray: rgb(0.25, 0.25, 0.25),
+  midGray: rgb(0.5, 0.5, 0.5),
+  lightGray: rgb(0.88, 0.88, 0.88),
+  headerBg: rgb(0.93, 0.93, 0.93),
+  accent: rgb(0.12, 0.22, 0.42),
+  white: rgb(1, 1, 1),
+};
 
 // ---------------------------------------------------------------------------
-// Utilidades internas
+// Utilidades
 // ---------------------------------------------------------------------------
 
-/**
- * Formatea un número como moneda española (2 decimales, separador de miles)
- * Ej: 1234.50 → "1.234,50"
- */
-function formatCurrency(amount: number): string {
-  const fixed = Math.abs(amount).toFixed(2);
-  const [intPart, decPart] = fixed.split('.');
-  const withThousands = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  const sign = amount < 0 ? '-' : '';
-  return `${sign}${withThousands},${decPart}`;
+function fmtMoney(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || !Number.isFinite(amount)) return '';
+  const v = Math.abs(amount).toFixed(2);
+  const [int, dec] = v.split('.');
+  const intWithDots = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${amount < 0 ? '-' : ''}${intWithDots},${dec}`;
 }
 
-/**
- * Formatea un porcentaje con 2 decimales
- * Ej: 4.7 → "4,70"
- */
-function formatRate(rate: number): string {
+function fmtRate(rate: number | null | undefined): string {
+  if (rate === null || rate === undefined || !Number.isFinite(rate)) return '';
   return rate.toFixed(2).replace('.', ',');
 }
 
-/**
- * Formatea una fecha YYYY-MM-DD al formato español DD/MM/YYYY
- */
-function formatDate(dateStr: string): string {
-  const [year, month, day] = dateStr.split('-');
-  return `${day}/${month}/${year}`;
+function fmtDate(iso: string): string {
+  if (!iso || !iso.includes('-')) return iso ?? '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
 }
 
-/**
- * Extrae el nombre del mes en español a partir de una fecha YYYY-MM-DD
- */
-function getMonthName(dateStr: string): string {
+function monthNameEs(iso: string): string {
   const months = [
-    'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-    'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE',
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
   ];
-  const monthIndex = parseInt(dateStr.split('-')[1], 10) - 1;
-  return months[monthIndex] ?? '';
+  const idx = parseInt(iso.split('-')[1], 10) - 1;
+  return months[idx] ?? '';
 }
 
-/**
- * Extrae el año de una fecha YYYY-MM-DD
- */
-function getYear(dateStr: string): string {
-  return dateStr.split('-')[0];
+function getYear(iso: string): string {
+  return iso.split('-')[0] ?? '';
 }
 
-/**
- * Dibuja un rectángulo de fondo en la página
- */
-function drawRect(
-  page: PDFPage,
+function getDay(iso: string): string {
+  return iso.split('-')[2] ?? '';
+}
+
+function truncate(text: string, font: PDFFont, size: number, maxW: number): string {
+  if (font.widthOfTextAtSize(text, size) <= maxW) return text;
+  let t = text;
+  while (t.length > 0 && font.widthOfTextAtSize(t + '…', size) > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+
+function drawRect(p: PDFPage, x: number, y: number, w: number, h: number, color: ReturnType<typeof rgb>) {
+  p.drawRectangle({ x, y, width: w, height: h, color });
+}
+
+function drawBorder(p: PDFPage, x: number, y: number, w: number, h: number, thickness = 0.5, color = C.darkGray) {
+  p.drawRectangle({ x, y, width: w, height: h, borderWidth: thickness, borderColor: color, color: undefined });
+}
+
+function drawHLine(p: PDFPage, x: number, y: number, w: number, thickness = 0.4, color = C.darkGray) {
+  p.drawLine({ start: { x, y }, end: { x: x + w, y }, thickness, color });
+}
+
+function drawVLine(p: PDFPage, x: number, y: number, h: number, thickness = 0.4, color = C.darkGray) {
+  p.drawLine({ start: { x, y }, end: { x, y: y - h }, thickness, color });
+}
+
+function drawText(p: PDFPage, text: string, x: number, y: number, font: PDFFont, size: number, color = C.black) {
+  p.drawText(text, { x, y, size, font, color });
+}
+
+function drawTextRight(p: PDFPage, text: string, rightX: number, y: number, font: PDFFont, size: number, color = C.black) {
+  const w = font.widthOfTextAtSize(text, size);
+  p.drawText(text, { x: rightX - w, y, size, font, color });
+}
+
+function drawTextCenter(p: PDFPage, text: string, centerX: number, y: number, font: PDFFont, size: number, color = C.black) {
+  const w = font.widthOfTextAtSize(text, size);
+  p.drawText(text, { x: centerX - w / 2, y, size, font, color });
+}
+
+// Dibuja una línea "etiqueta .............. valor" dentro de una celda
+function drawLabelValue(
+  p: PDFPage,
+  label: string,
+  value: string,
   x: number,
   y: number,
   width: number,
-  height: number,
-  color: ReturnType<typeof rgb>,
-) {
-  page.drawRectangle({ x, y, width, height, color });
-}
-
-/**
- * Dibuja una línea horizontal
- */
-function drawHLine(
-  page: PDFPage,
-  x: number,
-  y: number,
-  width: number,
-  thickness = 0.5,
-  color = COLORS.darkGray,
-) {
-  page.drawLine({
-    start: { x, y },
-    end: { x: x + width, y },
-    thickness,
-    color,
-  });
-}
-
-/**
- * Dibuja texto alineado a la derecha en una posición dada
- */
-function drawTextRight(
-  page: PDFPage,
-  text: string,
   font: PDFFont,
-  fontSize: number,
-  rightX: number,
-  y: number,
-  color = COLORS.black,
+  size: number,
+  color = C.black,
 ) {
-  const textWidth = font.widthOfTextAtSize(text, fontSize);
-  page.drawText(text, { x: rightX - textWidth, y, size: fontSize, font, color });
-}
-
-/**
- * Trunca un texto para que no exceda un ancho dado
- */
-function truncateText(text: string, font: PDFFont, fontSize: number, maxWidth: number): string {
-  if (font.widthOfTextAtSize(text, fontSize) <= maxWidth) return text;
-  let truncated = text;
-  while (truncated.length > 0 && font.widthOfTextAtSize(truncated + '…', fontSize) > maxWidth) {
-    truncated = truncated.slice(0, -1);
-  }
-  return truncated + '…';
+  drawText(p, label, x, y, font, size, color);
+  if (value) drawTextRight(p, value, x + width, y, font, size, color);
 }
 
 // ---------------------------------------------------------------------------
-// Función principal: Generación del PDF de nómina
+// Generador principal
 // ---------------------------------------------------------------------------
 
-/**
- * Genera un PDF con el recibo de salarios (nómina) en formato oficial español.
- *
- * El documento sigue la estructura del modelo oficial del Ministerio de Trabajo:
- * 1. Cabecera con datos de empresa y trabajador
- * 2. Período de liquidación
- * 3. Devengos (percepciones salariales y no salariales)
- * 4. Deducciones (cotizaciones SS + IRPF)
- * 5. Aportación empresarial a la Seguridad Social
- * 6. Totales y firma
- *
- * @param payslipData - Todos los datos necesarios para generar la nómina
- * @returns Buffer con el PDF generado en formato Uint8Array
- */
-export async function generatePayslipPDF(payslipData: PayslipPDFData): Promise<Uint8Array> {
-  // Crear documento PDF (tamaño A4: 595.28 x 841.89 puntos)
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]);
+export async function generatePayslipPDF(data: PayslipPDFData): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([PAGE.width, PAGE.height]);
+  const fReg = await pdf.embedFont(StandardFonts.Helvetica);
+  const fBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  // Incrustar fuentes estándar
-  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const W = PAGE.width - MARGIN.left - MARGIN.right;
+  const xL = MARGIN.left;
+  const xR = MARGIN.left + W;
+  let y = PAGE.height - MARGIN.top;
 
-  const pageWidth = page.getWidth();
-  const contentWidth = pageWidth - MARGIN.left - MARGIN.right;
-
-  // Cursor vertical (empieza arriba y baja)
-  let y = page.getHeight() - MARGIN.top;
-
-  // =========================================================================
-  // 1. TÍTULO: RECIBO INDIVIDUAL JUSTIFICATIVO DEL PAGO DE SALARIOS
-  // =========================================================================
-
-  drawRect(page, MARGIN.left, y - 18, contentWidth, 20, COLORS.accentBlue);
-  page.drawText('RECIBO INDIVIDUAL JUSTIFICATIVO DEL PAGO DE SALARIOS', {
-    x: MARGIN.left + 6,
-    y: y - 14,
-    size: FONT_SIZE.title,
-    font: fontBold,
-    color: COLORS.white,
-  });
-  y -= 28;
-
-  // =========================================================================
-  // 2. CABECERA: DATOS DE LA EMPRESA Y DEL TRABAJADOR
-  // =========================================================================
-
-  const headerStartY = y;
-  const halfWidth = contentWidth / 2 - 4;
-
-  // --- Bloque empresa (izquierda) ---
-  drawRect(page, MARGIN.left, y - 62, halfWidth, 62, COLORS.headerBg);
-  drawHLine(page, MARGIN.left, y, halfWidth, 0.75, COLORS.accentBlue);
-
-  page.drawText('EMPRESA', {
-    x: MARGIN.left + 4,
-    y: y - 10,
-    size: FONT_SIZE.sectionHeader,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-
-  const companyLines = [
-    `Nombre: ${payslipData.company.name}`,
-    `CIF: ${payslipData.company.cif}`,
-    `CCC: ${payslipData.company.ccc}`,
-    payslipData.company.address ? `Domicilio: ${payslipData.company.address}` : '',
-  ].filter(Boolean);
-
-  let companyY = y - 22;
-  for (const line of companyLines) {
-    const display = truncateText(line, fontRegular, FONT_SIZE.normal, halfWidth - 10);
-    page.drawText(display, {
-      x: MARGIN.left + 6,
-      y: companyY,
-      size: FONT_SIZE.normal,
-      font: fontRegular,
-      color: COLORS.black,
-    });
-    companyY -= LINE_HEIGHT.normal;
-  }
-
-  // --- Bloque trabajador (derecha) ---
-  const rightBlockX = MARGIN.left + halfWidth + 8;
-  drawRect(page, rightBlockX, y - 62, halfWidth, 62, COLORS.headerBg);
-  drawHLine(page, rightBlockX, y, halfWidth, 0.75, COLORS.accentBlue);
-
-  page.drawText('TRABAJADOR', {
-    x: rightBlockX + 4,
-    y: y - 10,
-    size: FONT_SIZE.sectionHeader,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-
-  const employeeLines = [
-    `Nombre: ${payslipData.employee.name}`,
-    `NIF: ${payslipData.employee.nif}    NSS: ${payslipData.employee.nss}`,
-    `Categoría: ${payslipData.employee.category}    Grupo: ${payslipData.employee.cotizationGroup}`,
-    payslipData.employee.startDate ? `Antigüedad: ${formatDate(payslipData.employee.startDate)}` : '',
-  ].filter(Boolean);
-
-  let employeeY = y - 22;
-  for (const line of employeeLines) {
-    const display = truncateText(line, fontRegular, FONT_SIZE.normal, halfWidth - 10);
-    page.drawText(display, {
-      x: rightBlockX + 6,
-      y: employeeY,
-      size: FONT_SIZE.normal,
-      font: fontRegular,
-      color: COLORS.black,
-    });
-    employeeY -= LINE_HEIGHT.normal;
-  }
-
-  y -= 70;
-
-  // =========================================================================
-  // 3. PERÍODO DE LIQUIDACIÓN
-  // =========================================================================
-
-  drawRect(page, MARGIN.left, y - 16, contentWidth, 16, COLORS.accentBlue);
-  const periodText = `PERÍODO DE LIQUIDACIÓN: ${getMonthName(payslipData.periodStart)} ${getYear(payslipData.periodStart)}`;
-  page.drawText(periodText, {
-    x: MARGIN.left + 6,
-    y: y - 12,
-    size: FONT_SIZE.sectionHeader,
-    font: fontBold,
-    color: COLORS.white,
-  });
-
-  const daysText = `Del ${formatDate(payslipData.periodStart)} al ${formatDate(payslipData.periodEnd)}    |    Días trabajados: ${payslipData.workedDays} / ${payslipData.totalDays}`;
-  drawTextRight(page, daysText, fontRegular, FONT_SIZE.small, pageWidth - MARGIN.right - 6, y - 12, COLORS.white);
-
-  y -= 24;
-
-  // =========================================================================
-  // 4. DEVENGOS (PERCEPCIONES)
-  // =========================================================================
-
-  // Cabecera de la sección
-  drawRect(page, MARGIN.left, y - 14, contentWidth, 14, COLORS.headerBg);
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.5);
-
-  page.drawText('I. DEVENGOS', {
-    x: MARGIN.left + 4,
-    y: y - 10,
-    size: FONT_SIZE.sectionHeader,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-  y -= 14;
-
-  // Subcabecera de columnas: Código | Concepto | Importe
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.3);
-  y -= 2;
-
-  const colCode = MARGIN.left + 4;
-  const colConcept = MARGIN.left + 50;
-  const colAmount = pageWidth - MARGIN.right - 6;
-
-  page.drawText('Cód.', { x: colCode, y: y - 8, size: FONT_SIZE.small, font: fontBold, color: COLORS.mediumGray });
-  page.drawText('Concepto', { x: colConcept, y: y - 8, size: FONT_SIZE.small, font: fontBold, color: COLORS.mediumGray });
-  drawTextRight(page, 'Importe (€)', fontBold, FONT_SIZE.small, colAmount, y - 8, COLORS.mediumGray);
-  y -= 12;
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.3, COLORS.lightGray);
-
-  // --- Percepciones salariales ---
-  if (payslipData.salaryAccruals.length > 0) {
-    y -= 2;
-    page.drawText('A) Percepciones salariales', {
-      x: colCode,
-      y: y - 8,
-      size: FONT_SIZE.small,
-      font: fontBold,
-      color: COLORS.darkGray,
-    });
-    y -= LINE_HEIGHT.small + 2;
-
-    for (const item of payslipData.salaryAccruals) {
-      page.drawText(item.code, { x: colCode, y: y - 8, size: FONT_SIZE.normal, font: fontRegular, color: COLORS.darkGray });
-      const conceptText = truncateText(item.concept, fontRegular, FONT_SIZE.normal, colAmount - colConcept - 80);
-      page.drawText(conceptText, { x: colConcept, y: y - 8, size: FONT_SIZE.normal, font: fontRegular, color: COLORS.black });
-      drawTextRight(page, formatCurrency(item.amount), fontRegular, FONT_SIZE.normal, colAmount, y - 8);
-      y -= LINE_HEIGHT.normal;
-    }
-  }
-
-  // --- Percepciones no salariales ---
-  if (payslipData.nonSalaryAccruals.length > 0) {
-    y -= 2;
-    page.drawText('B) Percepciones no salariales', {
-      x: colCode,
-      y: y - 8,
-      size: FONT_SIZE.small,
-      font: fontBold,
-      color: COLORS.darkGray,
-    });
-    y -= LINE_HEIGHT.small + 2;
-
-    for (const item of payslipData.nonSalaryAccruals) {
-      page.drawText(item.code, { x: colCode, y: y - 8, size: FONT_SIZE.normal, font: fontRegular, color: COLORS.darkGray });
-      const conceptText = truncateText(item.concept, fontRegular, FONT_SIZE.normal, colAmount - colConcept - 80);
-      page.drawText(conceptText, { x: colConcept, y: y - 8, size: FONT_SIZE.normal, font: fontRegular, color: COLORS.black });
-      drawTextRight(page, formatCurrency(item.amount), fontRegular, FONT_SIZE.normal, colAmount, y - 8);
-      y -= LINE_HEIGHT.normal;
-    }
-  }
-
-  // --- Total devengos ---
-  y -= 2;
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.5);
-  y -= 2;
-  drawRect(page, MARGIN.left, y - 12, contentWidth, 12, COLORS.headerBg);
-
-  page.drawText('A. TOTAL DEVENGOS', {
-    x: colCode,
-    y: y - 9,
-    size: FONT_SIZE.normal,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-  drawTextRight(page, `${formatCurrency(payslipData.totalAccruals)} €`, fontBold, FONT_SIZE.normal, colAmount, y - 9, COLORS.accentBlue);
+  // ==========================================================================
+  // BLOQUE 1: Título
+  // ==========================================================================
+  drawRect(page, xL, y - 14, W, 14, C.accent);
+  drawTextCenter(
+    page,
+    'RECIBO INDIVIDUAL JUSTIFICATIVO DEL PAGO DE SALARIOS',
+    xL + W / 2,
+    y - 10,
+    fBold,
+    FONT.title,
+    C.white,
+  );
   y -= 18;
 
-  // =========================================================================
-  // 5. DEDUCCIONES DEL TRABAJADOR
-  // =========================================================================
+  // ==========================================================================
+  // BLOQUE 2: Trabajador (izquierda) · Empresa (derecha)
+  // ==========================================================================
+  const halfW = W / 2 - 2;
+  const blockH = 80;
 
-  drawRect(page, MARGIN.left, y - 14, contentWidth, 14, COLORS.headerBg);
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.5);
+  drawBorder(page, xL, y - blockH, halfW, blockH);
+  drawBorder(page, xL + halfW + 4, y - blockH, halfW, blockH);
 
-  page.drawText('II. DEDUCCIONES', {
-    x: MARGIN.left + 4,
-    y: y - 10,
-    size: FONT_SIZE.sectionHeader,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-  y -= 14;
+  // Títulos de bloque
+  drawRect(page, xL, y - 11, halfW, 11, C.headerBg);
+  drawRect(page, xL + halfW + 4, y - 11, halfW, 11, C.headerBg);
+  drawText(page, 'TRABAJADOR', xL + 4, y - 8, fBold, FONT.small, C.accent);
+  drawText(page, 'EMPRESA', xL + halfW + 8, y - 8, fBold, FONT.small, C.accent);
 
-  // Subcabecera: Código | Concepto | Base | Tipo% | Importe
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.3);
-  y -= 2;
-
-  const colBase = pageWidth - MARGIN.right - 150;
-  const colRate = pageWidth - MARGIN.right - 80;
-
-  page.drawText('Cód.', { x: colCode, y: y - 8, size: FONT_SIZE.small, font: fontBold, color: COLORS.mediumGray });
-  page.drawText('Concepto', { x: colConcept, y: y - 8, size: FONT_SIZE.small, font: fontBold, color: COLORS.mediumGray });
-  drawTextRight(page, 'Base (€)', fontBold, FONT_SIZE.small, colBase + 60, y - 8, COLORS.mediumGray);
-  drawTextRight(page, 'Tipo %', fontBold, FONT_SIZE.small, colRate + 40, y - 8, COLORS.mediumGray);
-  drawTextRight(page, 'Importe (€)', fontBold, FONT_SIZE.small, colAmount, y - 8, COLORS.mediumGray);
-  y -= 12;
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.3, COLORS.lightGray);
-
-  for (const item of payslipData.deductions) {
-    page.drawText(item.code, { x: colCode, y: y - 8, size: FONT_SIZE.normal, font: fontRegular, color: COLORS.darkGray });
-    const conceptText = truncateText(item.concept, fontRegular, FONT_SIZE.normal, colBase - colConcept - 10);
-    page.drawText(conceptText, { x: colConcept, y: y - 8, size: FONT_SIZE.normal, font: fontRegular, color: COLORS.black });
-    drawTextRight(page, formatCurrency(item.base), fontRegular, FONT_SIZE.normal, colBase + 60, y - 8, COLORS.darkGray);
-    drawTextRight(page, formatRate(item.rate), fontRegular, FONT_SIZE.normal, colRate + 40, y - 8, COLORS.darkGray);
-    drawTextRight(page, formatCurrency(item.amount), fontRegular, FONT_SIZE.normal, colAmount, y - 8);
-    y -= LINE_HEIGHT.normal;
-  }
-
-  // --- Total deducciones ---
-  y -= 2;
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.5);
-  y -= 2;
-  drawRect(page, MARGIN.left, y - 12, contentWidth, 12, COLORS.headerBg);
-
-  page.drawText('B. TOTAL DEDUCCIONES', {
-    x: colCode,
-    y: y - 9,
-    size: FONT_SIZE.normal,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-  drawTextRight(page, `${formatCurrency(payslipData.totalDeductions)} €`, fontBold, FONT_SIZE.normal, colAmount, y - 9, COLORS.accentBlue);
-  y -= 18;
-
-  // =========================================================================
-  // 6. APORTACIÓN EMPRESARIAL A LA SEGURIDAD SOCIAL
-  // =========================================================================
-
-  drawRect(page, MARGIN.left, y - 14, contentWidth, 14, COLORS.headerBg);
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.5);
-
-  page.drawText('III. APORTACIÓN EMPRESARIAL A LA SEGURIDAD SOCIAL', {
-    x: MARGIN.left + 4,
-    y: y - 10,
-    size: FONT_SIZE.sectionHeader,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-  y -= 14;
-
-  // Subcabecera
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.3);
-  y -= 2;
-
-  page.drawText('Concepto', { x: colCode, y: y - 8, size: FONT_SIZE.small, font: fontBold, color: COLORS.mediumGray });
-  drawTextRight(page, 'Base (€)', fontBold, FONT_SIZE.small, colBase + 60, y - 8, COLORS.mediumGray);
-  drawTextRight(page, 'Tipo %', fontBold, FONT_SIZE.small, colRate + 40, y - 8, COLORS.mediumGray);
-  drawTextRight(page, 'Importe (€)', fontBold, FONT_SIZE.small, colAmount, y - 8, COLORS.mediumGray);
-  y -= 12;
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.3, COLORS.lightGray);
-
-  let totalContributions = 0;
-  for (const item of payslipData.companyContributions) {
-    const conceptText = truncateText(item.concept, fontRegular, FONT_SIZE.normal, colBase - colCode - 10);
-    page.drawText(conceptText, { x: colCode, y: y - 8, size: FONT_SIZE.normal, font: fontRegular, color: COLORS.black });
-    drawTextRight(page, formatCurrency(item.base), fontRegular, FONT_SIZE.normal, colBase + 60, y - 8, COLORS.darkGray);
-    drawTextRight(page, formatRate(item.rate), fontRegular, FONT_SIZE.normal, colRate + 40, y - 8, COLORS.darkGray);
-    drawTextRight(page, formatCurrency(item.amount), fontRegular, FONT_SIZE.normal, colAmount, y - 8);
-    totalContributions += item.amount;
-    y -= LINE_HEIGHT.normal;
-  }
-
-  // --- Total aportación empresarial ---
-  y -= 2;
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.5);
-  y -= 2;
-  drawRect(page, MARGIN.left, y - 12, contentWidth, 12, COLORS.headerBg);
-
-  page.drawText('TOTAL APORTACIÓN EMPRESARIAL', {
-    x: colCode,
-    y: y - 9,
-    size: FONT_SIZE.normal,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-  drawTextRight(page, `${formatCurrency(totalContributions)} €`, fontBold, FONT_SIZE.normal, colAmount, y - 9, COLORS.accentBlue);
-  y -= 24;
-
-  // =========================================================================
-  // 7. BASES DE COTIZACIÓN
-  // =========================================================================
-
-  drawRect(page, MARGIN.left, y - 14, contentWidth, 14, COLORS.headerBg);
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.5);
-
-  page.drawText('DETERMINACIÓN DE LAS BASES DE COTIZACIÓN Y CONCEPTOS DE RECAUDACIÓN CONJUNTA', {
-    x: MARGIN.left + 4,
-    y: y - 10,
-    size: FONT_SIZE.small,
-    font: fontBold,
-    color: COLORS.accentBlue,
-  });
-  y -= 18;
-
-  // Líneas de bases
-  const basesLines = [
-    { label: 'Base contingencias comunes', value: payslipData.baseCC },
-    { label: 'Base contingencias profesionales (AT/EP)', value: payslipData.baseCP },
-    { label: 'Base sujeta a retención IRPF', value: payslipData.baseIRPF },
-    { label: 'Tipo retención IRPF aplicado', value: payslipData.irpfRate, isRate: true },
+  // --- Trabajador
+  let yT = y - 21;
+  const workerRows: Array<[string, string]> = [
+    ['Nombre:', data.employee.name || ''],
+    ['Domicilio:', data.employee.address || ''],
+    ['N.I.F.:', data.employee.nif || ''],
+    ['Núm. afiliación Seg. Social:', data.employee.nss || ''],
+    ['Categoría / grupo prof.:', data.employee.category || ''],
+    ['Grupo cotización:', String(data.employee.cotizationGroup ?? '')],
+    ['Puesto de trabajo:', data.employee.job || ''],
   ];
-
-  for (const baseLine of basesLines) {
-    page.drawText(baseLine.label, { x: colCode, y: y - 8, size: FONT_SIZE.normal, font: fontRegular, color: COLORS.darkGray });
-    const valueText = baseLine.isRate ? `${formatRate(baseLine.value)} %` : `${formatCurrency(baseLine.value)} €`;
-    drawTextRight(page, valueText, fontRegular, FONT_SIZE.normal, colAmount, y - 8);
-    y -= LINE_HEIGHT.normal;
+  if (data.employee.startDate) {
+    workerRows.push(['Fecha antigüedad:', fmtDate(data.employee.startDate)]);
+  }
+  if (data.employee.cnoCode) {
+    workerRows.push(['Código CNO:', data.employee.cnoCode]);
+  }
+  for (const [label, value] of workerRows) {
+    const fullLine = `${label} ${value}`.trim();
+    const display = truncate(fullLine, fReg, FONT.small, halfW - 8);
+    drawText(page, display, xL + 4, yT, fReg, FONT.small);
+    yT -= LH.small;
+    if (yT < y - blockH + 4) break;
   }
 
-  y -= 6;
+  // --- Empresa
+  let yE = y - 21;
+  const companyRows: Array<[string, string]> = [
+    ['Razón social:', data.company.name || ''],
+    ['C.I.F.:', data.company.cif || ''],
+    ['Cód. cuenta cotización (CCC):', data.company.ccc || ''],
+    ['Domicilio:', data.company.address || ''],
+  ];
+  for (const [label, value] of companyRows) {
+    const fullLine = `${label} ${value}`.trim();
+    const display = truncate(fullLine, fReg, FONT.small, halfW - 8);
+    drawText(page, display, xL + halfW + 8, yE, fReg, FONT.small);
+    yE -= LH.small;
+    if (yE < y - blockH + 4) break;
+  }
 
-  // =========================================================================
-  // 8. PIE: LÍQUIDO A PERCIBIR, IBAN, FECHA Y FIRMA
-  // =========================================================================
+  y -= blockH + 4;
 
-  drawHLine(page, MARGIN.left, y, contentWidth, 1, COLORS.accentBlue);
-  y -= 4;
+  // ==========================================================================
+  // BLOQUE 3: Período de liquidación
+  // ==========================================================================
+  const periodH = 14;
+  drawRect(page, xL, y - periodH, W, periodH, C.headerBg);
+  drawBorder(page, xL, y - periodH, W, periodH);
+  const periodTxt =
+    `Período de Liquidación: del ${getDay(data.periodStart)} de ${monthNameEs(data.periodStart)} de ${getYear(data.periodStart)} ` +
+    `al ${getDay(data.periodEnd)} de ${monthNameEs(data.periodEnd)} de ${getYear(data.periodEnd)}`;
+  drawText(page, periodTxt, xL + 4, y - 10, fBold, FONT.normal, C.accent);
+  drawTextRight(
+    page,
+    `Total días: ${data.workedDays} / ${data.totalDays}`,
+    xR - 4, y - 10, fBold, FONT.normal, C.accent,
+  );
+  y -= periodH + 2;
 
-  // Caja de LÍQUIDO A PERCIBIR (neto)
-  drawRect(page, MARGIN.left, y - 24, contentWidth, 24, COLORS.accentBlue);
+  // ==========================================================================
+  // BLOQUE 4: I. DEVENGOS (2 columnas)
+  // ==========================================================================
+  const devengosHeadH = 12;
+  drawRect(page, xL, y - devengosHeadH, W, devengosHeadH, C.accent);
+  drawText(page, 'I. DEVENGOS', xL + 4, y - 9, fBold, FONT.section, C.white);
+  y -= devengosHeadH;
 
-  page.drawText('LÍQUIDO TOTAL A PERCIBIR (A - B)', {
-    x: MARGIN.left + 8,
-    y: y - 16,
-    size: FONT_SIZE.title,
-    font: fontBold,
-    color: COLORS.white,
-  });
-  drawTextRight(page, `${formatCurrency(payslipData.netPay)} €`, fontBold, 14, colAmount, y - 17, COLORS.white);
+  // Subcabeceras de columnas
+  const colH = 10;
+  drawRect(page, xL, y - colH, halfW + 2, colH, C.headerBg);
+  drawRect(page, xL + halfW + 2, y - colH, halfW + 2, colH, C.headerBg);
+  drawText(page, '1. Percepciones salariales', xL + 4, y - 8, fBold, FONT.small);
+  drawText(page, '2. Percepciones no salariales', xL + halfW + 6, y - 8, fBold, FONT.small);
+  drawTextRight(page, 'Importe (€)', xL + halfW - 2, y - 8, fBold, FONT.tiny, C.midGray);
+  drawTextRight(page, 'Importe (€)', xR - 4, y - 8, fBold, FONT.tiny, C.midGray);
+  y -= colH;
 
-  y -= 34;
+  // Caja del grid
+  const maxRows = Math.max(data.salaryAccruals.length, data.nonSalaryAccruals.length, 8);
+  const rowH = LH.small;
+  const gridH = maxRows * rowH + 4;
+  drawBorder(page, xL, y - gridH, halfW + 2, gridH);
+  drawBorder(page, xL + halfW + 2, y - gridH, halfW + 2, gridH);
 
-  // Datos bancarios
-  page.drawText(`Forma de pago: Transferencia bancaria`, {
-    x: MARGIN.left + 4,
-    y: y - 8,
-    size: FONT_SIZE.normal,
-    font: fontRegular,
-    color: COLORS.darkGray,
-  });
+  // Filas izquierda (salariales)
+  let rowY = y - rowH;
+  for (const line of data.salaryAccruals) {
+    drawLabelValue(
+      page,
+      truncate(line.concept, fReg, FONT.normal, halfW - 55),
+      fmtMoney(line.amount),
+      xL + 4, rowY, halfW - 6,
+      fReg, FONT.normal,
+    );
+    rowY -= rowH;
+    if (rowY < y - gridH + 4) break;
+  }
+  // Filas derecha (no salariales)
+  rowY = y - rowH;
+  for (const line of data.nonSalaryAccruals) {
+    drawLabelValue(
+      page,
+      truncate(line.concept, fReg, FONT.normal, halfW - 55),
+      fmtMoney(line.amount),
+      xL + halfW + 6, rowY, halfW - 6,
+      fReg, FONT.normal,
+    );
+    rowY -= rowH;
+    if (rowY < y - gridH + 4) break;
+  }
 
-  page.drawText(`IBAN: ${payslipData.iban}`, {
-    x: MARGIN.left + 4,
-    y: y - 20,
-    size: FONT_SIZE.normal,
-    font: fontBold,
-    color: COLORS.black,
-  });
+  y -= gridH;
 
-  y -= 34;
+  // Total devengado
+  const totalH = 13;
+  drawRect(page, xL, y - totalH, W, totalH, C.accent);
+  drawText(page, 'A. TOTAL DEVENGADO', xL + 4, y - 10, fBold, FONT.section, C.white);
+  drawTextRight(page, `${fmtMoney(data.totalAccruals)} €`, xR - 4, y - 10, fBold, FONT.section, C.white);
+  y -= totalH + 2;
 
-  // Fecha y firmas
-  drawHLine(page, MARGIN.left, y, contentWidth, 0.3, COLORS.lightGray);
-  y -= 4;
+  // ==========================================================================
+  // BLOQUE 5: II. DEDUCCIONES
+  // ==========================================================================
+  drawRect(page, xL, y - devengosHeadH, W, devengosHeadH, C.accent);
+  drawText(page, 'II. DEDUCCIONES', xL + 4, y - 9, fBold, FONT.section, C.white);
+  y -= devengosHeadH;
 
-  page.drawText(`Fecha: ${formatDate(payslipData.issueDate)}`, {
-    x: MARGIN.left + 4,
-    y: y - 10,
-    size: FONT_SIZE.normal,
-    font: fontRegular,
-    color: COLORS.darkGray,
-  });
+  // Subcabecera: Concepto | Base | % | Importe
+  const dedColBaseX = xL + W * 0.50;
+  const dedColRateX = xL + W * 0.72;
+  const dedColImporteX = xR - 4;
 
-  // Línea de firma empresa
-  const signLineWidth = 150;
-  const signCompanyX = MARGIN.left + 80;
-  const signEmployeeX = pageWidth - MARGIN.right - signLineWidth - 20;
+  drawRect(page, xL, y - colH, W, colH, C.headerBg);
+  drawText(page, 'Concepto', xL + 4, y - 8, fBold, FONT.small);
+  drawTextRight(page, 'Base (€)', dedColBaseX + 50, y - 8, fBold, FONT.tiny, C.midGray);
+  drawTextRight(page, 'Tipo %', dedColRateX + 35, y - 8, fBold, FONT.tiny, C.midGray);
+  drawTextRight(page, 'Importe (€)', dedColImporteX, y - 8, fBold, FONT.tiny, C.midGray);
+  y -= colH;
 
-  y -= 40;
-  drawHLine(page, signCompanyX, y, signLineWidth, 0.5, COLORS.mediumGray);
-  page.drawText('Sello y firma de la empresa', {
-    x: signCompanyX + 20,
-    y: y - 10,
-    size: FONT_SIZE.small,
-    font: fontRegular,
-    color: COLORS.mediumGray,
-  });
+  const dedRowH = LH.normal;
+  const dedRows = data.deductions.length;
+  const dedGridH = Math.max(dedRows, 5) * dedRowH + 4;
+  drawBorder(page, xL, y - dedGridH, W, dedGridH);
 
-  drawHLine(page, signEmployeeX, y, signLineWidth, 0.5, COLORS.mediumGray);
-  page.drawText('Recibí (firma del trabajador)', {
-    x: signEmployeeX + 15,
-    y: y - 10,
-    size: FONT_SIZE.small,
-    font: fontRegular,
-    color: COLORS.mediumGray,
-  });
+  rowY = y - dedRowH;
+  for (const d of data.deductions) {
+    drawText(page, truncate(d.concept, fReg, FONT.normal, dedColBaseX - xL - 10), xL + 4, rowY, fReg, FONT.normal);
+    if (d.base > 0) drawTextRight(page, fmtMoney(d.base), dedColBaseX + 50, rowY, fReg, FONT.normal, C.darkGray);
+    if (d.rate > 0) drawTextRight(page, fmtRate(d.rate), dedColRateX + 35, rowY, fReg, FONT.normal, C.darkGray);
+    drawTextRight(page, fmtMoney(d.amount), dedColImporteX, rowY, fReg, FONT.normal);
+    rowY -= dedRowH;
+    if (rowY < y - dedGridH + 4) break;
+  }
 
-  // Nota legal al pie
-  y -= 30;
-  page.drawText(
-    'Este recibo se ajusta al modelo oficial aprobado por la Orden ESS/2098/2014, de 6 de noviembre.',
-    { x: MARGIN.left + 4, y: y, size: FONT_SIZE.small, font: fontRegular, color: COLORS.mediumGray },
+  y -= dedGridH;
+
+  // Total deducciones
+  drawRect(page, xL, y - totalH, W, totalH, C.accent);
+  drawText(page, 'B. TOTAL A DEDUCIR (1+2+3+4+5)', xL + 4, y - 10, fBold, FONT.section, C.white);
+  drawTextRight(page, `${fmtMoney(data.totalDeductions)} €`, xR - 4, y - 10, fBold, FONT.section, C.white);
+  y -= totalH + 2;
+
+  // ==========================================================================
+  // BLOQUE 6: LÍQUIDO A PERCIBIR
+  // ==========================================================================
+  const liqH = 22;
+  drawRect(page, xL, y - liqH, W, liqH, C.accent);
+  drawText(page, 'LÍQUIDO TOTAL A PERCIBIR (A - B)', xL + 6, y - 15, fBold, FONT.title + 1, C.white);
+  drawTextRight(page, `${fmtMoney(data.netPay)} €`, xR - 6, y - 15, fBold, FONT.title + 2, C.white);
+  y -= liqH + 4;
+
+  // ==========================================================================
+  // BLOQUE 7: Firma + Lugar/Fecha + IBAN
+  // ==========================================================================
+  const lugar = data.issuePlace ?? '';
+  const dateTxt =
+    `En ${lugar ? lugar + ' ' : ''}a ${getDay(data.issueDate)} de ${monthNameEs(data.issueDate)} de ${getYear(data.issueDate)}`;
+  drawText(page, dateTxt, xL + 4, y - 8, fBold, FONT.normal);
+  y -= 12;
+
+  // Dos columnas: Firma empresa (izq) | Recibí trabajador (der)
+  const signH = 36;
+  drawBorder(page, xL, y - signH, halfW, signH);
+  drawBorder(page, xL + halfW + 4, y - signH, halfW, signH);
+  drawText(page, 'Firma y sello de la empresa', xL + 4, y - 10, fReg, FONT.small, C.midGray);
+  drawText(page, 'RECIBÍ, el trabajador', xL + halfW + 8, y - 10, fReg, FONT.small, C.midGray);
+  y -= signH + 4;
+
+  // Entidad / Cuenta
+  const bankH = 14;
+  drawBorder(page, xL, y - bankH, W, bankH);
+  const entidad = data.bankEntity ?? '';
+  const cuenta = data.bankAccount ?? data.iban ?? '';
+  drawText(page, `Entidad: ${entidad}`, xL + 4, y - 10, fReg, FONT.small);
+  drawText(page, `Cuenta: ${cuenta}`, xL + W * 0.4, y - 10, fBold, FONT.small);
+  y -= bankH + 6;
+
+  // ==========================================================================
+  // BLOQUE 8: Determinación de las bases + Aportación empresa
+  // ==========================================================================
+  const basesHeadH = 18;
+  drawRect(page, xL, y - basesHeadH, W, basesHeadH, C.accent);
+  drawTextCenter(
+    page,
+    'DETERMINACIÓN DE LAS BASES DE COTIZACIÓN A LA SEGURIDAD SOCIAL Y CONCEPTOS DE',
+    xL + W / 2, y - 8, fBold, FONT.small, C.white,
+  );
+  drawTextCenter(
+    page,
+    'RECAUDACIÓN CONJUNTA Y DE LA BASE SUJETA A RETENCIÓN DEL IRPF · APORTACIÓN DE LA EMPRESA',
+    xL + W / 2, y - 16, fBold, FONT.small, C.white,
+  );
+  y -= basesHeadH;
+
+  // Sub-cabecera CONCEPTO | BASE | TIPO | APORTACIÓN EMPRESA
+  const bColConcept = xL + 4;
+  const bColBase = xL + W * 0.55;
+  const bColRate = xL + W * 0.75;
+  const bColImporte = xR - 4;
+  drawRect(page, xL, y - colH, W, colH, C.headerBg);
+  drawText(page, 'Concepto', bColConcept, y - 8, fBold, FONT.small);
+  drawTextRight(page, 'Base (€)', bColBase + 50, y - 8, fBold, FONT.tiny, C.midGray);
+  drawTextRight(page, 'Tipo %', bColRate + 35, y - 8, fBold, FONT.tiny, C.midGray);
+  drawTextRight(page, 'Aportación empresa (€)', bColImporte, y - 8, fBold, FONT.tiny, C.midGray);
+  y -= colH;
+
+  // Filas de contingencias y recaudación conjunta
+  const bRowH = LH.normal;
+  const numRows = Math.max(data.companyContributions.length, 6) + 4;
+  const bGridH = numRows * bRowH + 4;
+  drawBorder(page, xL, y - bGridH, W, bGridH);
+
+  rowY = y - bRowH;
+
+  // 1. Contingencias comunes — desglose específico si hay datos
+  drawText(page, '1. Contingencias comunes', bColConcept, rowY, fBold, FONT.normal);
+  rowY -= bRowH;
+  if (data.remuneracionMensualCC !== undefined) {
+    drawText(page, '   Importe remuneración Mensual', bColConcept, rowY, fReg, FONT.normal);
+    drawTextRight(page, fmtMoney(data.remuneracionMensualCC), bColBase + 50, rowY, fReg, FONT.normal, C.darkGray);
+    rowY -= bRowH;
+  }
+  if (data.prorrataPagasCC !== undefined && data.prorrataPagasCC > 0) {
+    drawText(page, '   Importe prorrata pagas extraordinarias', bColConcept, rowY, fReg, FONT.normal);
+    drawTextRight(page, fmtMoney(data.prorrataPagasCC), bColBase + 50, rowY, fReg, FONT.normal, C.darkGray);
+    rowY -= bRowH;
+  }
+  // Línea TOTAL CC (encontrar la contribution de CC)
+  const ccContrib = data.companyContributions.find((c) =>
+    /contingencias comunes|\bCC\b/i.test(c.concept),
+  );
+  if (ccContrib) {
+    drawText(page, '   TOTAL', bColConcept, rowY, fBold, FONT.normal);
+    drawTextRight(page, fmtMoney(ccContrib.base), bColBase + 50, rowY, fBold, FONT.normal);
+    drawTextRight(page, fmtRate(ccContrib.rate), bColRate + 35, rowY, fBold, FONT.normal);
+    drawTextRight(page, fmtMoney(ccContrib.amount), bColImporte, rowY, fBold, FONT.normal);
+    rowY -= bRowH;
+  }
+
+  // 2. Contingencias profesionales y conceptos de recaudación conjunta
+  drawText(page, '2. Contingencias profesionales y recaudación conjunta', bColConcept, rowY, fBold, FONT.normal);
+  rowY -= bRowH;
+  const cpKeys = [
+    /AT\s*\/?\s*EP|AT\s*y\s*EP|atep/i,
+    /desempleo/i,
+    /formaci[oó]n profesional|\bFP\b/i,
+    /fogasa|fondo garant/i,
+  ];
+  for (const rx of cpKeys) {
+    const c = data.companyContributions.find((x) => rx.test(x.concept));
+    if (!c) continue;
+    drawText(page, `   ${c.concept}`, bColConcept, rowY, fReg, FONT.normal);
+    drawTextRight(page, fmtMoney(c.base), bColBase + 50, rowY, fReg, FONT.normal, C.darkGray);
+    drawTextRight(page, fmtRate(c.rate), bColRate + 35, rowY, fReg, FONT.normal, C.darkGray);
+    drawTextRight(page, fmtMoney(c.amount), bColImporte, rowY, fReg, FONT.normal);
+    rowY -= bRowH;
+    if (rowY < y - bGridH + 20) break;
+  }
+
+  // 3. Cotización adicional horas extraordinarias (si hay)
+  const hxContrib = data.companyContributions.find((c) => /horas extra/i.test(c.concept));
+  if (hxContrib) {
+    drawText(page, '3. Cotización adicional horas extraordinarias', bColConcept, rowY, fReg, FONT.normal);
+    drawTextRight(page, fmtMoney(hxContrib.base), bColBase + 50, rowY, fReg, FONT.normal, C.darkGray);
+    drawTextRight(page, fmtRate(hxContrib.rate), bColRate + 35, rowY, fReg, FONT.normal, C.darkGray);
+    drawTextRight(page, fmtMoney(hxContrib.amount), bColImporte, rowY, fReg, FONT.normal);
+    rowY -= bRowH;
+  }
+
+  // 4. Base IRPF
+  drawText(page, '4. Base sujeta a retención del IRPF', bColConcept, rowY, fBold, FONT.normal);
+  drawTextRight(page, fmtMoney(data.baseIRPF), bColBase + 50, rowY, fBold, FONT.normal);
+  drawTextRight(page, fmtRate(data.irpfRate), bColRate + 35, rowY, fBold, FONT.normal);
+  rowY -= bRowH;
+
+  y -= bGridH;
+
+  // ==========================================================================
+  // Pie legal
+  // ==========================================================================
+  drawHLine(page, xL, y, W, 0.3, C.midGray);
+  y -= 8;
+  drawText(
+    page,
+    'Este recibo se ajusta al modelo oficial aprobado por Orden ESS/2098/2014, de 6 de noviembre (BOE 11/11/2014).',
+    xL + 2, y, fReg, FONT.tiny, C.midGray,
   );
 
-  // =========================================================================
-  // Serializar y devolver el PDF
-  // =========================================================================
-
-  return pdfDoc.save();
+  return pdf.save();
 }

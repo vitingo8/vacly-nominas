@@ -54,6 +54,7 @@ interface Contract {
   professional_category: string | null
   occupation_code: string | null
   agreement_id: string | null
+  agreement_ref_id: string | null
   full_time: boolean
   workday_percentage: number
   weekly_hours: number
@@ -82,6 +83,7 @@ type ContractFormData = {
   professional_category: string
   occupation_code: string
   agreement_id: string
+  agreement_ref_id: string
   full_time: boolean
   workday_percentage: string
   weekly_hours: string
@@ -152,6 +154,7 @@ const EMPTY_FORM: ContractFormData = {
   professional_category: '',
   occupation_code: '',
   agreement_id: '',
+  agreement_ref_id: '',
   full_time: true,
   workday_percentage: '100',
   weekly_hours: '40',
@@ -236,6 +239,22 @@ export default function ContratosPage() {
   // Form
   const [form, setForm] = useState<ContractFormData>(EMPTY_FORM)
 
+  // Catálogo de convenios (para el selector real)
+  type AgreementOption = {
+    id: string
+    code: string | null
+    name: string
+    provinces: string[] | null
+    effective_from: string | null
+    effective_to: string | null
+    status: string | null
+    ultraactive: boolean | null
+    assigned: boolean
+    default_province: string | null
+  }
+  const [agreements, setAgreements] = useState<AgreementOption[]>([])
+  const [loadingAgreements, setLoadingAgreements] = useState(false)
+
   // Pendiente abrir formulario crear con empleado pre-seleccionado (open=create&employee_id=)
   const [pendingOpenCreateEmployeeId, setPendingOpenCreateEmployeeId] = useState<string | null>(null)
 
@@ -294,6 +313,38 @@ export default function ContratosPage() {
     loadEmployees()
   }, [companyId])
 
+  // ── Load convenios (catálogo real, sin valores por defecto) ──────
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    const loadAgreements = async () => {
+      setLoadingAgreements(true)
+      try {
+        const res = await fetch(
+          `/api/convenios?company_id=${encodeURIComponent(companyId)}&include_all=true`,
+        )
+        const data = await res.json()
+        if (cancelled) return
+        if (data?.success) {
+          const assigned: AgreementOption[] = data.assigned || []
+          const catalog: AgreementOption[] = data.catalog || []
+          setAgreements([...assigned, ...catalog])
+        } else {
+          setAgreements([])
+        }
+      } catch (err) {
+        console.error('Error cargando convenios:', err)
+        if (!cancelled) setAgreements([])
+      } finally {
+        if (!cancelled) setLoadingAgreements(false)
+      }
+    }
+    loadAgreements()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId])
+
   // ── Load contracts ───────────────────────────────────────────────
   const loadContracts = useCallback(async () => {
     if (!companyId) return
@@ -345,6 +396,7 @@ export default function ContratosPage() {
       professional_category: contract.professional_category || '',
       occupation_code: contract.occupation_code || '',
       agreement_id: contract.agreement_id || '',
+      agreement_ref_id: contract.agreement_ref_id || '',
       full_time: contract.full_time,
       workday_percentage: contract.workday_percentage?.toString() || '100',
       weekly_hours: contract.weekly_hours?.toString() || '40',
@@ -868,11 +920,68 @@ export default function ContratosPage() {
               </div>
               <div className="space-y-2">
                 <Label className="text-slate-700">Convenio Colectivo</Label>
-                <Input
-                  value={form.agreement_id}
-                  onChange={(e) => setForm({ ...form, agreement_id: e.target.value })}
-                  placeholder="ID del convenio"
-                />
+                <select
+                  value={form.agreement_ref_id}
+                  onChange={(e) => {
+                    const refId = e.target.value
+                    const sel = agreements.find((a) => a.id === refId)
+                    setForm({
+                      ...form,
+                      agreement_ref_id: refId,
+                      agreement_id: sel?.code || (refId ? form.agreement_id : ''),
+                    })
+                  }}
+                  disabled={loadingAgreements || agreements.length === 0}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">
+                    {loadingAgreements
+                      ? 'Cargando convenios…'
+                      : agreements.length === 0
+                      ? 'No hay convenios en el catálogo'
+                      : '— Seleccionar convenio —'}
+                  </option>
+                  {agreements.some((a) => a.assigned) && (
+                    <optgroup label="Asignados a la empresa">
+                      {agreements
+                        .filter((a) => a.assigned)
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                            {a.code ? ` · ${a.code}` : ''}
+                            {a.ultraactive ? ' · ultraactivo' : ''}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                  {agreements.some((a) => !a.assigned) && (
+                    <optgroup label="Catálogo global">
+                      {agreements
+                        .filter((a) => !a.assigned)
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                            {a.code ? ` · ${a.code}` : ''}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                </select>
+                {form.agreement_ref_id &&
+                  (() => {
+                    const sel = agreements.find((a) => a.id === form.agreement_ref_id)
+                    if (!sel) return null
+                    return (
+                      <p className="text-xs text-slate-500">
+                        Vigencia:{' '}
+                        {sel.effective_from ? formatDate(sel.effective_from) : '—'}
+                        {' → '}
+                        {sel.effective_to ? formatDate(sel.effective_to) : '∞'}
+                        {sel.ultraactive ? ' · ultraactivo' : ''}
+                        {sel.default_province ? ` · ${sel.default_province}` : ''}
+                      </p>
+                    )
+                  })()}
               </div>
             </div>
 

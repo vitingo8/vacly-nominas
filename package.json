@@ -31,7 +31,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "clean": "rm -rf dist/ .next/"
+    "clean": "rm -rf dist/ .next/",
+    "test:regression": "node scripts/test-regression-payslips.mjs"
   },
   "keywords": [
     "nominas",

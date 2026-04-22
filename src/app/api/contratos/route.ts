@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
       professional_category,
       occupation_code,
       agreement_id,
+      agreement_ref_id,
       full_time,
       workday_percentage,
       weekly_hours,
@@ -156,6 +157,7 @@ export async function POST(request: NextRequest) {
       professional_category: professional_category || null,
       occupation_code: occupation_code || null,
       agreement_id: agreement_id || null,
+      agreement_ref_id: agreement_ref_id || null,
       full_time: full_time !== undefined ? full_time : true,
       workday_percentage: workday_percentage ? parseFloat(workday_percentage) : 100,
       weekly_hours: weekly_hours ? parseFloat(weekly_hours) : 40,
@@ -252,7 +254,7 @@ export async function PUT(request: NextRequest) {
     const allowedFields = [
       'employee_id', 'contract_type', 'start_date', 'end_date',
       'cotization_group', 'professional_category', 'occupation_code',
-      'agreement_id', 'full_time', 'workday_percentage', 'weekly_hours',
+      'agreement_id', 'agreement_ref_id', 'full_time', 'workday_percentage', 'weekly_hours',
       'shift_type', 'agreed_base_salary', 'status', 'signed_pdf_url', 'notes',
       'work_center_address', 'trial_period_months', 'vacation_days_per_year',
       'signing_place', 'signing_date', 'job_description'
@@ -270,6 +272,9 @@ export async function PUT(request: NextRequest) {
           const v = updateFields[field]
           updateData[field] = (v != null && v !== '') ? parseInt(v) : null
         } else if (['work_center_address', 'signing_place', 'job_description'].includes(field)) {
+          const v = updateFields[field]
+          updateData[field] = (v != null && v !== '') ? v : null
+        } else if (field === 'agreement_ref_id') {
           const v = updateFields[field]
           updateData[field] = (v != null && v !== '') ? v : null
         } else {

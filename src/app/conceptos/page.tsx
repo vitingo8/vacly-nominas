@@ -208,6 +208,23 @@ export default function ConceptosPage() {
   // Predefined dropdown
   const [showPredefined, setShowPredefined] = useState(false)
 
+  // Seed-from-agreement state
+  const [isSeeding, setIsSeeding] = useState(false)
+  const [seedResult, setSeedResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  // Convenio activo asignado a la empresa (solo lectura aquí: se gestiona en backoffice)
+  type ActiveAgreement = {
+    id: string
+    code: string | null
+    name: string
+    effective_from: string | null
+    effective_to: string | null
+    ultraactive: boolean | null
+    default_province: string | null
+    status: string | null
+  }
+  const [activeAgreement, setActiveAgreement] = useState<ActiveAgreement | null>(null)
+
   // Form
   const [form, setForm] = useState<ConceptFormData>(EMPTY_FORM)
 
@@ -251,6 +268,82 @@ export default function ConceptosPage() {
   useEffect(() => {
     loadConcepts()
   }, [loadConcepts])
+
+  // ── Load convenio asignado (para mostrar contexto en la cabecera) ──
+  useEffect(() => {
+    if (!companyId) {
+      setActiveAgreement(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `/api/convenios?company_id=${encodeURIComponent(companyId)}&include_all=false`,
+        )
+        const data = await res.json()
+        if (cancelled) return
+        if (data?.success && Array.isArray(data.assigned) && data.assigned.length > 0) {
+          const a = data.assigned[0]
+          setActiveAgreement({
+            id: a.id,
+            code: a.code,
+            name: a.name,
+            effective_from: a.effective_from,
+            effective_to: a.effective_to,
+            ultraactive: a.ultraactive,
+            default_province: a.default_province,
+            status: a.status,
+          })
+        } else {
+          setActiveAgreement(null)
+        }
+      } catch (err) {
+        console.error('Error cargando convenio activo:', err)
+        if (!cancelled) setActiveAgreement(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId])
+
+  // ── Seed desde convenio real ─────────────────────────────────────
+  // Reemplaza los "mockup predefinidos" por los conceptos reales extraídos
+  // del convenio colectivo asignado a la empresa (agreement_registry →
+  // agreement_pluses_v). Idempotente: se puede ejecutar múltiples veces.
+  const handleSeedFromAgreement = useCallback(async () => {
+    if (!companyId) return
+    if (!confirm('¿Cargar conceptos reales del convenio asignado? Se añadirán / actualizarán los conceptos base (salario, antigüedad, paga extra) y todos los pluses extraídos del convenio.')) {
+      return
+    }
+    setIsSeeding(true)
+    setSeedResult(null)
+    try {
+      const res = await fetch('/api/conceptos/seed-from-agreement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setSeedResult({ ok: false, message: data.error || 'Error al sembrar conceptos.' })
+        return
+      }
+      setSeedResult({
+        ok: true,
+        message: `Se han sembrado ${data.seededCount} conceptos desde el convenio.`,
+      })
+      await loadConcepts()
+    } catch (err) {
+      setSeedResult({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Error de red al sembrar conceptos.',
+      })
+    } finally {
+      setIsSeeding(false)
+    }
+  }, [companyId, loadConcepts])
 
   // ── Handlers ─────────────────────────────────────────────────────
   const handleOpenCreate = () => {
@@ -424,6 +517,21 @@ export default function ConceptosPage() {
             Actualizar
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSeedFromAgreement}
+            disabled={isSeeding || !companyId || !activeAgreement}
+            className="gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:border-slate-200 disabled:text-slate-400"
+            title={
+              activeAgreement
+                ? 'Carga los conceptos base + pluses reales extraídos del convenio colectivo asignado (sin datos mock).'
+                : 'No hay convenio asignado a esta empresa. Asigna uno antes de sembrar conceptos.'
+            }
+          >
+            <ArrowPathIcon className={cn("w-4 h-4", isSeeding && "animate-spin")} />
+            {isSeeding ? 'Cargando convenio…' : 'Cargar desde convenio'}
+          </Button>
+          <Button
             onClick={handleOpenCreate}
             className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
           >
@@ -431,6 +539,57 @@ export default function ConceptosPage() {
             Nuevo Concepto
           </Button>
         </div>
+
+        {activeAgreement ? (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            <BookOpenIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#1B2A41]" />
+            <div className="flex-1">
+              <div className="font-medium text-[#1B2A41]">
+                Convenio asignado: {activeAgreement.name}
+                {activeAgreement.code ? ` · ${activeAgreement.code}` : ''}
+              </div>
+              <div className="mt-0.5 text-xs text-slate-500">
+                Vigencia{' '}
+                {activeAgreement.effective_from
+                  ? new Date(activeAgreement.effective_from).toLocaleDateString('es-ES')
+                  : '—'}
+                {' → '}
+                {activeAgreement.effective_to
+                  ? new Date(activeAgreement.effective_to).toLocaleDateString('es-ES')
+                  : '∞'}
+                {activeAgreement.ultraactive ? ' · ultraactivo' : ''}
+                {activeAgreement.default_province
+                  ? ` · provincia por defecto: ${activeAgreement.default_province}`
+                  : ''}
+              </div>
+            </div>
+          </div>
+        ) : companyId ? (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <InformationCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              No hay convenio asignado a esta empresa. Asigna un convenio desde el catálogo (API{' '}
+              <code className="rounded bg-amber-100 px-1 py-0.5 text-xs">
+                POST /api/convenios
+              </code>
+              ) antes de sembrar conceptos reales; de lo contrario el motor de nóminas no podrá
+              resolver salario base ni pluses.
+            </div>
+          </div>
+        ) : null}
+
+        {seedResult && (
+          <div
+            className={cn(
+              'mb-4 rounded-lg border p-3 text-sm',
+              seedResult.ok
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-red-200 bg-red-50 text-red-700',
+            )}
+          >
+            {seedResult.message}
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">

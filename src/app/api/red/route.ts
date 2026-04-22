@@ -9,20 +9,49 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseClient()
     const body = await request.json()
 
-    const { companyId, month, year, companyData } = body
+    const { companyId, month, year, companyData: inputCompanyData } = body
 
-    if (!companyId || !month || !year || !companyData) {
+    if (!companyId || !month || !year) {
       return NextResponse.json(
-        { success: false, error: 'Faltan campos requeridos: companyId, month, year, companyData' },
+        { success: false, error: 'Faltan campos requeridos: companyId, month, year' },
         { status: 400 }
       )
     }
 
-    // Validate company data
+    // Resolver datos legales desde BBDD; antes llegaban del cliente vía prompt().
+    const { data: companyRow } = await supabase
+      .from('companies')
+      .select('name, tax_id')
+      .eq('id', companyId)
+      .maybeSingle()
+    const { data: pc } = await supabase
+      .from('payroll_config')
+      .select('company_legal_name, company_tax_id, ss_account_code, cnae')
+      .eq('company_id', companyId)
+      .maybeSingle()
+
+    const companyData = {
+      companyName:
+        pc?.company_legal_name
+        || (companyRow as any)?.name
+        || inputCompanyData?.companyName
+        || '',
+      ccc: pc?.ss_account_code || inputCompanyData?.ccc || '',
+      cif:
+        pc?.company_tax_id
+        || (companyRow as any)?.tax_id
+        || inputCompanyData?.cif
+        || '',
+      cnae: pc?.cnae || inputCompanyData?.cnae || '0000',
+    }
+
     if (!companyData.ccc || !companyData.companyName || !companyData.cif) {
       return NextResponse.json(
-        { success: false, error: 'Faltan datos de la empresa: ccc, companyName, cif' },
-        { status: 400 }
+        {
+          success: false,
+          error: 'Faltan datos legales de la empresa (payroll_config.company_legal_name, ss_account_code, company_tax_id).',
+        },
+        { status: 400 },
       )
     }
 

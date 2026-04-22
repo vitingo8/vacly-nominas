@@ -15,6 +15,15 @@ import type {
 } from '@/lib/calculadora'
 import { generatePayslipPDF } from '@/lib/generadores'
 import type { PayslipPDFData } from '@/lib/generadores'
+import {
+  resolveAgreementContext,
+  computeSeniorityAmount,
+  getExtraPaysForMonth,
+  computeProratedBonuses,
+  AgreementOutOfForceError,
+  AgreementNotAssignedError,
+  type AgreementContext,
+} from '@/lib/convenio'
 
 // ─── GET: List generated nominas with filters ─────────────────────────
 export async function GET(request: NextRequest) {
@@ -175,6 +184,13 @@ interface EmployeeGenerationInput {
   contractType: string
   fullTime: boolean
   workdayPercentage: number
+  // Opcional: permite override del contrato/centro
+  contractId?: string
+  province?: string
+  professionalCategory?: string
+  professionalGroup?: string
+  professionalLevel?: string
+  contractStartDate?: string
   variables: {
     workedDays: number
     overtimeHours: number
@@ -184,6 +200,28 @@ interface EmployeeGenerationInput {
     advances: number
     incentives: number
   }
+}
+
+type BonusMode = 'prorated' | 'integral'
+
+interface AgreementDerived {
+  context: AgreementContext
+  bonusMode: BonusMode
+  baseSalaryMonthly: number       // ajustado por parcialidad
+  seniorityAmount: number         // ajustado por parcialidad
+  seniorityPeriods: number
+  seniorityPercent: number
+  yearsOfService: number
+  // Modo 'prorated': suma mensual que entra como devengo salarial (otherSalaryAccruals)
+  // Modo 'integral': 0 siempre; la paga íntegra entra como bonusPayment en su mes
+  monthlyProratedBonuses: number
+  // Solo en modo 'integral' y solo si el mes coincide con la fecha de pago del convenio
+  integralBonusThisMonth: number
+  // Para base CC: solo se usa en modo 'integral' cuando no es mes de pago
+  bonusBaseCC: number
+  extraPayNames: string[]         // nombres de pagas que tocan este mes
+  allExtraPayNames: string[]      // nombres de todas las pagas del año (para modo prorrateado)
+  numberOfBonuses: number
 }
 
 interface GenerationRequest {
@@ -214,6 +252,92 @@ function mapContractType(type: string): TipoContrato {
 
 function getDaysInMonth(month: number, year: number): number {
   return new Date(year, month, 0).getDate()
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+function yearsBetween(startIso: string | null | undefined, refIso: string): number {
+  if (!startIso) return 0
+  const start = new Date(startIso)
+  const ref = new Date(refIso)
+  if (isNaN(start.getTime()) || isNaN(ref.getTime())) return 0
+  let years = ref.getFullYear() - start.getFullYear()
+  const m = ref.getMonth() - start.getMonth()
+  if (m < 0 || (m === 0 && ref.getDate() < start.getDate())) years--
+  return Math.max(0, years)
+}
+
+/**
+ * A partir del contrato activo, resuelve el contexto del convenio colectivo y
+ * deriva los importes concretos (base, antigüedad, prorrateo, paga extra del
+ * mes) ajustados por parcialidad. Devuelve null si el contrato no tiene
+ * `agreement_ref_id` (flujo legacy).
+ */
+async function deriveAgreementForContract(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  params: {
+    companyId: string
+    contract: any
+    partTimeCoefficient: number
+    periodStartIso: string
+    year: number
+    month: number
+    bonusMode: BonusMode
+  },
+): Promise<AgreementDerived | null> {
+  const contract = params.contract
+  if (!contract?.agreement_ref_id) return null
+
+  const province = contract.work_center_address
+    ? contract.work_center_address.split(',').slice(-1)[0].trim() || null
+    : null
+
+  const context = await resolveAgreementContext(supabase, {
+    companyId: params.companyId,
+    onDate: params.periodStartIso,
+    province: province ?? undefined,
+    year: params.year,
+    grupo: contract.cotization_group
+      ? `Grupo ${contract.cotization_group}`
+      : null,
+    nivel: null,
+    categoria: contract.professional_category ?? null,
+  })
+
+  const ftBase = context.salarioBaseMes ?? Number(contract.agreed_base_salary ?? 0)
+  const years = yearsBetween(contract.start_date, params.periodStartIso)
+  const sen = computeSeniorityAmount(context, years, ftBase)
+
+  const ftMonthlyBase = ftBase + sen.amount
+  // Prorrata anual / 12 (modo prorrateado); o prorrata para base CC en meses sin paga (modo íntegro)
+  const ftProratedMonthly = computeProratedBonuses(context, ftMonthlyBase)
+
+  const paysInMonth = getExtraPaysForMonth(context, params.month)
+  // Importe íntegro el mes declarado (base+antigüedad por cada paga)
+  const ftIntegralThisMonth = paysInMonth.length * ftMonthlyBase
+
+  const coef = Math.max(0, Math.min(1, params.partTimeCoefficient))
+  const isProrated = params.bonusMode === 'prorated'
+
+  return {
+    context,
+    bonusMode: params.bonusMode,
+    baseSalaryMonthly: round2(ftBase * coef),
+    seniorityAmount: round2(sen.amount * coef),
+    seniorityPeriods: sen.periodsCompleted,
+    seniorityPercent: sen.percentApplied,
+    yearsOfService: years,
+    monthlyProratedBonuses: isProrated ? round2(ftProratedMonthly * coef) : 0,
+    integralBonusThisMonth: !isProrated ? round2(ftIntegralThisMonth * coef) : 0,
+    // En modo íntegro, base CC incluye prorrata solo en meses SIN paga
+    bonusBaseCC:
+      !isProrated && paysInMonth.length === 0 ? round2(ftProratedMonthly * coef) : 0,
+    extraPayNames: paysInMonth.map((p) => p.name),
+    allExtraPayNames: context.extraPays.map((p) => p.name),
+    numberOfBonuses: context.numberOfBonuses,
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -267,35 +391,125 @@ export async function POST(request: NextRequest) {
 
     for (const emp of employees) {
       try {
+        const partTimeCoefficient = emp.fullTime
+          ? 1
+          : (emp.workdayPercentage || 100) / 100
+
+        // Cargar contrato activo (agreement_ref_id, professional_category, start_date, …)
+        let activeContract: any = null
+        if (emp.contractId) {
+          const { data: c } = await supabase
+            .from('contracts')
+            .select(
+              'id, agreement_ref_id, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary',
+            )
+            .eq('id', emp.contractId)
+            .maybeSingle()
+          activeContract = c
+        } else {
+          const { data: c } = await supabase
+            .from('contracts')
+            .select(
+              'id, agreement_ref_id, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary',
+            )
+            .eq('employee_id', emp.employeeId)
+            .eq('status', 'active')
+            .order('start_date', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          activeContract = c
+        }
+
+        // Override desde el input si el caller lo pasa explícitamente
+        if (emp.province && activeContract) activeContract.work_center_address = `${activeContract.work_center_address ?? ''}, ${emp.province}`
+        if (emp.professionalCategory && activeContract) activeContract.professional_category = emp.professionalCategory
+        if (emp.contractStartDate && activeContract) activeContract.start_date = emp.contractStartDate
+
+        // Modo de pagas extra: por ahora se infiere de la configuración de la empresa/contrato
+        // o se asume 'prorated' (modalidad más frecuente en España). Expuesto en payroll_config.
+        const bonusMode: BonusMode =
+          (payrollConfig?.annual_parameters as any)?.bonusMode === 'integral'
+            ? 'integral'
+            : 'prorated'
+
+        // Derivar del convenio (si existe agreement_ref_id)
+        let derived: AgreementDerived | null = null
+        try {
+          if (activeContract?.agreement_ref_id) {
+            derived = await deriveAgreementForContract(supabase, {
+              companyId,
+              contract: activeContract,
+              partTimeCoefficient,
+              periodStartIso: periodStart,
+              year,
+              month,
+              bonusMode,
+            })
+          }
+        } catch (convErr) {
+          if (convErr instanceof AgreementOutOfForceError) {
+            throw new Error(
+              `Convenio fuera de vigencia: ${convErr.message}. ` +
+              `Política ultraactividad = bloqueo. Revise fechas o asigne convenio vigente.`,
+            )
+          }
+          if (convErr instanceof AgreementNotAssignedError) {
+            // No bloquear: seguir con flujo legacy pero advertir
+            console.warn(`[generacion] ${convErr.message} → flujo legacy`)
+          } else {
+            throw convErr
+          }
+        }
+
+        // Valores efectivos (convenio prevalece sobre input manual)
+        const effectiveBase = derived?.baseSalaryMonthly ?? emp.baseSalaryMonthly
+        const effectiveFixed =
+          (emp.fixedComplements || 0) + (derived?.seniorityAmount ?? 0)
+        // Prorrata a base CC:
+        //  - Modo prorrateado: 0 (ya va como devengo mensual en otherSalaryAccruals)
+        //  - Modo íntegro: prorrata solo los meses sin paga (bonusBaseCC)
+        //  - Legacy sin convenio: usa lo que venga en input o cálculo por defecto
+        const effectiveProratedForCC = derived
+          ? derived.bonusBaseCC
+          : (emp.proratedBonuses || (emp.baseSalaryMonthly * 2) / 12)
+        const effectiveNumberOfBonuses =
+          derived?.numberOfBonuses ?? emp.numberOfBonuses ?? 2
+        // Devengo mensual de pagas extra (modo prorrateado)
+        const monthlyBonusAccrual = derived?.monthlyProratedBonuses ?? 0
+        // Pago íntegro este mes (modo íntegro)
+        const integralBonusPayment = derived?.integralBonusThisMonth ?? 0
+
         // Build EmployeePayrollInput
         const employeeInput: EmployeePayrollInput = {
-          baseSalaryMonthly: emp.baseSalaryMonthly,
+          baseSalaryMonthly: effectiveBase,
           cotizationGroup: (emp.cotizationGroup || 7) as GrupoCotizacion,
           irpfPercentage: emp.irpfPercentage || 0,
-          fixedComplements: emp.fixedComplements || 0,
-          proratedBonuses: emp.proratedBonuses || (emp.baseSalaryMonthly * 2) / 12,
-          numberOfBonuses: emp.numberOfBonuses || 2,
+          fixedComplements: effectiveFixed,
+          proratedBonuses: effectiveProratedForCC,
+          numberOfBonuses: effectiveNumberOfBonuses,
           contractType: mapContractType(emp.contractType),
           workdayType: emp.fullTime ? TipoJornada.COMPLETA : TipoJornada.PARCIAL,
-          partTimeCoefficient: emp.fullTime ? 1 : (emp.workdayPercentage || 100) / 100,
+          partTimeCoefficient,
         }
 
         // Build MonthlyVariablesInput
         const vars = emp.variables
         const monthlyVars: MonthlyVariablesInput = {
           calendarDaysInMonth: calendarDays,
-          workedDays: vars.workedDays ?? 30,
+          workedDays: vars.workedDays ?? calendarDays,
           overtimeHours: vars.overtimeHours || 0,
-          overtimeAmount: (vars.overtimeHours || 0) * (emp.baseSalaryMonthly / 30 / 8) * 1.25,
+          overtimeAmount: (vars.overtimeHours || 0) * (effectiveBase / 30 / 8) * 1.25,
           overtimeForceMajeureHours: 0,
           overtimeForceMajeureAmount: 0,
           accumulatedOvertimeHoursYear: 0,
           vacationDays: vars.vacationDays || 0,
           commissions: vars.commissions || 0,
           incentives: vars.incentives || 0,
-          bonusPayment: 0,
+          // Pago íntegro de paga extra este mes (modo íntegro)
+          bonusPayment: integralBonusPayment,
           advances: vars.advances || 0,
-          otherSalaryAccruals: 0,
+          // Prorrata mensual de pagas (modo prorrateado): entra como devengo salarial
+          otherSalaryAccruals: monthlyBonusAccrual,
           otherNonSalaryAccruals: 0,
           otherDeductions: 0,
         }
@@ -314,25 +528,49 @@ export async function POST(request: NextRequest) {
         // Calculate payslip
         const payslipResult = calculatePayslip(employeeInput, monthlyVars, config, month)
 
-        // Build perceptions array
-        const perceptions = [
+        // Build perceptions array (desglose línea a línea dirigido por convenio)
+        const manualFixedComplements = round2(
+          payslipResult.accruals.fixedComplements - (derived?.seniorityAmount ?? 0),
+        )
+        const perceptions: Array<{ concept: string; amount: number }> = [
           { concept: 'Salario Base', amount: payslipResult.accruals.baseSalary },
-          ...(payslipResult.accruals.fixedComplements > 0
-            ? [{ concept: 'Complementos Salariales', amount: payslipResult.accruals.fixedComplements }]
-            : []),
-          ...(payslipResult.accruals.commissions > 0
-            ? [{ concept: 'Comisiones', amount: payslipResult.accruals.commissions }]
-            : []),
-          ...(payslipResult.accruals.overtimeNormal > 0
-            ? [{ concept: 'Horas Extraordinarias', amount: payslipResult.accruals.overtimeNormal }]
-            : []),
-          ...(payslipResult.accruals.itCompanyBenefit > 0
-            ? [{ concept: 'IT Empresa', amount: payslipResult.accruals.itCompanyBenefit }]
-            : []),
-          ...(payslipResult.accruals.itSSBenefit > 0
-            ? [{ concept: 'IT Seg. Social', amount: payslipResult.accruals.itSSBenefit }]
-            : []),
         ]
+        if ((derived?.seniorityAmount ?? 0) > 0) {
+          perceptions.push({
+            concept: `Antigüedad (${derived!.seniorityPeriods}×${derived!.context.seniority?.periodYears ?? 3}a · ${derived!.seniorityPercent}%)`,
+            amount: derived!.seniorityAmount,
+          })
+        }
+        if (manualFixedComplements > 0) {
+          perceptions.push({ concept: 'Complementos Salariales', amount: manualFixedComplements })
+        }
+        if (payslipResult.accruals.commissions > 0) {
+          perceptions.push({ concept: 'Comisiones', amount: payslipResult.accruals.commissions })
+        }
+        if (payslipResult.accruals.overtimeNormal > 0) {
+          perceptions.push({ concept: 'Horas Extraordinarias', amount: payslipResult.accruals.overtimeNormal })
+        }
+        if (derived && derived.bonusMode === 'prorated' && derived.monthlyProratedBonuses > 0 && derived.allExtraPayNames.length > 0) {
+          // Prorrateo mensual: una línea por cada paga, todas con el mismo importe
+          const perPay = round2(derived.monthlyProratedBonuses / derived.allExtraPayNames.length)
+          for (const name of derived.allExtraPayNames) {
+            perceptions.push({ concept: `EX.${name.toUpperCase()}`, amount: perPay })
+          }
+        } else if (derived && derived.bonusMode === 'integral' && derived.integralBonusThisMonth > 0 && derived.extraPayNames.length > 0) {
+          // Pago íntegro este mes
+          const perPay = round2(derived.integralBonusThisMonth / derived.extraPayNames.length)
+          for (const name of derived.extraPayNames) {
+            perceptions.push({ concept: `Paga Extraordinaria ${name}`, amount: perPay })
+          }
+        } else if (payslipResult.accruals.bonusPayment > 0) {
+          perceptions.push({ concept: 'Paga Extraordinaria', amount: payslipResult.accruals.bonusPayment })
+        }
+        if (payslipResult.accruals.itCompanyBenefit > 0) {
+          perceptions.push({ concept: 'IT Empresa', amount: payslipResult.accruals.itCompanyBenefit })
+        }
+        if (payslipResult.accruals.itSSBenefit > 0) {
+          perceptions.push({ concept: 'IT Seg. Social', amount: payslipResult.accruals.itSSBenefit })
+        }
 
         // Build deductions array
         const deductions = [
@@ -384,10 +622,36 @@ export async function POST(request: NextRequest) {
             workerDeductions: payslipResult.workerDeductions,
             companyDeductions: payslipResult.companyDeductions,
             itDetail: payslipResult.itDetail,
-            warnings: payslipResult.warnings,
+            warnings: [
+              ...payslipResult.warnings,
+              ...(derived?.context.warnings ?? []),
+            ],
+            agreement: derived
+              ? {
+                  agreement_id: derived.context.lookup.agreementId,
+                  province: derived.context.province,
+                  effective_from: derived.context.lookup.effectiveFrom,
+                  effective_to: derived.context.lookup.effectiveTo,
+                  full_time_base: derived.context.salarioBaseMes,
+                  part_time_coef: partTimeCoefficient,
+                  bonus_mode: derived.bonusMode,
+                  seniority: {
+                    period_years: derived.context.seniority?.periodYears ?? null,
+                    percent_per_period: derived.context.seniority?.percent ?? null,
+                    years_of_service: derived.yearsOfService,
+                    periods_completed: derived.seniorityPeriods,
+                    percent_applied: derived.seniorityPercent,
+                  },
+                  extra_pays_year: derived.context.extraPays,
+                  number_of_bonuses: derived.numberOfBonuses,
+                  extra_pays_this_month: derived.extraPayNames,
+                  monthly_prorated_bonuses: derived.monthlyProratedBonuses,
+                  integral_bonus_this_month: derived.integralBonusThisMonth,
+                }
+              : null,
           },
           dni: emp.dni,
-          document_name: `Nomina_${emp.employeeName.replace(/\s+/g, '_')}_${String(month).padStart(2, '0')}_${year}`,
+          // document_name se define tras la inserción con la ruta real del PDF en Storage
         }
 
         const { data: savedNomina, error: saveError } = await supabase
@@ -403,6 +667,11 @@ export async function POST(request: NextRequest) {
         // Generate PDF payslip
         let pdfUrl: string | null = null
         try {
+          // Extraer código IBAN en "entidad + cuenta" estilo español (BBBB CCCC DD NNNNNNNNNN)
+          const rawIban = (emp.iban || '').replace(/\s+/g, '')
+          const bankEntity = rawIban.length >= 8 ? rawIban.slice(4, 8) : ''
+          const bankAccount = rawIban.length >= 24 ? rawIban.slice(10) : rawIban
+
           // Prepare data for PDF generator
           const pdfData: PayslipPDFData = {
             company: {
@@ -415,12 +684,18 @@ export async function POST(request: NextRequest) {
               name: emp.employeeName,
               nif: emp.dni,
               nss: emp.ssNumber,
-              category: 'Empleado',
+              category: activeContract?.professional_category
+                ?? derived?.context.province
+                ?? 'Empleado',
               cotizationGroup: emp.cotizationGroup,
+              startDate: activeContract?.start_date ?? undefined,
+              address: undefined, // no tenemos domicilio del empleado en el POST
+              job: activeContract?.professional_category ?? undefined,
+              cnoCode: activeContract?.occupation_code ?? undefined,
             },
             periodStart,
             periodEnd,
-            workedDays: vars.workedDays ?? 30,
+            workedDays: vars.workedDays ?? calendarDays,
             totalDays: calendarDays,
             salaryAccruals: perceptions.map((p, idx) => ({
               code: String(idx + 1).padStart(3, '0'),
@@ -448,18 +723,33 @@ export async function POST(request: NextRequest) {
             baseCP: payslipResult.bases.baseCP,
             baseIRPF: payslipResult.accruals.totalAccruals,
             irpfRate: emp.irpfPercentage,
-            iban: emp.iban || '',
+            // Desglose de la base CC para la sección "Determinación bases"
+            remuneracionMensualCC:
+              payslipResult.bases.baseCC - (effectiveProratedForCC + monthlyBonusAccrual),
+            prorrataPagasCC: effectiveProratedForCC + monthlyBonusAccrual,
+            iban: rawIban,
+            bankEntity,
+            bankAccount,
             issueDate: new Date().toISOString().split('T')[0],
+            issuePlace: (companyData?.address as string || '').split(',').slice(-1)[0]?.trim() || undefined,
           }
 
           // Generate PDF
           const pdfBytes = await generatePayslipPDF(pdfData)
-          
-          // Upload to Supabase Storage
-          const pdfFilename = `nominas/${companyId}/${year}/${String(month).padStart(2, '0')}/${savedNomina.id}.pdf`
+
+          // Upload to Supabase Storage — bucket unificado 'Nominas' (coherente
+          // con app/page.tsx y api/upload). La ruta del objeto coincide con
+          // document_name para que createSignedUrl(document_name) funcione.
+          const safeName = emp.employeeName
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '')
+          const pdfObjectPath = `${companyId}/${year}/${String(month).padStart(2, '0')}/Nomina_${safeName}_${String(month).padStart(2, '0')}_${year}_${savedNomina.id}.pdf`
+
           const { error: uploadError } = await supabase.storage
-            .from('documents')
-            .upload(pdfFilename, pdfBytes, {
+            .from('Nominas')
+            .upload(pdfObjectPath, pdfBytes, {
               contentType: 'application/pdf',
               upsert: true,
             })
@@ -467,17 +757,15 @@ export async function POST(request: NextRequest) {
           if (uploadError) {
             console.error('Error uploading PDF:', uploadError)
           } else {
-            // Get public URL
             const { data: urlData } = supabase.storage
-              .from('documents')
-              .getPublicUrl(pdfFilename)
-            
+              .from('Nominas')
+              .getPublicUrl(pdfObjectPath)
+
             pdfUrl = urlData.publicUrl
 
-            // Update nomina with PDF URL
             await supabase
               .from('nominas')
-              .update({ pdf_url: pdfUrl })
+              .update({ pdf_url: pdfUrl, document_name: pdfObjectPath })
               .eq('id', savedNomina.id)
           }
         } catch (pdfError) {
