@@ -7,7 +7,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   // Paquete compartido del monorepo (ver packages/payroll-core)
   transpilePackages: ['@vacly/payroll-core'],
-  outputFileTracingRoot: path.resolve(__dirname, '..'),
   // Disable ESLint during build to avoid blocking on warnings
   eslint: {
     ignoreDuringBuilds: true,
@@ -102,7 +101,16 @@ const nextConfig = {
   //   
   //   return config;
   // },
-  
+
+  webpack: (config) => {
+    const payrollSrc = path.resolve(__dirname, '..', 'packages', 'payroll-core', 'src');
+    config.resolve.alias['@vacly/payroll-core/resolver'] = path.join(payrollSrc, 'resolver', 'index.ts');
+    config.resolve.alias['@vacly/payroll-core/calculadora'] = path.join(payrollSrc, 'calculadora', 'index.ts');
+    config.resolve.alias['@vacly/payroll-core/types'] = path.join(payrollSrc, 'types.ts');
+    config.resolve.alias['@vacly/payroll-core'] = path.join(payrollSrc, 'index.ts');
+    return config;
+  },
+
 };
 
 export default nextConfig; 
