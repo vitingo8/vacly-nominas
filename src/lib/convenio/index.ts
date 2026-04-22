@@ -3,6 +3,7 @@ export type {
   SeniorityRule,
   ExtraPay,
   Plus,
+  LicenciaRetribuida,
   AgreementContext,
   ResolveAgreementInput,
 } from './resolver';
@@ -15,6 +16,7 @@ export {
   fetchSeniorityRule,
   fetchExtraPays,
   fetchPluses,
+  fetchLicencias,
   resolveAgreementContext,
   computeSeniorityAmount,
   extractPaymentMonth,

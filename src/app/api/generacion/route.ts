@@ -99,35 +99,31 @@ export async function GET(request: NextRequest) {
 
       console.log(`[load_employees] Loaded ${employees?.length || 0} employees`)
 
-      // Resuelve el convenio activo de la empresa para poder completar datos
-      // de empleados sin contrato (sin mocks: sólo si hay convenio asignado).
+      // Resuelve el convenio activo de la empresa usando los RPCs v3 directos
+      // sobre public.company_convenios + v3_docs.
       let companyAgreementId: string | null = null
       let companyAgreementDefaults: any = null
       let agreementDefaultBase = 0
       try {
-        const { data: agrRows } = await (supabase as any).rpc('fn_agreement_for_company', {
+        const { data: agrRows } = await (supabase as any).rpc('fn_v3_agreement_for_company', {
           p_company_id: companyId,
           p_on_date: new Date().toISOString().slice(0, 10),
         })
-        companyAgreementId = (Array.isArray(agrRows) ? agrRows[0]?.agreement_id : agrRows?.agreement_id) || null
+        const row = Array.isArray(agrRows) ? agrRows[0] : agrRows
+        companyAgreementId = row?.doc_id ?? row?.agreement_id ?? null
         if (companyAgreementId) {
-          const { data: defRows } = await (supabase as any).rpc('fn_agreement_defaults', {
-            p_agreement_id: companyAgreementId,
-          })
-          companyAgreementDefaults = Array.isArray(defRows) ? defRows[0] : defRows
-          // Base salarial orientativa (para preview client-side) a partir de la
-          // categoría y grupo por defecto del convenio. Se recalcula realmente
-          // en POST con fn_resolve_salary_base + parcialidad.
+          companyAgreementDefaults = {
+            province: row?.default_province ?? null,
+            doc_id: companyAgreementId,
+          }
           try {
-            const { data: baseVal } = await (supabase as any).rpc('fn_resolve_salary_base', {
-              p_agreement_id: companyAgreementId,
+            const { data: baseVal } = await (supabase as any).rpc('fn_v3_resolve_salary_base', {
+              p_doc_id: companyAgreementId,
               p_province: companyAgreementDefaults?.province ?? null,
               p_year: new Date().getFullYear(),
-              p_grupo: companyAgreementDefaults?.default_cotization_group
-                ? `Grupo ${companyAgreementDefaults.default_cotization_group}`
-                : null,
+              p_grupo: null,
               p_nivel: null,
-              p_categoria: companyAgreementDefaults?.default_professional_category ?? null,
+              p_categoria: null,
             })
             agreementDefaultBase = Number(baseVal ?? 0) || 0
           } catch (_) {
@@ -135,7 +131,7 @@ export async function GET(request: NextRequest) {
           }
         }
       } catch (agrErr) {
-        console.warn('[load_employees] Could not resolve company agreement:', agrErr)
+        console.warn('[load_employees] Could not resolve company agreement (v3):', agrErr)
       }
 
       // Todos los empleados aparecen en la tabla: el flag hasActiveContract
@@ -320,6 +316,20 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
+// SMI (Salario Mínimo Interprofesional) anual en €/mes (14 pagas).
+// Fuente: RD anuales. Ajustable desde payroll_config.annual_parameters.smiMonthly.
+const SMI_MONTHLY: Record<number, number> = {
+  2023: 1080,
+  2024: 1134,
+  2025: 1184,
+  2026: 1240, // orientativo hasta publicación del RD
+}
+
+function getSmi(year: number, override?: number | null): number {
+  if (override && override > 0) return override
+  return SMI_MONTHLY[year] ?? SMI_MONTHLY[2025]
+}
+
 function yearsBetween(startIso: string | null | undefined, refIso: string): number {
   if (!startIso) return 0
   const start = new Date(startIso)
@@ -352,12 +362,14 @@ async function deriveAgreementForContract(
 ): Promise<AgreementDerived | null> {
   const contract = params.contract
   if (!contract) return null
-  // Si no hay agreement_ref_id en el contrato, dejamos que resolveAgreementContext
-  // resuelva el convenio activo de la empresa (flujo sin contrato explícito).
 
-  const province = contract.work_center_address
-    ? contract.work_center_address.split(',').slice(-1)[0].trim() || null
-    : null
+  // Provincia: preferimos el nuevo campo `convenio_province`; fallback al
+  // último segmento de la dirección del centro de trabajo.
+  const province =
+    (contract.convenio_province as string | null) ??
+    (contract.work_center_address
+      ? contract.work_center_address.split(',').slice(-1)[0].trim() || null
+      : null)
 
   const context = await resolveAgreementContext(supabase, {
     companyId: params.companyId,
@@ -487,21 +499,19 @@ export async function POST(request: NextRequest) {
 
         // Cargar contrato activo (agreement_ref_id, professional_category, start_date, …)
         let activeContract: any = null
+        const contractSelect =
+          'id, agreement_ref_id, convenio_doc_id, convenio_province, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary, occupation_code'
         if (emp.contractId) {
           const { data: c } = await supabase
             .from('contracts')
-            .select(
-              'id, agreement_ref_id, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary, occupation_code',
-            )
+            .select(contractSelect)
             .eq('id', emp.contractId)
             .maybeSingle()
           activeContract = c
         } else {
           const { data: c } = await supabase
             .from('contracts')
-            .select(
-              'id, agreement_ref_id, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary, occupation_code',
-            )
+            .select(contractSelect)
             .eq('employee_id', emp.employeeId)
             .eq('status', 'active')
             .order('start_date', { ascending: false })
@@ -516,16 +526,18 @@ export async function POST(request: NextRequest) {
         let isVirtualContract = false
         if (!activeContract) {
           try {
-            const { data: agrRows } = await (supabase as any).rpc('fn_agreement_for_company', {
+            const { data: agrRows } = await (supabase as any).rpc('fn_v3_agreement_for_company', {
               p_company_id: companyId,
               p_on_date: periodStart,
             })
-            const agreementId = (Array.isArray(agrRows) ? agrRows[0]?.agreement_id : agrRows?.agreement_id) || null
+            const row = Array.isArray(agrRows) ? agrRows[0] : agrRows
+            const agreementId = row?.doc_id ?? row?.agreement_id ?? null
             if (agreementId) {
-              const { data: defRows } = await (supabase as any).rpc('fn_agreement_defaults', {
-                p_agreement_id: agreementId,
-              })
-              const defaults = Array.isArray(defRows) ? defRows[0] : defRows
+              const defaults = {
+                province: row?.default_province ?? null,
+                default_cotization_group: null,
+                default_professional_category: null,
+              }
               // Datos del empleado (position / sede / entry_date) para no caer en valores por defecto.
               const { data: empRow } = await supabase
                 .from('employees')
@@ -536,6 +548,8 @@ export async function POST(request: NextRequest) {
               activeContract = {
                 id: null,
                 agreement_ref_id: agreementId,
+                convenio_doc_id: agreementId,
+                convenio_province: defaults?.province ?? null,
                 cotization_group: comp.cotizationGroup
                   ?? emp.cotizationGroup
                   ?? defaults?.default_cotization_group
@@ -580,7 +594,7 @@ export async function POST(request: NextRequest) {
         // Derivar del convenio (contrato real o virtual basado en convenio)
         let derived: AgreementDerived | null = null
         try {
-          if (activeContract?.agreement_ref_id) {
+          if (activeContract?.convenio_doc_id || activeContract?.agreement_ref_id) {
             derived = await deriveAgreementForContract(supabase, {
               companyId,
               contract: activeContract,
@@ -608,6 +622,52 @@ export async function POST(request: NextRequest) {
 
         // Valores efectivos (convenio prevalece sobre input manual)
         const effectiveBase = derived?.baseSalaryMonthly ?? emp.baseSalaryMonthly
+
+        // SMI check: aviso si la base (proporcional a parcialidad) queda por
+        // debajo del SMI anual en €/mes. No bloquea la generación pero se
+        // adjunta a warnings y a calculation_details.smi_check.
+        const smiMonthly = getSmi(year, (payrollConfig?.annual_parameters as any)?.smiMonthly)
+        const smiThreshold = round2(smiMonthly * partTimeCoefficient)
+        const smiWarning =
+          effectiveBase > 0 && effectiveBase < smiThreshold
+            ? `Salario base (${effectiveBase.toFixed(2)} €) < SMI ${year} (${smiThreshold.toFixed(2)} €/mes al ${(partTimeCoefficient * 100).toFixed(0)}% jornada)`
+            : null
+
+        // Annual diff: comparamos con la nómina anterior del mismo empleado
+        // y marcamos conceptos que cambien de año. Lo usa la UI para resaltar
+        // cambios anuales (color) en los conceptos retribuidos.
+        let annualDiff: { changedConcepts: string[]; prevYear: number | null } = {
+          changedConcepts: [],
+          prevYear: null,
+        }
+        try {
+          const { data: prevNomina } = await supabase
+            .from('nominas')
+            .select('perceptions, period_start')
+            .eq('company_id', companyId)
+            .eq('employee_id', emp.employeeId)
+            .lt('period_start', periodStart)
+            .order('period_start', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          const prev = (prevNomina as any)?.perceptions as
+            | Array<{ concept: string; amount: number }>
+            | undefined
+          const prevDate = (prevNomina as any)?.period_start
+          if (prev && prevDate) {
+            const prevYear = new Date(prevDate).getFullYear()
+            if (prevYear < year) {
+              annualDiff.prevYear = prevYear
+              // Marca todos los conceptos salariales que cambian de importe vs. año anterior
+              // (esto permite al UI colorearlos como "cambio anual").
+              // Se rellena después de construir `perceptions`.
+              ;(annualDiff as any).__prev = prev
+            }
+          }
+        } catch (_) {
+          // silent
+        }
+
         const effectiveFixed =
           (emp.fixedComplements || 0) + (derived?.seniorityAmount ?? 0)
         // Prorrata a base CC:
@@ -717,6 +777,21 @@ export async function POST(request: NextRequest) {
           perceptions.push({ concept: 'IT Seg. Social', amount: payslipResult.accruals.itSSBenefit })
         }
 
+        // Rellenar annualDiff.changedConcepts comparando con la nómina anterior.
+        const prev = (annualDiff as any).__prev as
+          | Array<{ concept: string; amount: number }>
+          | undefined
+        if (prev) {
+          const prevMap = new Map(prev.map((p) => [p.concept, p.amount]))
+          for (const p of perceptions) {
+            const was = prevMap.get(p.concept)
+            if (was != null && Math.abs(was - p.amount) > 0.01) {
+              annualDiff.changedConcepts.push(p.concept)
+            }
+          }
+          delete (annualDiff as any).__prev
+        }
+
         // Build deductions array
         const deductions = [
           { concept: 'Contingencias Comunes', rate: config.workerRates.contingenciasComunes, amount: payslipResult.workerDeductions.contingenciasComunes },
@@ -770,12 +845,22 @@ export async function POST(request: NextRequest) {
             warnings: [
               ...payslipResult.warnings,
               ...(derived?.context.warnings ?? []),
+              ...(smiWarning ? [smiWarning] : []),
             ],
+            smi_check: {
+              year,
+              smi_monthly: smiMonthly,
+              threshold_part_time: smiThreshold,
+              effective_base: effectiveBase,
+              below_smi: !!smiWarning,
+            },
+            annual_diff: annualDiff,
             virtual_contract: isVirtualContract,
             contract_id: activeContract?.id ?? null,
             agreement: derived
               ? {
-                  agreement_id: derived.context.lookup.agreementId,
+                  agreement_id: derived.context.lookup.assignmentId,
+                  doc_id: derived.context.lookup.docId,
                   province: derived.context.province,
                   effective_from: derived.context.lookup.effectiveFrom,
                   effective_to: derived.context.lookup.effectiveTo,

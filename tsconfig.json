@@ -19,7 +19,11 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@vacly/payroll-core": ["../packages/payroll-core/src/index.ts"],
+      "@vacly/payroll-core/*": ["../packages/payroll-core/src/*"],
+      "@vacly/ui": ["../packages/ui/src/index.ts"],
+      "@vacly/ui/*": ["../packages/ui/src/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

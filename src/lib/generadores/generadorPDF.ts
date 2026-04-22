@@ -365,32 +365,40 @@ export async function generatePayslipPDF(data: PayslipPDFData): Promise<Uint8Arr
   drawBorder(page, xL, y - gridH, halfW + 2, gridH);
   drawBorder(page, xL + halfW + 2, y - gridH, halfW + 2, gridH);
 
-  // Filas izquierda (salariales)
+  // Filas izquierda (salariales) — con código numérico 001/002/… como en el modelo oficial
   let rowY = y - rowH;
-  for (const line of data.salaryAccruals) {
-    drawLabelValue(
+  data.salaryAccruals.forEach((line, idx) => {
+    if (rowY < y - gridH + 4) return;
+    const code = String(idx + 1).padStart(3, '0');
+    drawText(page, code, xL + 4, rowY, fReg, FONT.tiny, C.midGray);
+    drawText(
       page,
-      truncate(line.concept, fReg, FONT.normal, halfW - 55),
-      fmtMoney(line.amount),
-      xL + 4, rowY, halfW - 6,
-      fReg, FONT.normal,
+      truncate(line.concept, fReg, FONT.normal, halfW - 75),
+      xL + 22,
+      rowY,
+      fReg,
+      FONT.normal,
     );
+    drawTextRight(page, fmtMoney(line.amount), xL + halfW - 2, rowY, fReg, FONT.normal);
     rowY -= rowH;
-    if (rowY < y - gridH + 4) break;
-  }
+  });
   // Filas derecha (no salariales)
   rowY = y - rowH;
-  for (const line of data.nonSalaryAccruals) {
-    drawLabelValue(
+  data.nonSalaryAccruals.forEach((line, idx) => {
+    if (rowY < y - gridH + 4) return;
+    const code = String(100 + idx + 1).padStart(3, '0');
+    drawText(page, code, xL + halfW + 6, rowY, fReg, FONT.tiny, C.midGray);
+    drawText(
       page,
-      truncate(line.concept, fReg, FONT.normal, halfW - 55),
-      fmtMoney(line.amount),
-      xL + halfW + 6, rowY, halfW - 6,
-      fReg, FONT.normal,
+      truncate(line.concept, fReg, FONT.normal, halfW - 75),
+      xL + halfW + 24,
+      rowY,
+      fReg,
+      FONT.normal,
     );
+    drawTextRight(page, fmtMoney(line.amount), xR - 4, rowY, fReg, FONT.normal);
     rowY -= rowH;
-    if (rowY < y - gridH + 4) break;
-  }
+  });
 
   y -= gridH;
 
@@ -426,14 +434,23 @@ export async function generatePayslipPDF(data: PayslipPDFData): Promise<Uint8Arr
   drawBorder(page, xL, y - dedGridH, W, dedGridH);
 
   rowY = y - dedRowH;
-  for (const d of data.deductions) {
-    drawText(page, truncate(d.concept, fReg, FONT.normal, dedColBaseX - xL - 10), xL + 4, rowY, fReg, FONT.normal);
+  data.deductions.forEach((d, idx) => {
+    if (rowY < y - dedGridH + 4) return;
+    const code = String(idx + 1).padStart(3, '0');
+    drawText(page, code, xL + 4, rowY, fReg, FONT.tiny, C.midGray);
+    drawText(
+      page,
+      truncate(d.concept, fReg, FONT.normal, dedColBaseX - xL - 30),
+      xL + 22,
+      rowY,
+      fReg,
+      FONT.normal,
+    );
     if (d.base > 0) drawTextRight(page, fmtMoney(d.base), dedColBaseX + 50, rowY, fReg, FONT.normal, C.darkGray);
     if (d.rate > 0) drawTextRight(page, fmtRate(d.rate), dedColRateX + 35, rowY, fReg, FONT.normal, C.darkGray);
     drawTextRight(page, fmtMoney(d.amount), dedColImporteX, rowY, fReg, FONT.normal);
     rowY -= dedRowH;
-    if (rowY < y - dedGridH + 4) break;
-  }
+  });
 
   y -= dedGridH;
 
