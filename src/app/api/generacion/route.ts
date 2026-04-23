@@ -790,45 +790,66 @@ export async function POST(request: NextRequest) {
         const manualFixedComplements = round2(
           payslipResult.accruals.fixedComplements - (derived?.seniorityAmount ?? 0),
         )
+        // ── Percepciones salariales: siempre se incluyen todas las líneas, aunque sean 0 ──
         const perceptions: Array<{ concept: string; amount: number }> = [
           { concept: 'Salario Base', amount: payslipResult.accruals.baseSalary },
+          { concept: 'Horas Extraordinarias', amount: payslipResult.accruals.overtimeNormal },
+          { concept: 'Gratificaciones Extraordinarias', amount: payslipResult.accruals.bonusPayment },
+          { concept: 'Salario en especie', amount: 0 },
         ]
+        // Complementos fijos: antigüedad primero (si existe), luego el resto
         if ((derived?.seniorityAmount ?? 0) > 0) {
           perceptions.push({
-            concept: `Antigüedad (${derived!.seniorityPeriods}×${derived!.context.seniority?.periodYears ?? 3}a · ${derived!.seniorityPercent}%)`,
+            concept: `ANTIGÜEDAD (${derived!.seniorityPeriods}×${derived!.context.seniority?.periodYears ?? 3}a · ${derived!.seniorityPercent}%)`,
             amount: derived!.seniorityAmount,
           })
-        }
-        if (manualFixedComplements > 0) {
+          const restComplements = manualFixedComplements - derived!.seniorityAmount
+          if (restComplements > 0.01) {
+            perceptions.push({ concept: 'Complementos Salariales', amount: round2(restComplements) })
+          }
+        } else if (manualFixedComplements > 0) {
           perceptions.push({ concept: 'Complementos Salariales', amount: manualFixedComplements })
+        } else {
+          perceptions.push({ concept: 'Complementos Salariales', amount: 0 })
         }
-        if (payslipResult.accruals.commissions > 0) {
-          perceptions.push({ concept: 'Comisiones', amount: payslipResult.accruals.commissions })
-        }
-        if (payslipResult.accruals.overtimeNormal > 0) {
-          perceptions.push({ concept: 'Horas Extraordinarias', amount: payslipResult.accruals.overtimeNormal })
-        }
-        if (derived && derived.bonusMode === 'prorated' && derived.monthlyProratedBonuses > 0 && derived.allExtraPayNames.length > 0) {
-          // Prorrateo mensual: una línea por cada paga, todas con el mismo importe
+        // Pagas extra: una línea por cada paga o prorrateo mensual
+        if (derived && derived.bonusMode === 'prorated' && derived.allExtraPayNames.length > 0) {
           const perPay = round2(derived.monthlyProratedBonuses / derived.allExtraPayNames.length)
           for (const name of derived.allExtraPayNames) {
             perceptions.push({ concept: `EX.${name.toUpperCase()}`, amount: perPay })
           }
-        } else if (derived && derived.bonusMode === 'integral' && derived.integralBonusThisMonth > 0 && derived.extraPayNames.length > 0) {
-          // Pago íntegro este mes
+        } else if (derived && derived.bonusMode === 'integral' && derived.extraPayNames.length > 0) {
           const perPay = round2(derived.integralBonusThisMonth / derived.extraPayNames.length)
           for (const name of derived.extraPayNames) {
             perceptions.push({ concept: `Paga Extraordinaria ${name}`, amount: perPay })
           }
-        } else if (payslipResult.accruals.bonusPayment > 0) {
-          perceptions.push({ concept: 'Paga Extraordinaria', amount: payslipResult.accruals.bonusPayment })
+        }
+        if (payslipResult.accruals.commissions > 0) {
+          perceptions.push({ concept: 'Comisiones', amount: payslipResult.accruals.commissions })
         }
         if (payslipResult.accruals.itCompanyBenefit > 0) {
-          perceptions.push({ concept: 'IT Empresa', amount: payslipResult.accruals.itCompanyBenefit })
+          perceptions.push({ concept: 'IT – Empresa', amount: payslipResult.accruals.itCompanyBenefit })
         }
         if (payslipResult.accruals.itSSBenefit > 0) {
-          perceptions.push({ concept: 'IT Seg. Social', amount: payslipResult.accruals.itSSBenefit })
+          perceptions.push({ concept: 'IT – Seg. Social', amount: payslipResult.accruals.itSSBenefit })
         }
+        if (payslipResult.accruals.otherSalaryAccruals > 0) {
+          perceptions.push({ concept: 'Otros devengos salariales', amount: payslipResult.accruals.otherSalaryAccruals })
+        }
+
+        // ── Percepciones no salariales: siempre todas las líneas ──
+        const nonSalaryPerceptions: Array<{ concept: string; amount: number }> = [
+          { concept: 'Indemnizaciones o suplidos', amount: 0 },
+          { concept: 'Prestaciones e ind. de la Seg. Soc.', amount: 0 },
+          { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
+          {
+            concept: 'Otras percepciones no salariales',
+            amount: round2(
+              (payslipResult.accruals.nonSalaryComplements ?? 0) +
+              (payslipResult.accruals.otherNonSalaryAccruals ?? 0)
+            ),
+          },
+        ]
 
         // Rellenar annualDiff.changedConcepts comparando con la nómina anterior.
         const prev = (annualDiff as any).__prev as
@@ -986,7 +1007,11 @@ export async function POST(request: NextRequest) {
               concept: p.concept,
               amount: p.amount,
             })),
-            nonSalaryAccruals: [],
+            nonSalaryAccruals: nonSalaryPerceptions.map((p, idx) => ({
+              code: String(101 + idx).padStart(3, '0'),
+              concept: p.concept,
+              amount: p.amount,
+            })),
             deductions: deductions.map((d, idx) => ({
               code: String(idx + 1).padStart(3, '0'),
               concept: d.concept,

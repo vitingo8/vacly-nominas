@@ -1526,12 +1526,36 @@ function GeneracionContent() {
       {/* DIALOG: Vista Previa de Nómina (pre-generación)               */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <Dialog open={!!previewEmployee} onOpenChange={(open) => !open && setPreviewEmployee(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
           {previewEmployee?.payslipResult && (() => {
             const r = previewEmployee.payslipResult
-            const accruals = r.accruals
-            const deductions = r.workerDeductions
-            const ss = r.companyDeductions
+            const a = r.accruals
+            const wd = r.workerDeductions
+            const cd = r.companyDeductions
+
+            // ── Líneas percepciones salariales (siempre todas, aunque sean 0) ──
+            const salaryLines: Array<{ concept: string; amount: number }> = [
+              { concept: 'Salario Base', amount: a.baseSalary },
+              { concept: 'Horas extraordinarias', amount: a.overtimeNormal },
+              { concept: 'Gratificaciones extraordinarias', amount: a.bonusPayment },
+              { concept: 'Salario en especie', amount: 0 },
+              { concept: 'Complementos salariales', amount: a.fixedComplements },
+              { concept: 'Prorrata pagas extra', amount: a.proratedBonuses },
+              { concept: 'Comisiones / Incentivos', amount: a.commissions + a.incentives },
+              { concept: 'IT – Empresa', amount: a.itCompanyBenefit },
+              { concept: 'IT – Seg. Social', amount: a.itSSBenefit },
+              { concept: 'Otros devengos salariales', amount: a.otherSalaryAccruals },
+            ]
+            // ── Líneas percepciones no salariales (siempre todas) ──
+            const nonSalaryLines: Array<{ concept: string; amount: number }> = [
+              { concept: 'Indemnizaciones o suplidos', amount: 0 },
+              { concept: 'Prestaciones e ind. de la Seg. Soc.', amount: 0 },
+              { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
+              { concept: 'Otras percepciones no salariales', amount: a.nonSalaryComplements + a.otherNonSalaryAccruals },
+            ]
+
+            const fmt = (v: number) => v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
             return (
               <>
                 <DialogHeader>
@@ -1544,129 +1568,125 @@ function GeneracionContent() {
                   </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-5 mt-4">
-                  {/* Summary */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-lg bg-slate-50 p-3 text-center">
-                      <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Salario Base</p>
-                      <p className="text-base font-bold tabular-nums mt-0.5">{formatCurrency(previewEmployee.baseSalary)}</p>
-                    </div>
-                    <div className="rounded-lg bg-slate-50 p-3 text-center">
-                      <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Total Bruto</p>
-                      <p className="text-base font-bold tabular-nums mt-0.5 text-[#1B2A41]">{formatCurrency(accruals.totalAccruals)}</p>
-                    </div>
-                    <div className="rounded-lg bg-emerald-50 p-3 text-center">
-                      <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Neto a Percibir</p>
-                      <p className="text-base font-bold tabular-nums mt-0.5 text-emerald-700">{formatCurrency(r.netSalary)}</p>
-                    </div>
+                <div className="space-y-2 mt-3 font-mono text-xs">
+
+                  {/* ── Cabecera empleado ── */}
+                  <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 border rounded p-2 font-sans">
+                    <div><span className="text-muted-foreground">Empleado: </span><span className="font-medium">{previewEmployee.name}</span></div>
+                    <div><span className="text-muted-foreground">NIF: </span><span className="font-medium">{previewEmployee.nif || '—'}</span></div>
+                    <div><span className="text-muted-foreground">NSS: </span><span className="font-medium">{previewEmployee.ssNumber || '—'}</span></div>
+                    <div><span className="text-muted-foreground">Grupo cotiz.: </span><span className="font-medium">{previewEmployee.cotizationGroup}</span></div>
+                    <div><span className="text-muted-foreground">Período: </span><span className="font-medium">{MONTH_NAMES[selectedMonth - 1]} {selectedYear}</span></div>
+                    <div><span className="text-muted-foreground">IRPF: </span><span className="font-medium">{previewEmployee.irpfPercentage}%</span></div>
                   </div>
 
-                  {/* Devengos */}
-                  <div>
-                    <h4 className="text-sm font-semibold mb-2 text-[#1B2A41]">Devengos</h4>
-                    <div className="border rounded-lg overflow-hidden">
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {accruals.baseSalary > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Salario base</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(accruals.baseSalary)}</td></tr>
-                          )}
-                          {accruals.fixedComplements > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Complementos fijos</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(accruals.fixedComplements)}</td></tr>
-                          )}
-                          {accruals.proratedBonuses > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Prorrata pagas extra</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(accruals.proratedBonuses)}</td></tr>
-                          )}
-                          {accruals.overtimeNormal > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Horas extra</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(accruals.overtimeNormal)}</td></tr>
-                          )}
-                          {accruals.commissions > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Comisiones</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(accruals.commissions)}</td></tr>
-                          )}
-                          {accruals.itCompanyBenefit > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">IT / Incapacidad temporal</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(accruals.itCompanyBenefit)}</td></tr>
-                          )}
-                          {accruals.otherSalaryAccruals > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Otros devengos salariales</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(accruals.otherSalaryAccruals)}</td></tr>
-                          )}
-                          <tr className="bg-slate-50 font-semibold">
-                            <td className="px-3 py-2">Total Devengos</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(accruals.totalAccruals)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                  {/* ── I. DEVENGOS ── */}
+                  <div className="border rounded overflow-hidden">
+                    <div className="bg-[#1B2A41] text-white px-3 py-1.5 text-[11px] font-bold tracking-wide font-sans">
+                      I. DEVENGOS
                     </div>
-                  </div>
 
-                  {/* Deducciones */}
-                  <div>
-                    <h4 className="text-sm font-semibold mb-2 text-[#1B2A41]">Deducciones</h4>
-                    <div className="border rounded-lg overflow-hidden">
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {deductions.contingenciasComunes > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Contingencias comunes</td><td className="px-3 py-2 text-right tabular-nums font-medium text-red-600">–{formatCurrency(deductions.contingenciasComunes)}</td></tr>
-                          )}
-                          {deductions.desempleo > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Desempleo</td><td className="px-3 py-2 text-right tabular-nums font-medium text-red-600">–{formatCurrency(deductions.desempleo)}</td></tr>
-                          )}
-                          {deductions.formacionProfesional > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Formación profesional</td><td className="px-3 py-2 text-right tabular-nums font-medium text-red-600">–{formatCurrency(deductions.formacionProfesional)}</td></tr>
-                          )}
-                          {deductions.mei > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">MEI</td><td className="px-3 py-2 text-right tabular-nums font-medium text-red-600">–{formatCurrency(deductions.mei)}</td></tr>
-                          )}
-                          {deductions.irpf > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">IRPF ({previewEmployee.irpfPercentage}%)</td><td className="px-3 py-2 text-right tabular-nums font-medium text-red-600">–{formatCurrency(deductions.irpf)}</td></tr>
-                          )}
-                          {deductions.advances > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Anticipos</td><td className="px-3 py-2 text-right tabular-nums font-medium text-red-600">–{formatCurrency(deductions.advances)}</td></tr>
-                          )}
-                          {deductions.otherDeductions > 0 && (
-                            <tr className="border-b"><td className="px-3 py-2">Otras deducciones</td><td className="px-3 py-2 text-right tabular-nums font-medium text-red-600">–{formatCurrency(deductions.otherDeductions)}</td></tr>
-                          )}
-                          <tr className="bg-slate-50 font-semibold">
-                            <td className="px-3 py-2">Total Deducciones</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-red-600">–{formatCurrency(deductions.totalDeductions)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                    {/* 2 columnas: salariales | no salariales */}
+                    <div className="grid grid-cols-2 divide-x">
+                      {/* Col 1 */}
+                      <div>
+                        <div className="bg-slate-100 px-2 py-1 text-[10px] font-semibold font-sans flex justify-between border-b">
+                          <span>1. Percepciones salariales</span>
+                          <span className="text-muted-foreground">Importe (€)</span>
+                        </div>
+                        {salaryLines.map((line, i) => (
+                          <div key={i} className="flex items-baseline px-2 py-0.5 border-b last:border-0 gap-1">
+                            <span className="text-muted-foreground text-[9px] w-5 shrink-0 leading-4">{String(i + 1).padStart(3, '0')}</span>
+                            <span className="flex-1 truncate leading-4">{line.concept}</span>
+                            <span className="tabular-nums shrink-0 leading-4">{fmt(line.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
 
-                  {/* Cotizaciones empresa */}
-                  {ss && (
-                    <div>
-                      <h4 className="text-sm font-semibold mb-2 text-[#1B2A41]">Cotizaciones empresa (informativo)</h4>
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
-                          <tbody>
-                            {ss.contingenciasComunes > 0 && (
-                              <tr className="border-b"><td className="px-3 py-2">Contingencias comunes</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(ss.contingenciasComunes)}</td></tr>
-                            )}
-                            {ss.desempleo > 0 && (
-                              <tr className="border-b"><td className="px-3 py-2">Desempleo</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(ss.desempleo)}</td></tr>
-                            )}
-                            {ss.fogasa > 0 && (
-                              <tr className="border-b"><td className="px-3 py-2">FOGASA</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(ss.fogasa)}</td></tr>
-                            )}
-                            {ss.formacionProfesional > 0 && (
-                              <tr className="border-b"><td className="px-3 py-2">Formación profesional</td><td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(ss.formacionProfesional)}</td></tr>
-                            )}
-                            <tr className="bg-slate-50 font-semibold">
-                              <td className="px-3 py-2">Total coste empresa</td>
-                              <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(ss.totalCompanySS)}</td>
-                            </tr>
-                          </tbody>
-                        </table>
+                      {/* Col 2 */}
+                      <div>
+                        <div className="bg-slate-100 px-2 py-1 text-[10px] font-semibold font-sans flex justify-between border-b">
+                          <span>2. Percepciones no salariales</span>
+                          <span className="text-muted-foreground">Importe (€)</span>
+                        </div>
+                        {nonSalaryLines.map((line, i) => (
+                          <div key={i} className="flex items-baseline px-2 py-0.5 border-b last:border-0 gap-1">
+                            <span className="text-muted-foreground text-[9px] w-5 shrink-0 leading-4">{String(101 + i).padStart(3, '0')}</span>
+                            <span className="flex-1 truncate leading-4">{line.concept}</span>
+                            <span className="tabular-nums shrink-0 leading-4">{fmt(line.amount)}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  )}
 
-                  {/* Net result */}
-                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-emerald-800">Líquido a percibir</span>
-                    <span className="text-xl font-bold tabular-nums text-emerald-700">{formatCurrency(r.netSalary)}</span>
+                    {/* Total devengado */}
+                    <div className="bg-[#1B2A41] text-white flex justify-between px-3 py-1.5 text-[11px] font-bold font-sans">
+                      <span>A. TOTAL DEVENGADO</span>
+                      <span className="tabular-nums">{fmt(a.totalAccruals)} €</span>
+                    </div>
                   </div>
+
+                  {/* ── II. DEDUCCIONES ── */}
+                  <div className="border rounded overflow-hidden">
+                    <div className="bg-[#1B2A41] text-white px-3 py-1.5 text-[11px] font-bold tracking-wide font-sans">
+                      II. DEDUCCIONES
+                    </div>
+                    <div className="bg-slate-100 grid grid-cols-[1fr_auto_auto_auto] px-2 py-1 text-[10px] font-semibold font-sans gap-x-4 border-b">
+                      <span>Concepto</span>
+                      <span className="text-right text-muted-foreground">Base (€)</span>
+                      <span className="text-right text-muted-foreground">Tipo %</span>
+                      <span className="text-right text-muted-foreground">Importe (€)</span>
+                    </div>
+                    {[
+                      { concept: 'Contingencias Comunes', base: r.bases.baseCC, rate: 4.70, amount: wd.contingenciasComunes },
+                      { concept: 'Desempleo', base: r.bases.baseCP, rate: previewEmployee.fullTime ? 1.55 : 1.60, amount: wd.desempleo },
+                      { concept: 'Formación Profesional', base: r.bases.baseCP, rate: 0.10, amount: wd.formacionProfesional },
+                      { concept: 'MEI', base: r.bases.baseCP, rate: 0.12, amount: wd.mei },
+                      { concept: `IRPF (${previewEmployee.irpfPercentage}%)`, base: r.bases.baseIRPF, rate: previewEmployee.irpfPercentage, amount: wd.irpf },
+                      { concept: 'Anticipos', base: 0, rate: 0, amount: wd.advances },
+                      { concept: 'Otras deducciones', base: 0, rate: 0, amount: wd.otherDeductions },
+                    ].map((d, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] px-2 py-0.5 border-b last:border-0 gap-x-4">
+                        <span className="truncate leading-4">{d.concept}</span>
+                        <span className="tabular-nums text-right leading-4 text-slate-500">{d.base > 0 ? fmt(d.base) : ''}</span>
+                        <span className="tabular-nums text-right leading-4 text-slate-500">{d.rate > 0 ? d.rate.toFixed(2).replace('.', ',') : ''}</span>
+                        <span className="tabular-nums text-right leading-4">{fmt(d.amount)}</span>
+                      </div>
+                    ))}
+                    <div className="bg-[#1B2A41] text-white flex justify-between px-3 py-1.5 text-[11px] font-bold font-sans">
+                      <span>B. TOTAL A DEDUCIR</span>
+                      <span className="tabular-nums">{fmt(wd.totalDeductions)} €</span>
+                    </div>
+                  </div>
+
+                  {/* ── Líquido ── */}
+                  <div className="bg-[#1B2A41] text-white flex justify-between px-3 py-2 rounded text-sm font-bold font-sans">
+                    <span>LÍQUIDO TOTAL A PERCIBIR (A – B)</span>
+                    <span className="tabular-nums text-[#C6A664]">{fmt(r.netSalary)} €</span>
+                  </div>
+
+                  {/* ── Bases de cotización ── */}
+                  <div className="border rounded overflow-hidden">
+                    <div className="bg-slate-100 px-3 py-1.5 text-[10px] font-semibold font-sans border-b text-muted-foreground uppercase tracking-wide">
+                      Bases de cotización / Aportación empresa
+                    </div>
+                    <div className="grid grid-cols-2 divide-x text-[11px] font-sans">
+                      <div className="p-2 space-y-0.5">
+                        <div className="flex justify-between"><span>Base CC</span><span className="tabular-nums">{fmt(r.bases.baseCC)} €</span></div>
+                        <div className="flex justify-between"><span>Base CP</span><span className="tabular-nums">{fmt(r.bases.baseCP)} €</span></div>
+                        <div className="flex justify-between"><span>Base IRPF</span><span className="tabular-nums">{fmt(r.bases.baseIRPF)} €</span></div>
+                      </div>
+                      <div className="p-2 space-y-0.5">
+                        <div className="flex justify-between"><span>CC Empresa (23,60%)</span><span className="tabular-nums">{fmt(cd.contingenciasComunes)} €</span></div>
+                        <div className="flex justify-between"><span>AT/EP</span><span className="tabular-nums">{fmt(cd.atEp)} €</span></div>
+                        <div className="flex justify-between"><span>Desempleo</span><span className="tabular-nums">{fmt(cd.desempleo)} €</span></div>
+                        <div className="flex justify-between"><span>FOGASA</span><span className="tabular-nums">{fmt(cd.fogasa)} €</span></div>
+                        <div className="flex justify-between"><span>FP empresa</span><span className="tabular-nums">{fmt(cd.formacionProfesional)} €</span></div>
+                        <div className="flex justify-between font-semibold border-t pt-0.5 mt-0.5"><span>Total coste empresa</span><span className="tabular-nums">{fmt(r.totalCostCompany)} €</span></div>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </>
             )
