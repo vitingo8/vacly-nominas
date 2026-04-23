@@ -251,13 +251,22 @@ function GeneracionContent() {
     try {
       const calendarDays = getDaysInMonth(month, year)
 
+      const nBonuses = row.numberOfBonuses || 2
+      // Prorrata mensual de pagas extras = (salario_base × nº pagas) / 12
+      // El `baseSalary` ya incluye la jornada (viene de contract.agreed_base_salary
+      // o de compensation.baseSalaryMonthly), por lo que NO hay que multiplicar de nuevo.
+      const monthlyProratedBonus =
+        Math.round((row.baseSalary * nBonuses) / 12 * 100) / 100
+
       const employeeInput: EmployeePayrollInput = {
         baseSalaryMonthly: row.baseSalary,
         cotizationGroup: (row.cotizationGroup || 7) as GrupoCotizacion,
         irpfPercentage: row.irpfPercentage || 0,
         fixedComplements: row.fixedComplements || 0,
-        proratedBonuses: row.proratedBonuses || (row.baseSalary * 2) / 12,
-        numberOfBonuses: row.numberOfBonuses || 2,
+        // Se pasa 0 aquí; la prorrata entra como devengo mensual (otherSalaryAccruals)
+        // para replicar el modo "prorrateado" del backend y que aparezca en totalDevengos.
+        proratedBonuses: 0,
+        numberOfBonuses: nBonuses,
         contractType: mapContractType(row.contractType),
         workdayType: row.fullTime ? TipoJornada.COMPLETA : TipoJornada.PARCIAL,
         partTimeCoefficient: row.fullTime ? 1 : (row.workdayPercentage || 100) / 100,
@@ -276,7 +285,9 @@ function GeneracionContent() {
         incentives: 0,
         bonusPayment: 0,
         advances: row.advances,
-        otherSalaryAccruals: 0,
+        // Prorrata mensual de pagas extras → devengo salarial del mes
+        // (coincide con la lógica del endpoint /api/generacion en modo prorrateado)
+        otherSalaryAccruals: monthlyProratedBonus,
         otherNonSalaryAccruals: 0,
         otherDeductions: 0,
       }
@@ -355,7 +366,10 @@ function GeneracionContent() {
           ssNumber: emp.social_security_number || '',
           iban: emp.iban || '',
           imageUrl: emp.image_url || null,
-          baseSalary: comp.baseSalaryMonthly || contract.agreed_base_salary || 0,
+          baseSalary:
+            hasActiveContract && Number(contract.agreed_base_salary) > 0
+              ? Number(contract.agreed_base_salary)
+              : Number(comp.baseSalaryMonthly) || 0,
           cotizationGroup:
             comp.cotizationGroup
             || contract.cotization_group
@@ -385,9 +399,10 @@ function GeneracionContent() {
           usingAgreementDefaults: !hasActiveContract && !!agreementInfo,
         }
 
-        // Auto-calculate proratedBonuses if not set
+        // Auto-calculate proratedBonuses if not set: (salario_base × nº pagas) / 12
         if (!row.proratedBonuses && row.baseSalary > 0) {
-          row.proratedBonuses = Math.round((row.baseSalary * 2) / 12 * 100) / 100
+          row.proratedBonuses =
+            Math.round((row.baseSalary * row.numberOfBonuses) / 12 * 100) / 100
         }
 
         return calculateRow(row, selectedMonth, selectedYear)
@@ -1526,167 +1541,203 @@ function GeneracionContent() {
       {/* DIALOG: Vista Previa de Nómina (pre-generación)               */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <Dialog open={!!previewEmployee} onOpenChange={(open) => !open && setPreviewEmployee(null)}>
-        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl p-0 gap-0 max-h-[85vh] flex flex-col overflow-hidden">
           {previewEmployee?.payslipResult && (() => {
             const r = previewEmployee.payslipResult
             const a = r.accruals
             const wd = r.workerDeductions
             const cd = r.companyDeductions
 
-            // ── Líneas percepciones salariales (siempre todas, aunque sean 0) ──
+            // La prorrata mensual de pagas extra se carga dentro de `otherSalaryAccruals`
+            // para que contribuya a totalAccruals (ver `calculateRow`). Por eso mostramos
+            // esa cifra en "Prorrata pagas extra" y no repetimos la línea.
             const salaryLines: Array<{ concept: string; amount: number }> = [
               { concept: 'Salario Base', amount: a.baseSalary },
               { concept: 'Horas extraordinarias', amount: a.overtimeNormal },
               { concept: 'Gratificaciones extraordinarias', amount: a.bonusPayment },
               { concept: 'Salario en especie', amount: 0 },
               { concept: 'Complementos salariales', amount: a.fixedComplements },
-              { concept: 'Prorrata pagas extra', amount: a.proratedBonuses },
+              { concept: 'Prorrata pagas extra', amount: a.otherSalaryAccruals },
               { concept: 'Comisiones / Incentivos', amount: a.commissions + a.incentives },
               { concept: 'IT – Empresa', amount: a.itCompanyBenefit },
               { concept: 'IT – Seg. Social', amount: a.itSSBenefit },
-              { concept: 'Otros devengos salariales', amount: a.otherSalaryAccruals },
             ]
-            // ── Líneas percepciones no salariales (siempre todas) ──
             const nonSalaryLines: Array<{ concept: string; amount: number }> = [
               { concept: 'Indemnizaciones o suplidos', amount: 0 },
               { concept: 'Prestaciones e ind. de la Seg. Soc.', amount: 0 },
               { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
               { concept: 'Otras percepciones no salariales', amount: a.nonSalaryComplements + a.otherNonSalaryAccruals },
             ]
+            const deductionLines = [
+              { concept: 'Contingencias Comunes', base: r.bases.baseCC, rate: 4.70, amount: wd.contingenciasComunes },
+              { concept: 'Desempleo', base: r.bases.baseCP, rate: previewEmployee.fullTime ? 1.55 : 1.60, amount: wd.desempleo },
+              { concept: 'Formación Profesional', base: r.bases.baseCP, rate: 0.10, amount: wd.formacionProfesional },
+              { concept: 'MEI', base: r.bases.baseCP, rate: 0.12, amount: wd.mei },
+              { concept: `IRPF`, base: r.bases.baseIRPF, rate: previewEmployee.irpfPercentage, amount: wd.irpf },
+              { concept: 'Anticipos', base: 0, rate: 0, amount: wd.advances },
+              { concept: 'Otras deducciones', base: 0, rate: 0, amount: wd.otherDeductions },
+            ]
 
-            const fmt = (v: number) => v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            const fmt = (v: number) =>
+              v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
             return (
               <>
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <EyeIcon className="w-5 h-5 text-[#C6A664]" />
-                    Vista Previa de Nómina
+                {/* ─── Header fijo ─── */}
+                <DialogHeader className="px-5 py-3 border-b shrink-0 bg-white">
+                  <DialogTitle className="flex items-center gap-2 text-base">
+                    <EyeIcon className="w-4 h-4 text-[#C6A664]" />
+                    Vista previa de nómina
                   </DialogTitle>
-                  <DialogDescription>
-                    {previewEmployee.name} — {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
+                  <DialogDescription className="text-xs">
+                    {previewEmployee.name} · {MONTH_NAMES[selectedMonth - 1]} {selectedYear} ·
+                    Grupo {previewEmployee.cotizationGroup} ·
+                    Jornada {previewEmployee.workdayPercentage}% ·
+                    IRPF {previewEmployee.irpfPercentage}%
                   </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-2 mt-3 font-mono text-xs">
-
-                  {/* ── Cabecera empleado ── */}
-                  <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 border rounded p-2 font-sans">
-                    <div><span className="text-muted-foreground">Empleado: </span><span className="font-medium">{previewEmployee.name}</span></div>
-                    <div><span className="text-muted-foreground">NIF: </span><span className="font-medium">{previewEmployee.nif || '—'}</span></div>
-                    <div><span className="text-muted-foreground">NSS: </span><span className="font-medium">{previewEmployee.ssNumber || '—'}</span></div>
-                    <div><span className="text-muted-foreground">Grupo cotiz.: </span><span className="font-medium">{previewEmployee.cotizationGroup}</span></div>
-                    <div><span className="text-muted-foreground">Período: </span><span className="font-medium">{MONTH_NAMES[selectedMonth - 1]} {selectedYear}</span></div>
-                    <div><span className="text-muted-foreground">IRPF: </span><span className="font-medium">{previewEmployee.irpfPercentage}%</span></div>
-                  </div>
+                {/* ─── Cuerpo con scroll interno ─── */}
+                <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2.5 bg-slate-50/40">
 
                   {/* ── I. DEVENGOS ── */}
-                  <div className="border rounded overflow-hidden">
-                    <div className="bg-[#1B2A41] text-white px-3 py-1.5 text-[11px] font-bold tracking-wide font-sans">
-                      I. DEVENGOS
-                    </div>
+                  <section className="bg-white border rounded-md overflow-hidden shadow-sm">
+                    <header className="bg-[#1B2A41] text-white px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase">
+                      I. Devengos
+                    </header>
 
-                    {/* 2 columnas: salariales | no salariales */}
-                    <div className="grid grid-cols-2 divide-x">
-                      {/* Col 1 */}
+                    <div className="grid grid-cols-2 divide-x text-[11px]">
+                      {/* Percepciones salariales */}
                       <div>
-                        <div className="bg-slate-100 px-2 py-1 text-[10px] font-semibold font-sans flex justify-between border-b">
+                        <div className="bg-slate-100 px-2 py-[3px] text-[9.5px] font-semibold flex justify-between">
                           <span>1. Percepciones salariales</span>
-                          <span className="text-muted-foreground">Importe (€)</span>
+                          <span className="text-slate-500 font-normal">Importe €</span>
                         </div>
                         {salaryLines.map((line, i) => (
-                          <div key={i} className="flex items-baseline px-2 py-0.5 border-b last:border-0 gap-1">
-                            <span className="text-muted-foreground text-[9px] w-5 shrink-0 leading-4">{String(i + 1).padStart(3, '0')}</span>
-                            <span className="flex-1 truncate leading-4">{line.concept}</span>
-                            <span className="tabular-nums shrink-0 leading-4">{fmt(line.amount)}</span>
+                          <div
+                            key={i}
+                            className={cn(
+                              'flex items-center px-2 gap-1.5 h-[22px] border-b last:border-0',
+                              line.amount === 0 && 'text-slate-400'
+                            )}
+                          >
+                            <span className="text-[9px] text-slate-400 tabular-nums w-6 shrink-0">
+                              {String(i + 1).padStart(3, '0')}
+                            </span>
+                            <span className="flex-1 truncate">{line.concept}</span>
+                            <span className="tabular-nums shrink-0 font-medium">{fmt(line.amount)}</span>
                           </div>
                         ))}
                       </div>
 
-                      {/* Col 2 */}
+                      {/* Percepciones no salariales */}
                       <div>
-                        <div className="bg-slate-100 px-2 py-1 text-[10px] font-semibold font-sans flex justify-between border-b">
+                        <div className="bg-slate-100 px-2 py-[3px] text-[9.5px] font-semibold flex justify-between">
                           <span>2. Percepciones no salariales</span>
-                          <span className="text-muted-foreground">Importe (€)</span>
+                          <span className="text-slate-500 font-normal">Importe €</span>
                         </div>
                         {nonSalaryLines.map((line, i) => (
-                          <div key={i} className="flex items-baseline px-2 py-0.5 border-b last:border-0 gap-1">
-                            <span className="text-muted-foreground text-[9px] w-5 shrink-0 leading-4">{String(101 + i).padStart(3, '0')}</span>
-                            <span className="flex-1 truncate leading-4">{line.concept}</span>
-                            <span className="tabular-nums shrink-0 leading-4">{fmt(line.amount)}</span>
+                          <div
+                            key={i}
+                            className={cn(
+                              'flex items-center px-2 gap-1.5 h-[22px] border-b last:border-0',
+                              line.amount === 0 && 'text-slate-400'
+                            )}
+                          >
+                            <span className="text-[9px] text-slate-400 tabular-nums w-6 shrink-0">
+                              {String(101 + i).padStart(3, '0')}
+                            </span>
+                            <span className="flex-1 truncate">{line.concept}</span>
+                            <span className="tabular-nums shrink-0 font-medium">{fmt(line.amount)}</span>
                           </div>
                         ))}
                       </div>
                     </div>
 
-                    {/* Total devengado */}
-                    <div className="bg-[#1B2A41] text-white flex justify-between px-3 py-1.5 text-[11px] font-bold font-sans">
-                      <span>A. TOTAL DEVENGADO</span>
-                      <span className="tabular-nums">{fmt(a.totalAccruals)} €</span>
-                    </div>
-                  </div>
+                    <footer className="bg-[#1B2A41] text-white flex justify-between items-center px-2.5 py-1 text-[11px] font-semibold">
+                      <span className="tracking-wider">A. TOTAL DEVENGADO</span>
+                      <span className="tabular-nums text-[12px]">{fmt(a.totalAccruals)} €</span>
+                    </footer>
+                  </section>
 
                   {/* ── II. DEDUCCIONES ── */}
-                  <div className="border rounded overflow-hidden">
-                    <div className="bg-[#1B2A41] text-white px-3 py-1.5 text-[11px] font-bold tracking-wide font-sans">
-                      II. DEDUCCIONES
-                    </div>
-                    <div className="bg-slate-100 grid grid-cols-[1fr_auto_auto_auto] px-2 py-1 text-[10px] font-semibold font-sans gap-x-4 border-b">
+                  <section className="bg-white border rounded-md overflow-hidden shadow-sm">
+                    <header className="bg-[#1B2A41] text-white px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase">
+                      II. Deducciones
+                    </header>
+                    <div className="grid grid-cols-[auto_1fr_90px_60px_90px] gap-x-3 px-2 py-[3px] bg-slate-100 text-[9.5px] font-semibold">
+                      <span className="w-6">Cód.</span>
                       <span>Concepto</span>
-                      <span className="text-right text-muted-foreground">Base (€)</span>
-                      <span className="text-right text-muted-foreground">Tipo %</span>
-                      <span className="text-right text-muted-foreground">Importe (€)</span>
+                      <span className="text-right text-slate-500 font-normal">Base €</span>
+                      <span className="text-right text-slate-500 font-normal">Tipo %</span>
+                      <span className="text-right text-slate-500 font-normal">Importe €</span>
                     </div>
-                    {[
-                      { concept: 'Contingencias Comunes', base: r.bases.baseCC, rate: 4.70, amount: wd.contingenciasComunes },
-                      { concept: 'Desempleo', base: r.bases.baseCP, rate: previewEmployee.fullTime ? 1.55 : 1.60, amount: wd.desempleo },
-                      { concept: 'Formación Profesional', base: r.bases.baseCP, rate: 0.10, amount: wd.formacionProfesional },
-                      { concept: 'MEI', base: r.bases.baseCP, rate: 0.12, amount: wd.mei },
-                      { concept: `IRPF (${previewEmployee.irpfPercentage}%)`, base: r.bases.baseIRPF, rate: previewEmployee.irpfPercentage, amount: wd.irpf },
-                      { concept: 'Anticipos', base: 0, rate: 0, amount: wd.advances },
-                      { concept: 'Otras deducciones', base: 0, rate: 0, amount: wd.otherDeductions },
-                    ].map((d, i) => (
-                      <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] px-2 py-0.5 border-b last:border-0 gap-x-4">
-                        <span className="truncate leading-4">{d.concept}</span>
-                        <span className="tabular-nums text-right leading-4 text-slate-500">{d.base > 0 ? fmt(d.base) : ''}</span>
-                        <span className="tabular-nums text-right leading-4 text-slate-500">{d.rate > 0 ? d.rate.toFixed(2).replace('.', ',') : ''}</span>
-                        <span className="tabular-nums text-right leading-4">{fmt(d.amount)}</span>
+                    {deductionLines.map((d, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          'grid grid-cols-[auto_1fr_90px_60px_90px] gap-x-3 px-2 h-[22px] items-center text-[11px] border-b last:border-0',
+                          d.amount === 0 && 'text-slate-400'
+                        )}
+                      >
+                        <span className="text-[9px] text-slate-400 tabular-nums w-6">
+                          {String(i + 1).padStart(3, '0')}
+                        </span>
+                        <span className="truncate">{d.concept}</span>
+                        <span className="text-right tabular-nums text-slate-500">
+                          {d.base > 0 ? fmt(d.base) : ''}
+                        </span>
+                        <span className="text-right tabular-nums text-slate-500">
+                          {d.rate > 0 ? d.rate.toFixed(2).replace('.', ',') : ''}
+                        </span>
+                        <span className="text-right tabular-nums font-medium">{fmt(d.amount)}</span>
                       </div>
                     ))}
-                    <div className="bg-[#1B2A41] text-white flex justify-between px-3 py-1.5 text-[11px] font-bold font-sans">
-                      <span>B. TOTAL A DEDUCIR</span>
-                      <span className="tabular-nums">{fmt(wd.totalDeductions)} €</span>
-                    </div>
-                  </div>
+                    <footer className="bg-[#1B2A41] text-white flex justify-between items-center px-2.5 py-1 text-[11px] font-semibold">
+                      <span className="tracking-wider">B. TOTAL A DEDUCIR</span>
+                      <span className="tabular-nums text-[12px]">{fmt(wd.totalDeductions)} €</span>
+                    </footer>
+                  </section>
 
-                  {/* ── Líquido ── */}
-                  <div className="bg-[#1B2A41] text-white flex justify-between px-3 py-2 rounded text-sm font-bold font-sans">
-                    <span>LÍQUIDO TOTAL A PERCIBIR (A – B)</span>
-                    <span className="tabular-nums text-[#C6A664]">{fmt(r.netSalary)} €</span>
-                  </div>
-
-                  {/* ── Bases de cotización ── */}
-                  <div className="border rounded overflow-hidden">
-                    <div className="bg-slate-100 px-3 py-1.5 text-[10px] font-semibold font-sans border-b text-muted-foreground uppercase tracking-wide">
-                      Bases de cotización / Aportación empresa
-                    </div>
-                    <div className="grid grid-cols-2 divide-x text-[11px] font-sans">
-                      <div className="p-2 space-y-0.5">
+                  {/* ── Bases / Aportación empresa (2 columnas compactas) ── */}
+                  <section className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-white border rounded-md p-2.5 shadow-sm">
+                      <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Bases de cotización
+                      </div>
+                      <div className="text-[11px] space-y-0.5">
                         <div className="flex justify-between"><span>Base CC</span><span className="tabular-nums">{fmt(r.bases.baseCC)} €</span></div>
                         <div className="flex justify-between"><span>Base CP</span><span className="tabular-nums">{fmt(r.bases.baseCP)} €</span></div>
                         <div className="flex justify-between"><span>Base IRPF</span><span className="tabular-nums">{fmt(r.bases.baseIRPF)} €</span></div>
                       </div>
-                      <div className="p-2 space-y-0.5">
-                        <div className="flex justify-between"><span>CC Empresa (23,60%)</span><span className="tabular-nums">{fmt(cd.contingenciasComunes)} €</span></div>
+                    </div>
+                    <div className="bg-white border rounded-md p-2.5 shadow-sm">
+                      <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Aportación empresa
+                      </div>
+                      <div className="text-[11px] space-y-0.5">
+                        <div className="flex justify-between"><span>Contingencias comunes</span><span className="tabular-nums">{fmt(cd.contingenciasComunes)} €</span></div>
                         <div className="flex justify-between"><span>AT/EP</span><span className="tabular-nums">{fmt(cd.atEp)} €</span></div>
                         <div className="flex justify-between"><span>Desempleo</span><span className="tabular-nums">{fmt(cd.desempleo)} €</span></div>
                         <div className="flex justify-between"><span>FOGASA</span><span className="tabular-nums">{fmt(cd.fogasa)} €</span></div>
                         <div className="flex justify-between"><span>FP empresa</span><span className="tabular-nums">{fmt(cd.formacionProfesional)} €</span></div>
-                        <div className="flex justify-between font-semibold border-t pt-0.5 mt-0.5"><span>Total coste empresa</span><span className="tabular-nums">{fmt(r.totalCostCompany)} €</span></div>
+                        <div className="flex justify-between font-semibold border-t pt-0.5 mt-0.5">
+                          <span>Total coste empresa</span>
+                          <span className="tabular-nums">{fmt(r.totalCostCompany)} €</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </section>
+                </div>
 
+                {/* ─── Footer sticky con líquido ─── */}
+                <div className="shrink-0 border-t bg-gradient-to-r from-[#1B2A41] to-[#2a3f5f] text-white px-5 py-2.5 flex items-center justify-between">
+                  <span className="text-[11px] uppercase tracking-[0.12em] font-semibold opacity-90">
+                    Líquido total a percibir (A – B)
+                  </span>
+                  <span className="tabular-nums text-xl font-bold text-[#C6A664]">
+                    {fmt(r.netSalary)} €
+                  </span>
                 </div>
               </>
             )
