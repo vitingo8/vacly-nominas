@@ -62,6 +62,13 @@ interface EmployeeRow {
   contractType: string
   fullTime: boolean
   workdayPercentage: number
+  // Antigüedad jornada-adjusted resuelta desde el convenio (devengo)
+  seniorityAmount: number
+  seniorityPercent: number
+  seniorityPeriods: number
+  yearsOfService: number
+  // Prorrata mensual jornada-adjusted (convenio)
+  monthlyProratedBonusFromAgreement: number | null
   // Editable variables
   workedDays: number
   overtimeHours: number
@@ -252,17 +259,33 @@ function GeneracionContent() {
       const calendarDays = getDaysInMonth(month, year)
 
       const nBonuses = row.numberOfBonuses || 2
-      // Prorrata mensual de pagas extras = (salario_base × nº pagas) / 12
-      // El `baseSalary` ya incluye la jornada (viene de contract.agreed_base_salary
-      // o de compensation.baseSalaryMonthly), por lo que NO hay que multiplicar de nuevo.
+      // ────────────────────────────────────────────────────────────────
+      // FÓRMULA UNIFICADA con Contratos.tsx + backend (route.ts):
+      //
+      //   monthlyBase   = row.baseSalary  (= contract.agreed_base_salary,
+      //                    salary_table × jornada%, fuente única de verdad)
+      //   antigüedad    = monthlyBase × seniorityPercent / 100
+      //                    (NO se multiplica por jornada porque el base ya
+      //                     la lleva aplicada)
+      //   prorrata mes  = (monthlyBase + antigüedad) × nº pagas / 12
+      // ────────────────────────────────────────────────────────────────
+      const seniorityAmount = row.seniorityAmount || 0
+      const baseWithSeniority = row.baseSalary + seniorityAmount
+
+      // Si el backend ya nos dio la prorrata jornada-adjusted del convenio,
+      // la usamos. Si no, calculamos a partir del base+antigüedad.
       const monthlyProratedBonus =
-        Math.round((row.baseSalary * nBonuses) / 12 * 100) / 100
+        row.monthlyProratedBonusFromAgreement != null
+          ? row.monthlyProratedBonusFromAgreement
+          : Math.round((baseWithSeniority * nBonuses) / 12 * 100) / 100
 
       const employeeInput: EmployeePayrollInput = {
         baseSalaryMonthly: row.baseSalary,
         cotizationGroup: (row.cotizationGroup || 7) as GrupoCotizacion,
         irpfPercentage: row.irpfPercentage || 0,
-        fixedComplements: row.fixedComplements || 0,
+        // Antigüedad como complemento fijo (devengo salarial mensual).
+        // Se suma al complemento manual que el usuario haya configurado.
+        fixedComplements: (row.fixedComplements || 0) + seniorityAmount,
         // Se pasa 0 aquí; la prorrata entra como devengo mensual (otherSalaryAccruals)
         // para replicar el modo "prorrateado" del backend y que aparezca en totalDevengos.
         proratedBonuses: 0,
@@ -350,13 +373,15 @@ function GeneracionContent() {
         const contract = emp.contracts?.[0] || {}
         const hasActiveContract = !!emp.hasActiveContract
         const defaults = agreementInfo?.defaults || {}
+        // Datos derivados del convenio resueltos en el backend (jornada-adjusted)
+        const derived = emp.derivedPreview || null
 
-        // Calculate actual working days for the selected month (weekdays only)
         const daysInMonth = getDaysInMonth(selectedMonth, selectedYear)
 
-        // Sin contrato → usamos los defaults del convenio de la empresa (sin mocks).
+        // Pagas: convenio > compensation > defaults > 2
         const numberOfBonuses =
-          comp.numberOfBonuses
+          derived?.numberOfBonuses
+          || comp.numberOfBonuses
           || (hasActiveContract ? 2 : Number(defaults.number_of_bonuses) || 2)
 
         const row: EmployeeRow = {
@@ -381,6 +406,11 @@ function GeneracionContent() {
           contractType: contract.contract_type || 'permanent',
           fullTime: contract.full_time !== false,
           workdayPercentage: contract.workday_percentage || 100,
+          seniorityAmount: derived?.seniorityAmount ?? 0,
+          seniorityPercent: derived?.seniorityPercent ?? 0,
+          seniorityPeriods: derived?.seniorityPeriods ?? 0,
+          yearsOfService: derived?.yearsOfService ?? 0,
+          monthlyProratedBonusFromAgreement: derived?.monthlyProratedBonuses ?? null,
           workedDays: daysInMonth,
           overtimeHours: 0,
           vacationDays: 0,
@@ -399,7 +429,7 @@ function GeneracionContent() {
           usingAgreementDefaults: !hasActiveContract && !!agreementInfo,
         }
 
-        // Auto-calculate proratedBonuses if not set: (salario_base × nº pagas) / 12
+        // Si el convenio no nos dio prorrata, calculamos: (salario_base × nº pagas) / 12
         if (!row.proratedBonuses && row.baseSalary > 0) {
           row.proratedBonuses =
             Math.round((row.baseSalary * row.numberOfBonuses) / 12 * 100) / 100
@@ -1551,12 +1581,26 @@ function GeneracionContent() {
             // La prorrata mensual de pagas extra se carga dentro de `otherSalaryAccruals`
             // para que contribuya a totalAccruals (ver `calculateRow`). Por eso mostramos
             // esa cifra en "Prorrata pagas extra" y no repetimos la línea.
-            const salaryLines: Array<{ concept: string; amount: number }> = [
+            //
+            // La antigüedad la cargamos en `fixedComplements` para que entre en el cálculo,
+            // pero la mostramos como línea separada y restamos del bloque "Complementos
+            // salariales" para no contarla dos veces visualmente.
+            const seniorityAmount = previewEmployee.seniorityAmount || 0
+            const manualComplements = Math.max(0, a.fixedComplements - seniorityAmount)
+            const salaryLines: Array<{ concept: string; amount: number; meta?: string }> = [
               { concept: 'Salario Base', amount: a.baseSalary },
+              {
+                concept: 'Antigüedad',
+                amount: seniorityAmount,
+                meta:
+                  previewEmployee.seniorityPercent > 0
+                    ? `${previewEmployee.seniorityPercent.toFixed(2)}% · ${previewEmployee.yearsOfService} años`
+                    : undefined,
+              },
               { concept: 'Horas extraordinarias', amount: a.overtimeNormal },
               { concept: 'Gratificaciones extraordinarias', amount: a.bonusPayment },
               { concept: 'Salario en especie', amount: 0 },
-              { concept: 'Complementos salariales', amount: a.fixedComplements },
+              { concept: 'Complementos salariales', amount: manualComplements },
               { concept: 'Prorrata pagas extra', amount: a.otherSalaryAccruals },
               { concept: 'Comisiones / Incentivos', amount: a.commissions + a.incentives },
               { concept: 'IT – Empresa', amount: a.itCompanyBenefit },
@@ -1624,7 +1668,14 @@ function GeneracionContent() {
                             <span className="text-[9px] text-slate-400 tabular-nums w-6 shrink-0">
                               {String(i + 1).padStart(3, '0')}
                             </span>
-                            <span className="flex-1 truncate">{line.concept}</span>
+                            <span className="flex-1 truncate flex items-baseline gap-1.5">
+                              {line.concept}
+                              {line.meta && (
+                                <span className="text-[9px] text-slate-500 font-normal">
+                                  ({line.meta})
+                                </span>
+                              )}
+                            </span>
                             <span className="tabular-nums shrink-0 font-medium">{fmt(line.amount)}</span>
                           </div>
                         ))}

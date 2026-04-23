@@ -138,25 +138,87 @@ export async function GET(request: NextRequest) {
       // avisa al frontend de qué filas usarán el contrato virtual derivado del
       // convenio. Sin mocks: si no hay convenio ni contrato, se marcará error
       // al generar.
-      const processed = (employees || []).map((emp: any) => {
-        const activeContracts = (emp.contracts || []).filter((c: any) => c.status === 'active')
-        const comp = { ...(emp.compensation || {}) }
-        const hasActiveContract = activeContracts.length > 0
-        // Pre-rellena el salario base desde el convenio si el empleado no tiene
-        // contrato ni compensation.baseSalaryMonthly. Esto sólo afecta al
-        // preview de la UI; la generación real se hace con fn_resolve_salary_base.
-        if (!hasActiveContract && !comp.baseSalaryMonthly && agreementDefaultBase > 0) {
-          comp.baseSalaryMonthly = agreementDefaultBase
-        }
-        return {
-          ...emp,
-          compensation: comp,
-          contracts: activeContracts,
-          hasActiveContract,
-          hasAgreedBaseSalary:
-            activeContracts[0]?.agreed_base_salary > 0 || comp.baseSalaryMonthly > 0,
-        }
-      })
+      // Resuelve por empleado el contexto de convenio y devuelve la
+      // info derivada (antigüedad mensual, pagas, prorrata) jornada-adjusted,
+      // de forma que el preview de la UI use exactamente los mismos números
+      // que la generación real.
+      const today = new Date().toISOString().slice(0, 10)
+      const processed = await Promise.all(
+        (employees || []).map(async (emp: any) => {
+          const activeContracts = (emp.contracts || []).filter((c: any) => c.status === 'active')
+          const comp = { ...(emp.compensation || {}) }
+          const hasActiveContract = activeContracts.length > 0
+
+          if (!hasActiveContract && !comp.baseSalaryMonthly && agreementDefaultBase > 0) {
+            comp.baseSalaryMonthly = agreementDefaultBase
+          }
+
+          // Calcula info derivada del convenio por contrato activo.
+          let derivedPreview: {
+            seniorityAmount: number
+            seniorityPercent: number
+            seniorityPeriods: number
+            yearsOfService: number
+            numberOfBonuses: number
+            monthlyProratedBonuses: number
+            monthlyBaseWithSeniority: number
+          } | null = null
+
+          const contract = activeContracts[0]
+          const agreedBase = Number(contract?.agreed_base_salary ?? 0)
+          if (hasActiveContract && agreedBase > 0) {
+            try {
+              const province =
+                (contract.convenio_province as string | null) ??
+                (contract.work_center_address
+                  ? contract.work_center_address.split(',').slice(-1)[0].trim() || null
+                  : null)
+              const profGroup = parseProfessionalCategoryForResolver(contract.professional_category)
+              const ctx = await resolveAgreementContext(supabase as any, {
+                companyId,
+                onDate: today,
+                province: province ?? undefined,
+                year: new Date().getFullYear(),
+                grupo: profGroup?.grupo ?? null,
+                nivel: profGroup?.nivel ?? null,
+                categoria: profGroup?.categoria ?? null,
+              })
+              const years = yearsBetween(contract.start_date, today)
+              // monthlyBase ya viene jornada-adjusted (= agreed_base_salary).
+              const sen = computeSeniorityAmount(ctx, years, agreedBase)
+              const baseWithSen = round2(agreedBase + sen.amount)
+              const prorrata = computeProratedBonuses(ctx, baseWithSen)
+              derivedPreview = {
+                seniorityAmount: sen.amount,
+                seniorityPercent: sen.percentApplied,
+                seniorityPeriods: sen.periodsCompleted,
+                yearsOfService: years,
+                numberOfBonuses: ctx.numberOfBonuses,
+                monthlyProratedBonuses: round2(prorrata),
+                monthlyBaseWithSeniority: baseWithSen,
+              }
+            } catch (err) {
+              // Si falla la resolución (sin convenio o categoria mal mapeada),
+              // dejamos derivedPreview en null. El preview cae al cálculo
+              // simple basado en baseSalary del contrato.
+              console.warn(
+                `[load_employees] No se pudo resolver convenio para ${emp.id}:`,
+                err instanceof Error ? err.message : err,
+              )
+            }
+          }
+
+          return {
+            ...emp,
+            compensation: comp,
+            contracts: activeContracts,
+            hasActiveContract,
+            hasAgreedBaseSalary:
+              activeContracts[0]?.agreed_base_salary > 0 || comp.baseSalaryMonthly > 0,
+            derivedPreview,
+          }
+        }),
+      )
 
       console.log(
         `[load_employees] ${processed.length} total — with contract: ${processed.filter(e => e.hasActiveContract).length}, without: ${processed.filter(e => !e.hasActiveContract).length}`,
@@ -422,48 +484,65 @@ async function deriveAgreementForContract(
     categoria: profGroup?.categoria ?? null,
   })
 
-  // `agreed_base_salary` ya tiene la jornada aplicada (salary_table × workday_pct),
-  // por lo que lo usamos como base a jornada completa equivalente dividiéndolo por coef.
-  // Si la RPC devuelve el salario a jornada completa desde las tablas, usamos ese directamente.
+  // ──────────────────────────────────────────────────────────────────
+  // Fórmula UNIFICADA con la página de Contratos:
+  //
+  //   1) `contract.agreed_base_salary` ya contiene salary_table × jornada%
+  //      (lo calcula Contratos.tsx). Es la fuente única de verdad para el
+  //      salario base mensual. Si está vacío (contrato antiguo), se cae a
+  //      la RPC del convenio multiplicando por la jornada.
+  //
+  //   2) Antigüedad = monthlyBase × seniorityPercent / 100.
+  //      NO se multiplica de nuevo por la jornada porque `monthlyBase`
+  //      ya la lleva aplicada (la antigüedad es un % del salario base
+  //      jornada-adjusted).
+  //
+  //   3) Prorrata mensual = (monthlyBase + antigüedad) × nº pagas / 12.
+  //      Igualmente jornada-adjusted, derivada del monthlyBase.
+  // ──────────────────────────────────────────────────────────────────
   const coef = Math.max(0, Math.min(1, params.partTimeCoefficient))
   const agreedBase = Number(contract.agreed_base_salary ?? 0)
 
-  let ftBase: number
-  if (context.salarioBaseMes != null) {
-    // RPC devolvió el salario de tabla (siempre a jornada completa)
-    ftBase = context.salarioBaseMes
-  } else if (agreedBase > 0 && coef > 0) {
-    // agreed_base_salary ya lleva la jornada → recuperamos el valor a jornada completa
-    ftBase = round2(agreedBase / coef)
+  // Salario base mensual JORNADA-ADJUSTED (fuente única: el contrato).
+  let monthlyBase: number
+  if (agreedBase > 0) {
+    monthlyBase = round2(agreedBase)
+  } else if (context.salarioBaseMes != null) {
+    // Fallback solo cuando el contrato no tiene salario pactado: convenio × jornada
+    monthlyBase = round2(context.salarioBaseMes * coef)
   } else {
-    ftBase = agreedBase
+    monthlyBase = 0
   }
-  const years = yearsBetween(contract.start_date, params.periodStartIso)
-  const sen = computeSeniorityAmount(context, years, ftBase)
 
-  const ftMonthlyBase = ftBase + sen.amount
-  // Prorrata anual / 12 (modo prorrateado); o prorrata para base CC en meses sin paga (modo íntegro)
-  const ftProratedMonthly = computeProratedBonuses(context, ftMonthlyBase)
+  // Antigüedad = monthlyBase × % (NO multiplicar por coef, ya está incluido)
+  const years = yearsBetween(contract.start_date, params.periodStartIso)
+  const sen = computeSeniorityAmount(context, years, monthlyBase)
+
+  // Base mensual jornada-adjusted con antigüedad (para prorrata y pagas)
+  const monthlyBaseWithSen = round2(monthlyBase + sen.amount)
+
+  // Prorrata mensual jornada-adjusted (deriva ya del valor jornada)
+  const monthlyProratedRaw = computeProratedBonuses(context, monthlyBaseWithSen)
 
   const paysInMonth = getExtraPaysForMonth(context, params.month)
-  // Importe íntegro el mes declarado (base+antigüedad por cada paga)
-  const ftIntegralThisMonth = paysInMonth.length * ftMonthlyBase
+  // Pago íntegro de pagas extra este mes (jornada-adjusted)
+  const integralThisMonth = paysInMonth.length * monthlyBaseWithSen
 
   const isProrated = params.bonusMode === 'prorated'
 
   return {
     context,
     bonusMode: params.bonusMode,
-    baseSalaryMonthly: round2(ftBase * coef),
-    seniorityAmount: round2(sen.amount * coef),
+    baseSalaryMonthly: monthlyBase,
+    seniorityAmount: sen.amount,
     seniorityPeriods: sen.periodsCompleted,
     seniorityPercent: sen.percentApplied,
     yearsOfService: years,
-    monthlyProratedBonuses: isProrated ? round2(ftProratedMonthly * coef) : 0,
-    integralBonusThisMonth: !isProrated ? round2(ftIntegralThisMonth * coef) : 0,
+    monthlyProratedBonuses: isProrated ? round2(monthlyProratedRaw) : 0,
+    integralBonusThisMonth: !isProrated ? round2(integralThisMonth) : 0,
     // En modo íntegro, base CC incluye prorrata solo en meses SIN paga
     bonusBaseCC:
-      !isProrated && paysInMonth.length === 0 ? round2(ftProratedMonthly * coef) : 0,
+      !isProrated && paysInMonth.length === 0 ? round2(monthlyProratedRaw) : 0,
     extraPayNames: paysInMonth.map((p) => p.name),
     allExtraPayNames: context.extraPays.map((p) => p.name),
     numberOfBonuses: context.numberOfBonuses,
