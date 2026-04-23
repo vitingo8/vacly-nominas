@@ -449,7 +449,6 @@ async function deriveAgreementForContract(
   // Importe íntegro el mes declarado (base+antigüedad por cada paga)
   const ftIntegralThisMonth = paysInMonth.length * ftMonthlyBase
 
-  const coef = Math.max(0, Math.min(1, params.partTimeCoefficient))
   const isProrated = params.bonusMode === 'prorated'
 
   return {
