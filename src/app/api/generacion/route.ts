@@ -348,6 +348,43 @@ function yearsBetween(startIso: string | null | undefined, refIso: string): numb
  * Devuelve null si no hay forma de resolver convenio (sin agreement_ref_id y
  * sin convenio asignado a la empresa).
  */
+/**
+ * Extrae grupo y nivel del formato compacto guardado en `professional_category`:
+ *   "Grupo IV | Nivel 4 : Personal limpiador (limpiador, peón)"
+ *   "Grupo IV — Nivel 4 — Personal limpiador"   (legado em-dash)
+ * Devuelve null si no puede parsear.
+ */
+function parseProfessionalCategoryForResolver(stored: string | null | undefined): {
+  grupo: string
+  nivel: string | null
+  categoria: string | null
+} | null {
+  if (!stored?.trim()) return null
+  const s = stored.trim()
+
+  // Formato nuevo: "Grupo | Nivel : descripción"
+  const compact = s.match(/^(.+?)\s*\|\s*(.+?)\s*:\s*(.+)$/)
+  if (compact) {
+    return {
+      grupo: compact[1].trim(),
+      nivel: compact[2].trim() || null,
+      categoria: compact[3].trim() || null,
+    }
+  }
+
+  // Formato legado: "Grupo — Nivel — descripción" o "Grupo — descripción"
+  const parts = s.split(/\s*—\s*/)
+  if (parts.length >= 2) {
+    return {
+      grupo: parts[0].trim(),
+      nivel: parts.length >= 3 ? parts[1].trim() : null,
+      categoria: parts[parts.length - 1].trim() || null,
+    }
+  }
+
+  return null
+}
+
 async function deriveAgreementForContract(
   supabase: ReturnType<typeof getSupabaseClient>,
   params: {
@@ -371,19 +408,36 @@ async function deriveAgreementForContract(
       ? contract.work_center_address.split(',').slice(-1)[0].trim() || null
       : null)
 
+  // Grupo profesional del convenio: viene de `professional_category` en formato
+  // "Grupo IV | Nivel 4 : descripción". Es distinto al grupo de cotización SS (1–11).
+  const profGroup = parseProfessionalCategoryForResolver(contract.professional_category)
+
   const context = await resolveAgreementContext(supabase, {
     companyId: params.companyId,
     onDate: params.periodStartIso,
     province: province ?? undefined,
     year: params.year,
-    grupo: contract.cotization_group
-      ? `Grupo ${contract.cotization_group}`
-      : null,
-    nivel: null,
-    categoria: contract.professional_category ?? null,
+    grupo: profGroup?.grupo ?? null,
+    nivel: profGroup?.nivel ?? null,
+    categoria: profGroup?.categoria ?? null,
   })
 
-  const ftBase = context.salarioBaseMes ?? Number(contract.agreed_base_salary ?? 0)
+  // `agreed_base_salary` ya tiene la jornada aplicada (salary_table × workday_pct),
+  // por lo que lo usamos como base a jornada completa equivalente dividiéndolo por coef.
+  // Si la RPC devuelve el salario a jornada completa desde las tablas, usamos ese directamente.
+  const coef = Math.max(0, Math.min(1, params.partTimeCoefficient))
+  const agreedBase = Number(contract.agreed_base_salary ?? 0)
+
+  let ftBase: number
+  if (context.salarioBaseMes != null) {
+    // RPC devolvió el salario de tabla (siempre a jornada completa)
+    ftBase = context.salarioBaseMes
+  } else if (agreedBase > 0 && coef > 0) {
+    // agreed_base_salary ya lleva la jornada → recuperamos el valor a jornada completa
+    ftBase = round2(agreedBase / coef)
+  } else {
+    ftBase = agreedBase
+  }
   const years = yearsBetween(contract.start_date, params.periodStartIso)
   const sen = computeSeniorityAmount(context, years, ftBase)
 
