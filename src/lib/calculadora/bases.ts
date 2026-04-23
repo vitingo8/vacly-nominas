@@ -30,9 +30,8 @@ import type {
 /**
  * Obtiene los topes mínimo y máximo de cotización para un grupo.
  *
- * Grupos 1-3: bases mínimas diferenciadas (mensual).
- * Grupos 4-11: base mínima = SMI (con prorrata).
- * Base máxima: tope único para todos los grupos.
+ * Límites mínimo/máximo por grupo de cotización según `config.groupLimits`
+ * (p. ej. orden anual de bases; 2026: tope máx. mensual 5.101,20 € para todos los grupos 1–11).
  */
 export function getGroupLimits(
   group: GrupoCotizacion,

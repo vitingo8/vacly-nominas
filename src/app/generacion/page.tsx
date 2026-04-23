@@ -38,7 +38,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
-  calculatePayslip, DEFAULT_CONFIG_2025, TipoContrato, TipoJornada
+  calculatePayslip, getDefaultPayrollConfig, TipoContrato, TipoJornada
 } from '@/lib/calculadora'
 import type {
   EmployeePayrollInput, MonthlyVariablesInput, PayslipResult, GrupoCotizacion
@@ -325,7 +325,7 @@ function GeneracionContent() {
         }
       }
 
-      const result = calculatePayslip(employeeInput, monthlyVars, DEFAULT_CONFIG_2025, month)
+      const result = calculatePayslip(employeeInput, monthlyVars, getDefaultPayrollConfig(year), month)
 
       return {
         ...row,

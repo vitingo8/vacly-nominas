@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import {
   calculatePayslip,
-  DEFAULT_CONFIG_2025,
+  getDefaultPayrollConfig,
   TipoContrato,
   TipoJornada,
 } from '@/lib/calculadora'
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
       const { data: employees, error: empError } = await supabase
         .from('employees')
         .select(`
-          id, first_name, last_name, nif, social_security_number, iban, compensation, status, image_url,
+          id, first_name, last_name, nif, social_security_number, iban, compensation, irpf_data, status, image_url,
           position, sede, address, entry_date,
           contracts!contracts_employee_id_fkey (
             id, contract_type, full_time, workday_percentage, agreed_base_salary,
@@ -147,6 +147,11 @@ export async function GET(request: NextRequest) {
         (employees || []).map(async (emp: any) => {
           const activeContracts = (emp.contracts || []).filter((c: any) => c.status === 'active')
           const comp = { ...(emp.compensation || {}) }
+          const tipoAeat = (emp.irpf_data as { lastResult?: { tipoRetencion?: number } } | null)
+            ?.lastResult?.tipoRetencion
+          if (typeof tipoAeat === 'number' && Number.isFinite(tipoAeat)) {
+            comp.irpfPercentage = tipoAeat
+          }
           const hasActiveContract = activeContracts.length > 0
 
           if (!hasActiveContract && !comp.baseSalaryMonthly && agreementDefaultBase > 0) {
@@ -384,7 +389,7 @@ const SMI_MONTHLY: Record<number, number> = {
   2023: 1080,
   2024: 1134,
   2025: 1184,
-  2026: 1240, // orientativo hasta publicación del RD
+  2026: 1221, // 14 pagas — RD SMI 2026 (17.094 €/año)
 }
 
 function getSmi(year: number, override?: number | null): number {
@@ -595,8 +600,8 @@ export async function POST(request: NextRequest) {
       logo_url: (companyRow as any)?.logo_url || (companyData as any)?.logo_url || '',
     }
 
-    // Build config from payroll_config or use defaults
-    let config: PayrollConfigInput = { ...DEFAULT_CONFIG_2025 }
+    // Build config from payroll_config or use defaults (por ejercicio: 2026 = MEI, bases…)
+    let config: PayrollConfigInput = { ...getDefaultPayrollConfig(year) }
     if (payrollConfig?.annual_parameters) {
       config = { ...config, ...payrollConfig.annual_parameters }
     }

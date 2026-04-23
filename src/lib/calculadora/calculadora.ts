@@ -100,6 +100,61 @@ export const DEFAULT_CONFIG_2025: PayrollConfigInput = {
   maxOvertimeHoursYear: 80,
 };
 
+/**
+ * Parámetros oficiales 2026 (Orden ministerial tipos cotización; bases cotización).
+ * SMI: 1.221 €/mes (14 pagas) = 17.094 € brutos/año.
+ * Base máxima mensual: 5.101,20 €. Grupos 8–11: equivalente mensual 30 días (47,48–170,04 €/día).
+ */
+export const DEFAULT_CONFIG_2026: PayrollConfigInput = {
+  year: 2026,
+  smiMonthly: 1221.0,
+  maxCotizationBase: 5101.2,
+
+  groupLimits: [
+    { group: 1, minBase: 1989.3, maxBase: 5101.2 },
+    { group: 2, minBase: 1649.7, maxBase: 5101.2 },
+    { group: 3, minBase: 1435.2, maxBase: 5101.2 },
+    { group: 4, minBase: 1424.4, maxBase: 5101.2 },
+    { group: 5, minBase: 1424.4, maxBase: 5101.2 },
+    { group: 6, minBase: 1424.4, maxBase: 5101.2 },
+    { group: 7, minBase: 1424.4, maxBase: 5101.2 },
+    { group: 8, minBase: 1424.4, maxBase: 5101.2 },
+    { group: 9, minBase: 1424.4, maxBase: 5101.2 },
+    { group: 10, minBase: 1424.4, maxBase: 5101.2 },
+    { group: 11, minBase: 1424.4, maxBase: 5101.2 },
+  ],
+
+  workerRates: {
+    contingenciasComunes: 4.7,
+    desempleoIndefinido: 1.55,
+    desempleoTemporal: 1.6,
+    formacionProfesional: 0.1,
+    mei: 0.15,
+    horasExtrasNormales: 4.7,
+    horasExtrasFuerzaMayor: 2.0,
+  },
+
+  companyRates: {
+    contingenciasComunes: 23.6,
+    desempleoIndefinido: 5.5,
+    desempleoTemporal: 6.7,
+    fogasa: 0.2,
+    formacionProfesional: 0.6,
+    atEp: 1.5,
+    mei: 0.75,
+    horasExtrasNormales: 23.6,
+    horasExtrasFuerzaMayor: 12.0,
+  },
+
+  maxOvertimeHoursYear: 80,
+};
+
+/** Configuración por defecto según ejercicio (nómina). */
+export function getDefaultPayrollConfig(year: number): PayrollConfigInput {
+  if (year >= 2026) return { ...DEFAULT_CONFIG_2026 };
+  return { ...DEFAULT_CONFIG_2025 };
+}
+
 // ---------------------------------------------------------------------------
 // Función principal
 // ---------------------------------------------------------------------------
@@ -145,7 +200,7 @@ export const DEFAULT_CONFIG_2025: PayrollConfigInput = {
 export function calculatePayslip(
   employee: EmployeePayrollInput,
   variables: MonthlyVariablesInput,
-  config: PayrollConfigInput = DEFAULT_CONFIG_2025,
+  config: PayrollConfigInput = getDefaultPayrollConfig(new Date().getFullYear()),
   month: number = new Date().getMonth() + 1
 ): PayslipResult {
   const allWarnings: string[] = [];
@@ -418,7 +473,7 @@ function calculateAccruals(
  * Calcula una nómina rápida con valores mínimos de entrada.
  * Útil para estimaciones rápidas o demos.
  *
- * Usa la configuración 2025 por defecto y asume:
+ * Usa la configuración del año en curso (2025 / 2026…) por defecto y asume:
  * - Jornada completa
  * - Contrato indefinido
  * - Sin horas extras, IT, comisiones ni incentivos
@@ -467,7 +522,7 @@ export function calculateQuickPayslip(
     otherDeductions: 0,
   };
 
-  return calculatePayslip(employee, variables, DEFAULT_CONFIG_2025);
+  return calculatePayslip(employee, variables, getDefaultPayrollConfig(new Date().getFullYear()));
 }
 
 /**

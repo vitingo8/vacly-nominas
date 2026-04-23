@@ -44,6 +44,8 @@ export {
   calculateQuickPayslip,
   formatPayslipSummary,
   DEFAULT_CONFIG_2025,
+  DEFAULT_CONFIG_2026,
+  getDefaultPayrollConfig,
 } from './calculadora';
 
 // ---------------------------------------------------------------------------

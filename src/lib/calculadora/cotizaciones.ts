@@ -1,13 +1,13 @@
 // ============================================================================
 // cotizaciones.ts — Cálculo de cotizaciones a la Seguridad Social
-// Legislación española 2025
+// Tipos y bases vienen de `PayrollConfigInput` (ej. 2025 vs 2026).
 // ============================================================================
 //
 // Cotizaciones del TRABAJADOR (se descuentan de su nómina):
 //   - Contingencias Comunes:       4,70% sobre Base CC
 //   - Desempleo:                   1,55% (indefinido) / 1,60% (temporal) sobre Base CP
 //   - Formación Profesional:       0,10% sobre Base CP
-//   - MEI:                         0,12% sobre Base CC
+//   - MEI:                         según ejercicio (p. ej. 0,12% en 2025; 0,15% en 2026) sobre Base CC
 //   - Horas extras normales:       4,70% sobre importe HE normales
 //   - Horas extras fuerza mayor:   2,00% sobre importe HE fuerza mayor
 //
@@ -17,9 +17,11 @@
 //   - Desempleo:                   5,50% (indefinido) / 6,70% (temporal) sobre Base CP
 //   - FOGASA:                      0,20% sobre Base CP
 //   - Formación Profesional:       0,60% sobre Base CP
-//   - MEI:                         0,58% sobre Base CC
+//   - MEI:                         según ejercicio (p. ej. 0,58% en 2025; 0,75% en 2026) sobre Base CC
 //   - Horas extras normales:       23,60% sobre importe HE normales
 //   - Horas extras fuerza mayor:   12,00% sobre importe HE fuerza mayor
+//
+// Nota: la cotización adicional de solidaridad (tramos sobre base elevada) no está modelizada aquí.
 //
 // ============================================================================
 
@@ -78,8 +80,7 @@ export function calculateWorkerCotizations(
   // Formación Profesional: 0,10% sobre Base CP
   const formacionProfesional = round2((bases.baseCP * rates.formacionProfesional) / 100);
 
-  // MEI (Mecanismo de Equidad Intergeneracional): 0,12% sobre Base CC
-  // Introducido en 2023, incrementándose progresivamente hasta 2029
+  // MEI (Mecanismo de Equidad Intergeneracional): % según `config.workerRates.mei` sobre Base CC
   const mei = round2((bases.baseCC * rates.mei) / 100);
 
   // Horas extras normales: 4,70% (mismo tipo que CC)
@@ -157,7 +158,7 @@ export function calculateCompanyCotizations(
   // Formación Profesional: 0,60% sobre Base CP
   const formacionProfesional = round2((bases.baseCP * rates.formacionProfesional) / 100);
 
-  // MEI (Mecanismo de Equidad Intergeneracional): 0,58% sobre Base CC
+  // MEI: % según `config.companyRates.mei` sobre Base CC
   const mei = round2((bases.baseCC * rates.mei) / 100);
 
   // Horas extras normales: 23,60% (mismo tipo que CC empresa)

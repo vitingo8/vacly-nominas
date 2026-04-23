@@ -177,7 +177,7 @@ export interface WorkerCotizationRates {
   desempleoTemporal: number;
   /** Formación profesional: 0.10% */
   formacionProfesional: number;
-  /** Mecanismo de Equidad Intergeneracional (MEI): 0.12% */
+  /** Mecanismo de Equidad Intergeneracional (MEI) — % sobre Base CC (p. ej. 0.12 en 2025, 0.15 en 2026) */
   mei: number;
   /** Horas extras normales: 4.70% (mismo tipo que CC) */
   horasExtrasNormales: number;
@@ -198,7 +198,7 @@ export interface CompanyCotizationRates {
   formacionProfesional: number;
   /** Accidentes de trabajo y enfermedades profesionales (AT/EP) - varía por actividad */
   atEp: number;
-  /** Mecanismo de Equidad Intergeneracional (MEI): 0.58% */
+  /** MEI empresa — % sobre Base CC (p. ej. 0.58 en 2025, 0.75 en 2026) */
   mei: number;
   /** Horas extras normales: 23.60% (mismo tipo que CC) */
   horasExtrasNormales: number;
