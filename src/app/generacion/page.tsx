@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo, useEffect, Suspense } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   ArchiveBoxIcon,
@@ -183,14 +183,86 @@ function mapContractType(type: string): TipoContrato {
 
 // ─── Main Page Content ──────────────────────────────────────────────────
 
+// ─── Controlled numeric input ─────────────────────────────────────────────────
+// Allows the user to clear the field and type freely; normalises on blur.
+// Uses type="text" to avoid browser spinner arrows entirely.
+function NumericInput({
+  value,
+  onChange,
+  min = 0,
+  max,
+  step,
+  className,
+}: {
+  value: number
+  onChange: (v: number) => void
+  min?: number
+  max?: number
+  step?: number
+  className?: string
+}) {
+  const [raw, setRaw] = useState(String(value))
+  const focused = useRef(false)
+
+  useEffect(() => {
+    if (!focused.current) setRaw(String(value))
+  }, [value])
+
+  const clamp = (n: number) => {
+    let v = n
+    if (min !== undefined) v = Math.max(min, v)
+    if (max !== undefined) v = Math.min(max, v)
+    return v
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode={step !== undefined && step < 1 ? 'decimal' : 'numeric'}
+      value={raw}
+      onFocus={() => { focused.current = true }}
+      onChange={e => {
+        const s = e.target.value
+        setRaw(s)
+        const n = parseFloat(s)
+        if (!isNaN(n)) onChange(clamp(n))
+      }}
+      onBlur={() => {
+        focused.current = false
+        const n = parseFloat(raw)
+        const safe = isNaN(n) ? (min ?? 0) : clamp(n)
+        setRaw(String(safe))
+        onChange(safe)
+      }}
+      className={cn(
+        'h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm text-center tabular-nums shadow-sm',
+        'focus:outline-none focus:ring-1 focus:ring-ring',
+        className,
+      )}
+    />
+  )
+}
+
 function GeneracionContent() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get('company_id') || ''
 
   // ── Period selection ──
   const now = new Date()
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear())
+  const currentMonth = now.getMonth() + 1   // 1-12
+  const currentYear = now.getFullYear()
+
+  // A month is "closed" only if it has already fully passed
+  const isPeriodClosed = (m: number, y: number) =>
+    y < currentYear || (y === currentYear && m < currentMonth)
+
+  // Default to the last closed month
+  const defaultMonth = currentMonth > 1 ? currentMonth - 1 : 12
+  const defaultYear  = currentMonth > 1 ? currentYear : currentYear - 1
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
+  const [selectedYear, setSelectedYear] = useState(defaultYear)
+
+  const periodIsValid = isPeriodClosed(selectedMonth, selectedYear)
 
   // ── Tab 1: Generation state ──
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
@@ -823,7 +895,9 @@ function GeneracionContent() {
                         className="h-9 w-[160px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
                       >
                         {MONTH_NAMES.map((name, i) => (
-                          <option key={i} value={i + 1}>{name}</option>
+                          <option key={i} value={i + 1} disabled={!isPeriodClosed(i + 1, selectedYear)}>
+                            {name}{!isPeriodClosed(i + 1, selectedYear) ? ' (no cerrado)' : ''}
+                          </option>
                         ))}
                       </select>
                       <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -837,13 +911,19 @@ function GeneracionContent() {
                       <select
                         value={selectedYear}
                         onChange={(e) => {
-                          setSelectedYear(Number(e.target.value))
+                          const newYear = Number(e.target.value)
+                          setSelectedYear(newYear)
+                          // If the current month is no longer valid for the new year, reset to last closed month
+                          if (!isPeriodClosed(selectedMonth, newYear)) {
+                            const lastValid = newYear < currentYear ? 12 : currentMonth - 1
+                            if (lastValid > 0) setSelectedMonth(lastValid)
+                          }
                           setTimeout(recalculateAll, 0)
                         }}
                         className="h-9 w-[100px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
                       >
                         {[2024, 2025, 2026, 2027].map(y => (
-                          <option key={y} value={y}>{y}</option>
+                          <option key={y} value={y} disabled={y > currentYear}>{y}</option>
                         ))}
                       </select>
                       <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -853,7 +933,7 @@ function GeneracionContent() {
                   {/* Load Employees */}
                   <Button
                     onClick={loadEmployees}
-                    disabled={loadingEmployees}
+                    disabled={loadingEmployees || !periodIsValid}
                     className="bg-[#1B2A41] hover:bg-[#1B2A41]/90"
                   >
                     {loadingEmployees ? (
@@ -873,7 +953,7 @@ function GeneracionContent() {
                       <Button
                         variant="outline"
                         onClick={() => generatePayslips(true)}
-                        disabled={generating || !someSelected}
+                        disabled={generating || !someSelected || !periodIsValid}
                         className="border-[#C6A664] text-[#C6A664] hover:bg-[#C6A664]/10"
                       >
                         {generating ? (
@@ -885,7 +965,7 @@ function GeneracionContent() {
                       </Button>
                       <Button
                         onClick={() => generatePayslips(false)}
-                        disabled={generating}
+                        disabled={generating || !periodIsValid}
                         className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white"
                       >
                         {generating ? (
@@ -900,6 +980,16 @@ function GeneracionContent() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* ── Period warning ── */}
+            {!periodIsValid && (
+              <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <ExclamationCircleIcon className="h-5 w-5 shrink-0 text-amber-500" />
+                <span>
+                  Solo se pueden generar nóminas de <strong>meses ya cerrados</strong>. El mes actual y los meses futuros no están disponibles.
+                </span>
+              </div>
+            )}
 
             {/* ── Progress Bar ── */}
             {generating && (
@@ -1060,8 +1150,7 @@ function GeneracionContent() {
                           <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Días Trab.</TableHead>
                           <TableHead className="w-[80px] px-1 text-xs font-semibold uppercase tracking-wider text-center">H. Extra</TableHead>
                           <TableHead className="w-[80px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Vacaciones</TableHead>
-                          <TableHead className="w-[75px] px-1 text-xs font-semibold uppercase tracking-wider text-center">IT Días</TableHead>
-                          <TableHead className="w-[75px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Bajas</TableHead>
+                          <TableHead className="w-[75px] px-1 text-xs font-semibold uppercase tracking-wider text-center">IT / Baja</TableHead>
                           <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Gastos</TableHead>
                           <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Comisiones</TableHead>
                           <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Anticipos</TableHead>
@@ -1150,11 +1239,9 @@ function GeneracionContent() {
 
                             {/* Worked Days */}
                             <TableCell className="px-1 py-2 text-center">
-                              <Input
-                                type="number"
+                              <NumericInput
                                 value={emp.workedDays}
-                                onChange={e => updateVariable(idx, 'workedDays', Number(e.target.value))}
-                                className="h-8 text-center text-sm w-full tabular-nums"
+                                onChange={v => updateVariable(idx, 'workedDays', v)}
                                 min={0}
                                 max={getDaysInMonth(selectedMonth, selectedYear)}
                               />
@@ -1162,11 +1249,9 @@ function GeneracionContent() {
 
                             {/* Overtime Hours */}
                             <TableCell className="px-1 py-2 text-center">
-                              <Input
-                                type="number"
+                              <NumericInput
                                 value={emp.overtimeHours}
-                                onChange={e => updateVariable(idx, 'overtimeHours', Number(e.target.value))}
-                                className="h-8 text-center text-sm w-full tabular-nums"
+                                onChange={v => updateVariable(idx, 'overtimeHours', v)}
                                 min={0}
                                 step={0.5}
                               />
@@ -1174,35 +1259,19 @@ function GeneracionContent() {
 
                             {/* Vacation Days */}
                             <TableCell className="px-1 py-2 text-center">
-                              <Input
-                                type="number"
+                              <NumericInput
                                 value={emp.vacationDays}
-                                onChange={e => updateVariable(idx, 'vacationDays', Number(e.target.value))}
-                                className="h-8 text-center text-sm w-full tabular-nums"
+                                onChange={v => updateVariable(idx, 'vacationDays', v)}
                                 min={0}
                                 max={getDaysInMonth(selectedMonth, selectedYear)}
                               />
                             </TableCell>
 
-                            {/* IT Days */}
+                            {/* IT / Baja Days */}
                             <TableCell className="px-1 py-2 text-center">
-                              <Input
-                                type="number"
+                              <NumericInput
                                 value={emp.itDays}
-                                onChange={e => updateVariable(idx, 'itDays', Number(e.target.value))}
-                                className="h-8 text-center text-sm w-full tabular-nums"
-                                min={0}
-                                max={getDaysInMonth(selectedMonth, selectedYear)}
-                              />
-                            </TableCell>
-
-                            {/* Sick Leave Days (Bajas) */}
-                            <TableCell className="px-1 py-2 text-center">
-                              <Input
-                                type="number"
-                                value={emp.sickLeaveDays}
-                                onChange={e => updateVariable(idx, 'sickLeaveDays', Number(e.target.value))}
-                                className="h-8 text-center text-sm w-full tabular-nums"
+                                onChange={v => updateVariable(idx, 'itDays', v)}
                                 min={0}
                                 max={getDaysInMonth(selectedMonth, selectedYear)}
                               />
@@ -1210,11 +1279,9 @@ function GeneracionContent() {
 
                             {/* Expenses (Gastos) */}
                             <TableCell className="px-1 py-2 text-center">
-                              <Input
-                                type="number"
+                              <NumericInput
                                 value={emp.expenses}
-                                onChange={e => updateVariable(idx, 'expenses', Number(e.target.value))}
-                                className="h-8 text-center text-sm w-full tabular-nums"
+                                onChange={v => updateVariable(idx, 'expenses', v)}
                                 min={0}
                                 step={10}
                               />
@@ -1222,11 +1289,9 @@ function GeneracionContent() {
 
                             {/* Commissions */}
                             <TableCell className="px-1 py-2 text-center">
-                              <Input
-                                type="number"
+                              <NumericInput
                                 value={emp.commissions}
-                                onChange={e => updateVariable(idx, 'commissions', Number(e.target.value))}
-                                className="h-8 text-center text-sm w-full tabular-nums"
+                                onChange={v => updateVariable(idx, 'commissions', v)}
                                 min={0}
                                 step={10}
                               />
@@ -1234,11 +1299,9 @@ function GeneracionContent() {
 
                             {/* Advances */}
                             <TableCell className="px-1 py-2 text-center">
-                              <Input
-                                type="number"
+                              <NumericInput
                                 value={emp.advances}
-                                onChange={e => updateVariable(idx, 'advances', Number(e.target.value))}
-                                className="h-8 text-center text-sm w-full tabular-nums"
+                                onChange={v => updateVariable(idx, 'advances', v)}
                                 min={0}
                                 step={10}
                               />

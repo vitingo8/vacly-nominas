@@ -568,6 +568,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate: only allow fully closed months (strictly in the past)
+    const now = new Date()
+    const currentMonth = now.getMonth() + 1
+    const currentYear  = now.getFullYear()
+    if (year > currentYear || (year === currentYear && month >= currentMonth)) {
+      return NextResponse.json(
+        { success: false, error: 'No se pueden generar nóminas para el mes actual ni meses futuros. Solo se permiten meses ya cerrados.' },
+        { status: 400 }
+      )
+    }
+
     // Load payroll config for the company (if exists)
     const { data: payrollConfig } = await supabase
       .from('payroll_config')
