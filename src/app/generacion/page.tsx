@@ -210,6 +210,11 @@ function resolveWorkdayCoefficient(fullTime: unknown, workdayPercentage: unknown
   return 1
 }
 
+function resolveWorkdayType(fullTime: unknown, workdayPercentage: unknown): TipoJornada {
+  const coefficient = resolveWorkdayCoefficient(fullTime, workdayPercentage)
+  return coefficient < 1 ? TipoJornada.PARCIAL : TipoJornada.COMPLETA
+}
+
 // ─── Main Page Content ──────────────────────────────────────────────────
 
 // ─── Controlled numeric input ─────────────────────────────────────────────────
@@ -398,7 +403,7 @@ function GeneracionContent() {
         proratedBonuses: 0,
         numberOfBonuses: nBonuses,
         contractType: mapContractType(row.contractType),
-        workdayType: row.fullTime ? TipoJornada.COMPLETA : TipoJornada.PARCIAL,
+        workdayType: resolveWorkdayType(row.fullTime, row.workdayPercentage),
         partTimeCoefficient: resolveWorkdayCoefficient(row.fullTime, row.workdayPercentage),
       }
 
@@ -528,7 +533,9 @@ function GeneracionContent() {
           proratedBonuses: comp.proratedBonuses || 0,
           numberOfBonuses,
           contractType: contract.contract_type || 'permanent',
-          fullTime: contract.full_time !== false,
+          fullTime:
+            contract.full_time !== false &&
+            resolveWorkdayCoefficient(contract.full_time, contract.workday_percentage) >= 1,
           workdayPercentage: contract.workday_percentage || 100,
           seniorityAmount: derived?.seniorityAmount ?? 0,
           seniorityPercent: derived?.seniorityPercent ?? 0,

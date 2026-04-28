@@ -540,6 +540,11 @@ function resolveWorkdayCoefficient(fullTime: unknown, workdayPercentage: unknown
   return 1
 }
 
+function resolveWorkdayType(fullTime: unknown, workdayPercentage: unknown): TipoJornada {
+  const coefficient = resolveWorkdayCoefficient(fullTime, workdayPercentage)
+  return coefficient < 1 ? TipoJornada.PARCIAL : TipoJornada.COMPLETA
+}
+
 function effectiveContractForPayrollPeriod<T extends { id?: string | null; agreed_base_salary?: unknown }>(
   contract: T,
   reviewsByContractId: Map<string, SmiSalaryReviewRow>,
@@ -1223,7 +1228,7 @@ export async function POST(request: NextRequest) {
           proratedBonuses: effectiveProratedForCC,
           numberOfBonuses: effectiveNumberOfBonuses,
           contractType: mapContractType(emp.contractType),
-          workdayType: emp.fullTime ? TipoJornada.COMPLETA : TipoJornada.PARCIAL,
+          workdayType: resolveWorkdayType(emp.fullTime, emp.workdayPercentage),
           partTimeCoefficient,
         }
 
