@@ -199,6 +199,17 @@ function getPreviewPayrollConfig(month: number, year: number, periodSmi?: Period
   }
 }
 
+function moneyValue(value: unknown): number {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : 0
+}
+
+function resolveWorkdayCoefficient(fullTime: unknown, workdayPercentage: unknown): number {
+  const pct = Number(workdayPercentage)
+  if (Number.isFinite(pct) && pct > 0 && pct <= 100) return pct / 100
+  return 1
+}
+
 // ─── Main Page Content ──────────────────────────────────────────────────
 
 // ─── Controlled numeric input ─────────────────────────────────────────────────
@@ -360,12 +371,12 @@ function GeneracionContent() {
       //                     la lleva aplicada)
       //   prorrata mes  = (monthlyBase + antigüedad) × nº pagas / 12
       // ────────────────────────────────────────────────────────────────
-      const seniorityAmount = row.seniorityAmount || 0
+      const seniorityAmount = moneyValue(row.seniorityAmount)
       const automaticSalaryConcepts = row.automaticAgreementConcepts.filter((concept) => concept.type === 'salary')
       const automaticNonSalaryConcepts = row.automaticAgreementConcepts.filter((concept) => concept.type === 'non_salary')
-      const automaticSalaryConceptAmount = automaticSalaryConcepts.reduce((sum, concept) => sum + concept.amount, 0)
-      const automaticNonSalaryConceptAmount = automaticNonSalaryConcepts.reduce((sum, concept) => sum + concept.amount, 0)
-      const baseWithSeniority = row.baseSalary + seniorityAmount
+      const automaticSalaryConceptAmount = automaticSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
+      const automaticNonSalaryConceptAmount = automaticNonSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
+      const baseWithSeniority = moneyValue(row.baseSalary) + seniorityAmount
 
       // Si el backend ya nos dio la prorrata jornada-adjusted del convenio,
       // la usamos. Si no, calculamos a partir del base+antigüedad.
@@ -375,12 +386,12 @@ function GeneracionContent() {
           : Math.round((baseWithSeniority * nBonuses) / 12 * 100) / 100
 
       const employeeInput: EmployeePayrollInput = {
-        baseSalaryMonthly: row.baseSalary,
+        baseSalaryMonthly: moneyValue(row.baseSalary),
         cotizationGroup: (row.cotizationGroup || 7) as GrupoCotizacion,
         irpfPercentage: row.irpfPercentage || 0,
         // Antigüedad como complemento fijo (devengo salarial mensual).
         // Se suma al complemento manual que el usuario haya configurado.
-        fixedComplements: (row.fixedComplements || 0) + seniorityAmount + automaticSalaryConceptAmount,
+        fixedComplements: moneyValue(row.fixedComplements) + seniorityAmount + automaticSalaryConceptAmount,
         nonSalaryComplements: automaticNonSalaryConceptAmount,
         // Se pasa 0 aquí; la prorrata entra como devengo mensual (otherSalaryAccruals)
         // para replicar el modo "prorrateado" del backend y que aparezca en totalDevengos.
@@ -388,7 +399,7 @@ function GeneracionContent() {
         numberOfBonuses: nBonuses,
         contractType: mapContractType(row.contractType),
         workdayType: row.fullTime ? TipoJornada.COMPLETA : TipoJornada.PARCIAL,
-        partTimeCoefficient: row.fullTime ? 1 : (row.workdayPercentage || 100) / 100,
+        partTimeCoefficient: resolveWorkdayCoefficient(row.fullTime, row.workdayPercentage),
       }
 
       const monthlyVars: MonthlyVariablesInput = {
@@ -501,9 +512,13 @@ function GeneracionContent() {
           iban: emp.iban || '',
           imageUrl: emp.image_url || null,
           baseSalary:
-            hasActiveContract && Number(contract.agreed_base_salary) > 0
-              ? Number(contract.agreed_base_salary)
-              : Number(comp.baseSalaryMonthly) || 0,
+            derived?.baseSalaryMonthly != null
+              ? Number(derived.baseSalaryMonthly)
+              : (
+                  hasActiveContract && Number(contract.agreed_base_salary) > 0
+                    ? Number(contract.agreed_base_salary)
+                    : Number(comp.baseSalaryMonthly) || 0
+                ),
           cotizationGroup:
             comp.cotizationGroup
             || contract.cotization_group
@@ -1690,14 +1705,14 @@ function GeneracionContent() {
             // La antigüedad la cargamos en `fixedComplements` para que entre en el cálculo,
             // pero la mostramos como línea separada y restamos del bloque "Complementos
             // salariales" para no contarla dos veces visualmente.
-            const seniorityAmount = previewEmployee.seniorityAmount || 0
+            const seniorityAmount = moneyValue(previewEmployee.seniorityAmount)
             const autoSalaryConcepts = previewEmployee.automaticAgreementConcepts.filter((concept) => concept.type === 'salary')
             const autoNonSalaryConcepts = previewEmployee.automaticAgreementConcepts.filter((concept) => concept.type === 'non_salary')
-            const autoSalaryAmount = autoSalaryConcepts.reduce((sum, concept) => sum + concept.amount, 0)
-            const autoNonSalaryAmount = autoNonSalaryConcepts.reduce((sum, concept) => sum + concept.amount, 0)
-            const manualComplements = Math.max(0, a.fixedComplements - seniorityAmount - autoSalaryAmount)
+            const autoSalaryAmount = autoSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
+            const autoNonSalaryAmount = autoNonSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
+            const manualComplements = Math.max(0, moneyValue(a.fixedComplements) - seniorityAmount - autoSalaryAmount)
             const salaryLines: Array<{ concept: string; amount: number; meta?: string }> = [
-              { concept: 'Salario Base', amount: a.baseSalary },
+              { concept: 'Salario Base', amount: moneyValue(a.baseSalary) },
               {
                 concept: 'Antigüedad',
                 amount: seniorityAmount,
@@ -1706,25 +1721,26 @@ function GeneracionContent() {
                     ? `${previewEmployee.seniorityPercent.toFixed(2)}% · ${previewEmployee.yearsOfService} años`
                     : undefined,
               },
-              { concept: 'Horas extraordinarias', amount: a.overtimeNormal },
-              { concept: 'Gratificaciones extraordinarias', amount: a.bonusPayment },
+              { concept: 'Horas extraordinarias', amount: moneyValue(a.overtimeNormal) },
+              { concept: 'Gratificaciones extraordinarias', amount: moneyValue(a.bonusPayment) },
               { concept: 'Salario en especie', amount: 0 },
               { concept: 'Complementos salariales', amount: manualComplements },
-              ...autoSalaryConcepts,
-              { concept: 'Prorrata pagas extra', amount: a.otherSalaryAccruals },
-              { concept: 'Comisiones / Incentivos', amount: a.commissions + a.incentives },
-              { concept: 'IT – Empresa', amount: a.itCompanyBenefit },
-              { concept: 'IT – Seg. Social', amount: a.itSSBenefit },
-              { concept: 'Complemento IT convenio', amount: a.itAgreementComplement },
+              ...autoSalaryConcepts.map((concept) => ({ ...concept, amount: moneyValue(concept.amount) })),
+              { concept: 'Prorrata pagas extra', amount: moneyValue(a.otherSalaryAccruals) },
+              { concept: 'Comisiones / Incentivos', amount: moneyValue(a.commissions) + moneyValue(a.incentives) },
             ]
             const nonSalaryLines: Array<{ concept: string; amount: number }> = [
               { concept: 'Indemnizaciones o suplidos', amount: 0 },
-              { concept: 'Prestaciones e ind. de la Seg. Soc.', amount: 0 },
+              {
+                concept: 'Prestaciones e ind. de la Seg. Soc.',
+                amount: moneyValue(a.itCompanyBenefit) + moneyValue(a.itSSBenefit),
+              },
               { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
-              ...autoNonSalaryConcepts,
+              { concept: 'Complemento IT convenio', amount: moneyValue(a.itAgreementComplement) },
+              ...autoNonSalaryConcepts.map((concept) => ({ ...concept, amount: moneyValue(concept.amount) })),
               {
                 concept: 'Otras percepciones no salariales',
-                amount: Math.max(0, a.nonSalaryComplements + a.otherNonSalaryAccruals - autoNonSalaryAmount),
+                amount: Math.max(0, moneyValue(a.nonSalaryComplements) + moneyValue(a.otherNonSalaryAccruals) - autoNonSalaryAmount),
               },
             ]
             const previewConfig = getPreviewPayrollConfig(selectedMonth, selectedYear, periodSmi)

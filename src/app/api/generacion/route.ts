@@ -33,7 +33,7 @@ import {
   type ITComplementResult,
   type PayrollITAbsence,
 } from '@/lib/payroll-it-engine'
-import { resolvePayrollConfigForDate } from '@/lib/payroll-parameters'
+import { getSmiForDate, resolvePayrollConfigForDate } from '@/lib/payroll-parameters'
 
 // ─── GET: List generated nominas with filters ─────────────────────────
 export async function GET(request: NextRequest) {
@@ -124,6 +124,23 @@ export async function GET(request: NextRequest) {
         loadPeriodStart,
         (loadPayrollConfig as any)?.annual_parameters,
       )
+      const loadSmiReviewPeriod = getSmiForDate(
+        `${loadYear}-12-31`,
+        (loadPayrollConfig as any)?.annual_parameters,
+      )
+      const loadSmiReviewsByContractId = new Map<string, SmiSalaryReviewRow>()
+      try {
+        const { data: loadSmiReviews } = await supabase
+          .from('smi_salary_reviews')
+          .select('contract_id, smi_year, action, previous_salary, new_salary')
+          .eq('company_id', companyId)
+          .eq('smi_year', loadYear)
+        ;((loadSmiReviews ?? []) as SmiSalaryReviewRow[]).forEach((review) => {
+          loadSmiReviewsByContractId.set(review.contract_id, review)
+        })
+      } catch (err) {
+        console.warn('[load_employees] No se pudo leer smi_salary_reviews:', err)
+      }
       const { data: loadSalaryConcepts } = await supabase
         .from('salary_concepts')
         .select('id, code, name, type, cotizes_ss, tributes_irpf, agreement_id, active')
@@ -175,7 +192,16 @@ export async function GET(request: NextRequest) {
       // que la generación real.
       const processed = await Promise.all(
         (employees || []).map(async (emp: any) => {
-          const activeContracts = (emp.contracts || []).filter((c: any) => c.status === 'active')
+          const activeContracts = (emp.contracts || [])
+            .filter((c: any) => c.status === 'active')
+            .map((contract: any) =>
+              effectiveContractForPayrollPeriod(
+                contract,
+                loadSmiReviewsByContractId,
+                loadPeriodStart,
+                loadSmiReviewPeriod.effectiveFrom,
+              ),
+            )
           const comp = { ...(emp.compensation || {}) }
           comp.irpfPercentage = resolveEmployeeIrpfPercentage(
             { id: emp.id, compensation: emp.compensation, irpf_data: emp.irpf_data },
@@ -194,6 +220,7 @@ export async function GET(request: NextRequest) {
             seniorityPeriods: number
             yearsOfService: number
             numberOfBonuses: number
+            baseSalaryMonthly: number
             monthlyProratedBonuses: number
             monthlyBaseWithSeniority: number
             automaticConcepts: AgreementPayrollConcept[]
@@ -227,7 +254,7 @@ export async function GET(request: NextRequest) {
               const agreementConcepts = resolveAgreementPayrollConcepts(
                 ctx,
                 (loadSalaryConcepts ?? []) as SalaryConceptCatalogRow[],
-                Number(contract.workday_percentage ?? 100) / 100,
+                resolveWorkdayCoefficient(contract.full_time, contract.workday_percentage),
               )
               derivedPreview = {
                 seniorityAmount: sen.amount,
@@ -235,6 +262,7 @@ export async function GET(request: NextRequest) {
                 seniorityPeriods: sen.periodsCompleted,
                 yearsOfService: years,
                 numberOfBonuses: ctx.numberOfBonuses,
+                baseSalaryMonthly: agreedBase,
                 monthlyProratedBonuses: round2(prorrata),
                 monthlyBaseWithSeniority: baseWithSen,
                 automaticConcepts: agreementConcepts.concepts,
@@ -454,6 +482,14 @@ type EmployeeIrpfSource = {
   irpf_data?: { lastResult?: { tipoRetencion?: unknown } | null } | null
 }
 
+type SmiSalaryReviewRow = {
+  contract_id: string
+  smi_year: number
+  action: string
+  previous_salary: number | string | null
+  new_salary: number | string | null
+}
+
 function toValidIrpfPercentage(value: unknown): number | null {
   const numeric = Number(value)
   if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) return null
@@ -496,6 +532,41 @@ function getDaysInMonth(month: number, year: number): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+function resolveWorkdayCoefficient(fullTime: unknown, workdayPercentage: unknown): number {
+  const pct = Number(workdayPercentage)
+  if (Number.isFinite(pct) && pct > 0 && pct <= 100) return pct / 100
+  return 1
+}
+
+function effectiveContractForPayrollPeriod<T extends { id?: string | null; agreed_base_salary?: unknown }>(
+  contract: T,
+  reviewsByContractId: Map<string, SmiSalaryReviewRow>,
+  periodStart: string,
+  smiEffectiveFrom: string,
+): T {
+  const contractId = contract.id ? String(contract.id) : ''
+  const review = contractId ? reviewsByContractId.get(contractId) : undefined
+  if (!review) return contract
+
+  const previousSalary = Number(review.previous_salary)
+  const newSalary = Number(review.new_salary)
+  const shouldUsePrevious =
+    periodStart < smiEffectiveFrom &&
+    Number.isFinite(previousSalary) &&
+    previousSalary > 0 &&
+    ['auto_updated', 'applied_growth'].includes(review.action)
+  const salary = shouldUsePrevious
+    ? previousSalary
+    : Number.isFinite(newSalary) && newSalary > 0
+      ? newSalary
+      : Number(contract.agreed_base_salary)
+
+  return {
+    ...contract,
+    agreed_base_salary: Number.isFinite(salary) && salary > 0 ? round2(salary) : contract.agreed_base_salary,
+  }
 }
 
 function normalizeConceptName(value: string | null | undefined): string {
@@ -542,22 +613,41 @@ function inferConceptType(concept: string): 'salary' | 'non_salary' {
   return nonSalaryKeywords.some((keyword) => normalized.includes(keyword)) ? 'non_salary' : 'salary'
 }
 
-function shouldAutoApplyAgreementPlus(concept: string, amountKind: string | undefined): boolean {
-  if (amountKind === 'monthly') return true
-  if (amountKind === 'unit') return false
+function isConditionalAgreementPlus(concept: string): boolean {
   const normalized = normalizeConceptName(concept)
-  const variableKeywords = [
-    'hora',
+  const conditionalKeywords = [
+    'maternidad',
+    'paternidad',
+    'embarazo',
+    'lactancia',
+    'ambulatorio',
+    'geriatric',
+    'geriatrico',
+    'hospital',
+    'hospitalario',
+    'clinica',
+    'residencia',
+    'centro',
+    'puesto',
+    'destino',
+    'turno',
+    'guardia',
     'nocturn',
     'festiv',
     'domingo',
+    'hora',
     'kilometraje',
     'km',
     'dieta',
-    'guardia',
-    'turno',
   ]
-  return !variableKeywords.some((keyword) => normalized.includes(keyword))
+  return conditionalKeywords.some((keyword) => normalized.includes(keyword))
+}
+
+function shouldAutoApplyAgreementPlus(concept: string, amountKind: string | undefined): boolean {
+  if (isConditionalAgreementPlus(concept)) return false
+  if (amountKind === 'monthly') return true
+  if (amountKind === 'unit') return false
+  return false
 }
 
 function resolveAgreementPayrollConcepts(
@@ -582,7 +672,7 @@ function resolveAgreementPayrollConcepts(
     const amountKind = plus.amountKind ?? 'unknown'
     if (!shouldAutoApplyAgreementPlus(plus.concepto, amountKind)) {
       warnings.push(
-        `Concepto de convenio "${plus.concepto}" detectado como unitario/variable; no se aplica automáticamente sin variable mensual.`,
+        `Concepto de convenio "${plus.concepto}" detectado como condicionado o variable; no se aplica automáticamente sin variable mensual o condición del empleado.`,
       )
       continue
     }
@@ -853,6 +943,23 @@ export async function POST(request: NextRequest) {
       }
     }
     const smiForPeriod = payrollParameterResolution.smiForPeriod
+    const smiReviewPeriod = getSmiForDate(
+      `${year}-12-31`,
+      payrollConfig?.annual_parameters,
+    )
+    const smiReviewsByContractId = new Map<string, SmiSalaryReviewRow>()
+    try {
+      const { data: smiReviews } = await supabase
+        .from('smi_salary_reviews')
+        .select('contract_id, smi_year, action, previous_salary, new_salary')
+        .eq('company_id', companyId)
+        .eq('smi_year', year)
+      ;((smiReviews ?? []) as SmiSalaryReviewRow[]).forEach((review) => {
+        smiReviewsByContractId.set(review.contract_id, review)
+      })
+    } catch (err) {
+      console.warn('[generacion] No se pudo leer smi_salary_reviews:', err)
+    }
 
     const results: Array<{
       employeeId: string
@@ -890,9 +997,7 @@ export async function POST(request: NextRequest) {
       try {
         const persistedEmployee = persistedIrpfByEmployeeId.get(emp.employeeId)
         const effectiveIrpfPercentage = resolveEmployeeIrpfPercentage(persistedEmployee, emp.irpfPercentage)
-        const partTimeCoefficient = emp.fullTime
-          ? 1
-          : (emp.workdayPercentage || 100) / 100
+        const partTimeCoefficient = resolveWorkdayCoefficient(emp.fullTime, emp.workdayPercentage)
 
         // Cargar contrato activo (agreement_ref_id, professional_category, start_date, …)
         let activeContract: any = null
@@ -980,6 +1085,14 @@ export async function POST(request: NextRequest) {
         if (emp.province && activeContract) activeContract.work_center_address = `${activeContract.work_center_address ?? ''}, ${emp.province}`
         if (emp.professionalCategory && activeContract) activeContract.professional_category = emp.professionalCategory
         if (emp.contractStartDate && activeContract) activeContract.start_date = emp.contractStartDate
+        if (activeContract && !isVirtualContract) {
+          activeContract = effectiveContractForPayrollPeriod(
+            activeContract,
+            smiReviewsByContractId,
+            periodStart,
+            smiReviewPeriod.effectiveFrom,
+          )
+        }
 
         // Modo de pagas extra: por ahora se infiere de la configuración de la empresa/contrato
         // o se asume 'prorated' (modalidad más frecuente en España). Expuesto en payroll_config.
@@ -1017,8 +1130,11 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Valores efectivos (convenio prevalece sobre input manual)
-        const effectiveBase = derived?.baseSalaryMonthly ?? emp.baseSalaryMonthly
+        // Valores efectivos: el contrato se ajusta por la fecha de vigencia del SMI
+        // antes de caer al input manual enviado por la UI.
+        const effectiveBase =
+          derived?.baseSalaryMonthly
+          ?? Number(activeContract?.agreed_base_salary ?? emp.baseSalaryMonthly)
 
         // SMI check: aviso si la base (proporcional a parcialidad) queda por
         // debajo del SMI anual en €/mes. No bloquea la generación pero se
@@ -1262,15 +1378,6 @@ export async function POST(request: NextRequest) {
         if (payslipResult.accruals.commissions > 0) {
           perceptions.push({ concept: 'Comisiones', amount: payslipResult.accruals.commissions })
         }
-        if (payslipResult.accruals.itCompanyBenefit > 0) {
-          perceptions.push({ concept: 'IT – Empresa', amount: payslipResult.accruals.itCompanyBenefit })
-        }
-        if (payslipResult.accruals.itSSBenefit > 0) {
-          perceptions.push({ concept: 'IT – Seg. Social', amount: payslipResult.accruals.itSSBenefit })
-        }
-        for (const line of itComplement.lines) {
-          perceptions.push({ concept: line.concept, amount: line.amount })
-        }
         if (payslipResult.accruals.otherSalaryAccruals > 0) {
           perceptions.push({ concept: 'Otros devengos salariales', amount: payslipResult.accruals.otherSalaryAccruals })
         }
@@ -1278,8 +1385,15 @@ export async function POST(request: NextRequest) {
         // ── Percepciones no salariales: siempre todas las líneas ──
         const nonSalaryPerceptions: Array<{ concept: string; amount: number }> = [
           { concept: 'Indemnizaciones o suplidos', amount: 0 },
-          { concept: 'Prestaciones e ind. de la Seg. Soc.', amount: 0 },
+          {
+            concept: 'Prestaciones e ind. de la Seg. Soc.',
+            amount: round2(
+              (payslipResult.accruals.itCompanyBenefit ?? 0) +
+              (payslipResult.accruals.itSSBenefit ?? 0),
+            ),
+          },
           { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
+          ...itComplement.lines.map((line) => ({ concept: line.concept, amount: line.amount })),
           ...automaticAgreementConcepts.concepts
             .filter((concept) => concept.type === 'non_salary')
             .map((concept) => ({ concept: concept.concept, amount: concept.amount })),
