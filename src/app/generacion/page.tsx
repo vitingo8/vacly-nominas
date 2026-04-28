@@ -322,6 +322,7 @@ function GeneracionContent() {
   const [generatingSEPA, setGeneratingSEPA] = useState(false)
   const [generatingRED, setGeneratingRED] = useState(false)
   const [historyTotal, setHistoryTotal] = useState(0)
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set())
   const [exportError, setExportError] = useState<string | null>(null)
 
   // ── Detail dialog (historial) ──
@@ -752,6 +753,7 @@ function GeneracionContent() {
       if (data.success) {
         setHistorico(data.data || [])
         setHistoryTotal(data.total || 0)
+        setSelectedHistoryIds(new Set())
       }
     } catch {
       // silent fail
@@ -759,6 +761,35 @@ function GeneracionContent() {
       setHistoryLoading(false)
     }
   }, [companyId, historyMonth, historyYear, historyEmployee, historyStatus])
+
+  const allHistorySelected = useMemo(
+    () => historico.length > 0 && historico.every((nomina) => selectedHistoryIds.has(nomina.id)),
+    [historico, selectedHistoryIds],
+  )
+
+  const someHistorySelected = useMemo(
+    () => historico.some((nomina) => selectedHistoryIds.has(nomina.id)),
+    [historico, selectedHistoryIds],
+  )
+
+  const toggleHistorySelect = useCallback((id: string) => {
+    setSelectedHistoryIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  const toggleHistorySelectAll = useCallback(() => {
+    setSelectedHistoryIds(() => {
+      if (allHistorySelected) return new Set()
+      return new Set(historico.map((nomina) => nomina.id))
+    })
+  }, [allHistorySelected, historico])
 
   // ── Recalculate all when period changes ──
   const recalculateAll = useCallback(() => {
@@ -772,6 +803,12 @@ function GeneracionContent() {
     if (!companyId) return
     const month = historyMonth || selectedMonth
     const year = historyYear || selectedYear
+    const nominaIds = Array.from(selectedHistoryIds)
+
+    if (nominaIds.length === 0) {
+      setExportError('Selecciona al menos una nómina para descargar el ZIP.')
+      return
+    }
 
     setDownloadingPDFs(true)
     setExportError(null)
@@ -779,7 +816,12 @@ function GeneracionContent() {
       const res = await fetch('/api/download-pdfs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, month: Number(month), year: Number(year) }),
+        body: JSON.stringify({
+          companyId,
+          month: Number(month),
+          year: Number(year),
+          nominaIds,
+        }),
       })
 
       if (!res.ok) {
@@ -797,7 +839,7 @@ function GeneracionContent() {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `Nominas_${year}${String(month).padStart(2, '0')}.zip`
+      a.download = `Nominas_seleccionadas_${nominaIds.length}.zip`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
@@ -807,7 +849,7 @@ function GeneracionContent() {
     } finally {
       setDownloadingPDFs(false)
     }
-  }, [companyId, historyMonth, historyYear, selectedMonth, selectedYear])
+  }, [companyId, historyMonth, historyYear, selectedMonth, selectedYear, selectedHistoryIds])
 
   // ── Generate SEPA file ──
   const generateSEPA = useCallback(async () => {
@@ -1551,13 +1593,13 @@ function GeneracionContent() {
                     <div className="flex-1 min-w-[200px]">
                       <h3 className="text-sm font-semibold text-slate-700 mb-1">Exportar y Generar Ficheros</h3>
                       <p className="text-xs text-muted-foreground">
-                        Descarga PDFs, genera ficheros SEPA (transferencias) y RED (Seguridad Social)
+                        Selecciona nóminas del listado para descargarlas en ZIP, o genera ficheros SEPA y RED
                       </p>
                     </div>
                     
                     <Button
                       onClick={downloadPDFs}
-                      disabled={downloadingPDFs}
+                      disabled={downloadingPDFs || selectedHistoryIds.size === 0}
                       variant="outline"
                       className="bg-white hover:bg-slate-50"
                     >
@@ -1566,7 +1608,7 @@ function GeneracionContent() {
                       ) : (
                         <ArchiveBoxIcon className="w-4 h-4 mr-2" />
                       )}
-                      Descargar PDFs (ZIP)
+                      Descargar seleccionadas ({selectedHistoryIds.size})
                     </Button>
 
                     <Button
@@ -1618,6 +1660,17 @@ function GeneracionContent() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-slate-50/80">
+                        <TableHead className="w-[44px] px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={allHistorySelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = someHistorySelected && !allHistorySelected
+                            }}
+                            onChange={toggleHistorySelectAll}
+                            className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
+                          />
+                        </TableHead>
                         <TableHead className="text-xs font-semibold uppercase tracking-wider">Empleado</TableHead>
                         <TableHead className="text-xs font-semibold uppercase tracking-wider">Período</TableHead>
                         <TableHead className="text-xs font-semibold uppercase tracking-wider text-right">Bruto</TableHead>
@@ -1636,6 +1689,14 @@ function GeneracionContent() {
 
                         return (
                           <TableRow key={nomina.id}>
+                            <TableCell className="px-3 py-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedHistoryIds.has(nomina.id)}
+                                onChange={() => toggleHistorySelect(nomina.id)}
+                                className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
+                              />
+                            </TableCell>
                             <TableCell className="py-3">
                               <div>
                                 <p className="text-sm font-medium">{nomina.employee?.name || nomina.dni || '—'}</p>

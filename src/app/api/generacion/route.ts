@@ -468,6 +468,13 @@ type AgreementPayrollConcept = {
   }
 }
 
+type PayrollDeductionLine = {
+  concept: string
+  base?: number
+  rate?: number
+  amount: number
+}
+
 interface GenerationRequest {
   companyId: string
   companyData?: Record<string, unknown>
@@ -532,6 +539,10 @@ function getDaysInMonth(month: number, year: number): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+function amountFromRate(base: number, rate: number): number {
+  return round2((base * rate) / 100)
 }
 
 function resolveWorkdayCoefficient(fullTime: unknown, workdayPercentage: unknown): number {
@@ -1383,8 +1394,14 @@ export async function POST(request: NextRequest) {
         if (payslipResult.accruals.commissions > 0) {
           perceptions.push({ concept: 'Comisiones', amount: payslipResult.accruals.commissions })
         }
-        if (payslipResult.accruals.otherSalaryAccruals > 0) {
-          perceptions.push({ concept: 'Otros devengos salariales', amount: payslipResult.accruals.otherSalaryAccruals })
+        const proratedExtrasAlreadyShown =
+          derived?.bonusMode === 'prorated' ? derived.monthlyProratedBonuses : 0
+        const otherSalaryAccrualsNotShown = Math.max(
+          0,
+          round2(payslipResult.accruals.otherSalaryAccruals - proratedExtrasAlreadyShown),
+        )
+        if (otherSalaryAccrualsNotShown > 0) {
+          perceptions.push({ concept: 'Otros devengos salariales', amount: otherSalaryAccrualsNotShown })
         }
 
         // ── Percepciones no salariales: siempre todas las líneas ──
@@ -1428,11 +1445,31 @@ export async function POST(request: NextRequest) {
         }
 
         // Build deductions array
-        const deductions = [
-          { concept: 'Contingencias Comunes', rate: workerCcRate, amount: payslipResult.workerDeductions.contingenciasComunes },
-          { concept: 'Desempleo', rate: workerUnemploymentRate, amount: payslipResult.workerDeductions.desempleo },
-          { concept: 'Formación Profesional', rate: config.workerRates.formacionProfesional, amount: payslipResult.workerDeductions.formacionProfesional },
-          { concept: 'IRPF', rate: effectiveIrpfPercentage, amount: payslipResult.workerDeductions.irpf },
+        const deductions: PayrollDeductionLine[] = [
+          {
+            concept: 'Contingencias Comunes',
+            base: payslipResult.bases.baseCC,
+            rate: workerCcRate,
+            amount: amountFromRate(payslipResult.bases.baseCC, workerCcRate),
+          },
+          {
+            concept: 'Desempleo',
+            base: payslipResult.bases.baseCP,
+            rate: workerUnemploymentRate,
+            amount: amountFromRate(payslipResult.bases.baseCP, workerUnemploymentRate),
+          },
+          {
+            concept: 'Formación Profesional',
+            base: payslipResult.bases.baseCP,
+            rate: config.workerRates.formacionProfesional,
+            amount: amountFromRate(payslipResult.bases.baseCP, config.workerRates.formacionProfesional),
+          },
+          {
+            concept: 'IRPF',
+            base: payslipResult.bases.baseIRPF,
+            rate: effectiveIrpfPercentage,
+            amount: amountFromRate(payslipResult.bases.baseIRPF, effectiveIrpfPercentage),
+          },
           ...(payslipResult.workerDeductions.advances > 0
             ? [{ concept: 'Anticipos', amount: payslipResult.workerDeductions.advances }]
             : []),
@@ -1562,6 +1599,11 @@ export async function POST(request: NextRequest) {
           const rawIban = (emp.iban || '').replace(/\s+/g, '')
           const bankEntity = rawIban.length >= 8 ? rawIban.slice(4, 8) : ''
           const bankAccount = rawIban.length >= 24 ? rawIban.slice(10) : rawIban
+          const workCenterForPayslip =
+            (typeof activeContract?.work_center_address === 'string' && activeContract.work_center_address.trim())
+              || (typeof activeContract?.convenio_province === 'string' && activeContract.convenio_province.trim())
+              || derived?.context.province
+              || undefined
 
           // Prepare data for PDF generator
           const pdfData: PayslipPDFData = {
@@ -1581,7 +1623,7 @@ export async function POST(request: NextRequest) {
               cotizationGroup: emp.cotizationGroup,
               startDate: activeContract?.start_date ?? undefined,
               address: undefined, // no tenemos domicilio del empleado en el POST
-              job: activeContract?.professional_category ?? undefined,
+              job: workCenterForPayslip,
               cnoCode: activeContract?.occupation_code ?? undefined,
             },
             periodStart,
@@ -1601,7 +1643,7 @@ export async function POST(request: NextRequest) {
             deductions: deductions.map((d, idx) => ({
               code: String(idx + 1).padStart(3, '0'),
               concept: d.concept,
-              base: d.rate ? (d.amount / (d.rate / 100)) : 0,
+              base: d.base ?? (d.rate ? round2(d.amount / (d.rate / 100)) : 0),
               rate: d.rate || 0,
               amount: d.amount,
             })),

@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import JSZip from 'jszip'
 
+function sanitizeFilenamePart(value: unknown, fallback: string): string {
+  const sanitized = String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .trim()
+  return sanitized || fallback
+}
+
+function periodKeyFromDate(periodStart: string): string {
+  const [year, month] = periodStart.split('-')
+  return `${year}${month}`
+}
+
 // ─── POST: Download all PDFs for a period as ZIP ─────────────────────
 // Las nóminas sólo guardan `document_name` (ruta del objeto en el bucket
 // "Nominas" de Supabase Storage). Usamos Storage directamente con el
@@ -12,38 +26,56 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     const { companyId, month, year } = body
+    const requestedNominaIds = Array.isArray(body.nominaIds)
+      ? Array.from(new Set(body.nominaIds.map((id: unknown) => String(id)).filter(Boolean)))
+      : []
 
-    if (!companyId || !month || !year) {
+    if (!companyId || (requestedNominaIds.length === 0 && (!month || !year))) {
       return NextResponse.json(
-        { success: false, error: 'Faltan campos requeridos: companyId, month, year' },
+        { success: false, error: 'Faltan campos requeridos: companyId y nominaIds o month/year' },
         { status: 400 },
       )
     }
 
-    const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
-    const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate()
-    const periodEnd = `${year}-${String(month).padStart(2, '0')}-${lastDay}`
-
-    const { data: nominas, error } = await supabase
+    let query = supabase
       .from('nominas')
-      .select('id, employee_id, employee, document_name, period_start')
+      .select('id, employee_id, employee, company, dni, document_name, period_start, status')
       .eq('company_id', companyId)
-      .gte('period_start', periodStart)
-      .lte('period_start', periodEnd)
-      .eq('status', 'generated')
+
+    if (requestedNominaIds.length > 0) {
+      query = query.in('id', requestedNominaIds)
+    } else {
+      const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
+      const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate()
+      const periodEnd = `${year}-${String(month).padStart(2, '0')}-${lastDay}`
+      query = query
+        .gte('period_start', periodStart)
+        .lte('period_start', periodEnd)
+        .eq('status', 'generated')
+    }
+
+    const { data: nominas, error } = await query.order('period_start', { ascending: true })
 
     // Intenta localizar PDFs huérfanos en Storage (nóminas cuyo `document_name`
     // quedó vacío por un bug anterior). Lista el prefijo del período y empareja
     // por id de nómina en el nombre del fichero.
-    const monthFolder = `${companyId}/${year}/${String(month).padStart(2, '0')}`
-    let storageListing: { name: string }[] = []
-    try {
-      const { data: files } = await supabase.storage
-        .from('Nominas')
-        .list(monthFolder, { limit: 1000 })
-      storageListing = (files || []).filter((f: any) => f.name?.endsWith('.pdf'))
-    } catch (lsErr) {
-      console.warn('[download-pdfs] Could not list storage folder:', lsErr)
+    const storageListingsByFolder = new Map<string, { name: string }[]>()
+    const getStorageListing = async (folderPath: string) => {
+      if (storageListingsByFolder.has(folderPath)) {
+        return storageListingsByFolder.get(folderPath) ?? []
+      }
+      try {
+        const { data: files } = await supabase.storage
+          .from('Nominas')
+          .list(folderPath, { limit: 1000 })
+        const listing = (files || []).filter((f: any) => f.name?.endsWith('.pdf'))
+        storageListingsByFolder.set(folderPath, listing)
+        return listing
+      } catch (lsErr) {
+        console.warn('[download-pdfs] Could not list storage folder:', lsErr)
+        storageListingsByFolder.set(folderPath, [])
+        return []
+      }
     }
 
     if (error) {
@@ -61,21 +93,51 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const { data: companyRow } = await supabase
+      .from('companies')
+      .select('cif')
+      .eq('company_id', companyId)
+      .maybeSingle()
+    const fallbackCompanyCif = (companyRow as any)?.cif ?? null
+
     // Resolver `document_name` definitivo para cada nómina.
-    type NominaDl = { id: string; employee: any; document_name: string | null }
-    const resolved: Array<{ id: string; employee: any; objectPath: string }> = []
+    type NominaDl = {
+      id: string
+      employee: any
+      company: any
+      dni: string | null
+      document_name: string | null
+      period_start: string
+    }
+    const resolved: Array<{ id: string; employee: any; company: any; dni: string | null; periodStart: string; objectPath: string }> = []
     const backfill: Array<{ id: string; objectPath: string }> = []
 
     for (const n of nominas as NominaDl[]) {
       if (n.document_name && n.document_name.length > 0) {
-        resolved.push({ id: n.id, employee: n.employee, objectPath: n.document_name })
+        resolved.push({
+          id: n.id,
+          employee: n.employee,
+          company: n.company,
+          dni: n.dni,
+          periodStart: n.period_start,
+          objectPath: n.document_name,
+        })
         continue
       }
+      const periodFolder = `${companyId}/${n.period_start.slice(0, 4)}/${n.period_start.slice(5, 7)}`
+      const storageListing = await getStorageListing(periodFolder)
       // Matching por id: el nombre del fichero lo incluye al final ("_<id>.pdf").
       const match = storageListing.find((f) => f.name.includes(n.id))
       if (match) {
-        const fullPath = `${monthFolder}/${match.name}`
-        resolved.push({ id: n.id, employee: n.employee, objectPath: fullPath })
+        const fullPath = `${periodFolder}/${match.name}`
+        resolved.push({
+          id: n.id,
+          employee: n.employee,
+          company: n.company,
+          dni: n.dni,
+          periodStart: n.period_start,
+          objectPath: fullPath,
+        })
         backfill.push({ id: n.id, objectPath: fullPath })
       }
     }
@@ -101,11 +163,7 @@ export async function POST(request: NextRequest) {
     }
 
     const zip = new JSZip()
-    const folderName = `Nominas_${year}_${String(month).padStart(2, '0')}`
-    const folder = zip.folder(folderName)
-    if (!folder) {
-      throw new Error('Error creating ZIP folder')
-    }
+    const usedZipPaths = new Set<string>()
 
     let successCount = 0
     let errorCount = 0
@@ -126,15 +184,26 @@ export async function POST(request: NextRequest) {
         }
 
         const arrayBuffer = await fileBlob.arrayBuffer()
-        const safeName = (item.employee?.name || 'Empleado')
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-zA-Z0-9]+/g, '_')
-        const filename =
-          objectPath.split('/').pop()
-          || `Nomina_${safeName}_${String(month).padStart(2, '0')}_${year}.pdf`
+        const periodKey = periodKeyFromDate(item.periodStart)
+        const monthFolder = zip.folder(periodKey)
+        if (!monthFolder) {
+          throw new Error(`Error creando carpeta ZIP ${periodKey}`)
+        }
 
-        folder.file(filename, Buffer.from(arrayBuffer))
+        const dni = sanitizeFilenamePart(item.dni ?? item.employee?.dni, 'SinDNI')
+        const cif = sanitizeFilenamePart(item.company?.cif ?? fallbackCompanyCif, 'SinCIF')
+        const baseName = `${periodKey}_${dni}_${cif}`
+        let filename = `${baseName}.pdf`
+        let zipPath = `${periodKey}/${filename}`
+        let duplicate = 2
+        while (usedZipPaths.has(zipPath)) {
+          filename = `${baseName}_${duplicate}.pdf`
+          zipPath = `${periodKey}/${filename}`
+          duplicate++
+        }
+        usedZipPaths.add(zipPath)
+
+        monthFolder.file(filename, Buffer.from(arrayBuffer))
         successCount++
       } catch (err) {
         console.error(`Error processing PDF ${objectPath}:`, err)
@@ -160,7 +229,9 @@ export async function POST(request: NextRequest) {
       compressionOptions: { level: 6 },
     })
 
-    const filename = `Nominas_${year}${String(month).padStart(2, '0')}.zip`
+    const filename = requestedNominaIds.length > 0
+      ? `Nominas_seleccionadas_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.zip`
+      : `Nominas_${year}${String(month).padStart(2, '0')}.zip`
 
     return new NextResponse(zipBuffer, {
       status: 200,
