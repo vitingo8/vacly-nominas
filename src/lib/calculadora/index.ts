@@ -58,6 +58,7 @@ export {
   getGroupLimits,
   clampBase,
   round2,
+  roundUp2,
 } from './bases';
 
 // ---------------------------------------------------------------------------

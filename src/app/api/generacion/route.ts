@@ -5,6 +5,7 @@ import {
   getDefaultPayrollConfig,
   TipoContrato,
   TipoJornada,
+  TipoContingenciaIT,
 } from '@/lib/calculadora'
 import type {
   EmployeePayrollInput,
@@ -24,6 +25,14 @@ import {
   AgreementNotAssignedError,
   type AgreementContext,
 } from '@/lib/convenio'
+import {
+  calculateITAgreementComplement,
+  fetchITComplementRules,
+  fetchPreviousDailyRegulatoryBase,
+  resolveApprovedITAbsence,
+  type ITComplementResult,
+  type PayrollITAbsence,
+} from '@/lib/payroll-it-engine'
 
 // ─── GET: List generated nominas with filters ─────────────────────────
 export async function GET(request: NextRequest) {
@@ -143,6 +152,11 @@ export async function GET(request: NextRequest) {
       // de forma que el preview de la UI use exactamente los mismos números
       // que la generación real.
       const today = new Date().toISOString().slice(0, 10)
+      const loadMonth = month ? parseInt(month, 10) : new Date(today).getMonth() + 1
+      const loadYear = year ? parseInt(year, 10) : new Date(today).getFullYear()
+      const loadCalendarDays = getDaysInMonth(loadMonth, loadYear)
+      const loadPeriodStart = `${loadYear}-${String(loadMonth).padStart(2, '0')}-01`
+      const loadPeriodEnd = `${loadYear}-${String(loadMonth).padStart(2, '0')}-${loadCalendarDays}`
       const processed = await Promise.all(
         (employees || []).map(async (emp: any) => {
           const activeContracts = (emp.contracts || []).filter((c: any) => c.status === 'active')
@@ -213,6 +227,21 @@ export async function GET(request: NextRequest) {
             }
           }
 
+          let autoITAbsence: PayrollITAbsence | null = null
+          try {
+            autoITAbsence = await resolveApprovedITAbsence(supabase as any, {
+              companyId,
+              employeeId: emp.id,
+              periodStart: loadPeriodStart,
+              periodEnd: loadPeriodEnd,
+            })
+          } catch (err) {
+            console.warn(
+              `[load_employees] No se pudo resolver IT aprobada para ${emp.id}:`,
+              err instanceof Error ? err.message : err,
+            )
+          }
+
           return {
             ...emp,
             compensation: comp,
@@ -221,6 +250,7 @@ export async function GET(request: NextRequest) {
             hasAgreedBaseSalary:
               activeContracts[0]?.agreed_base_salary > 0 || comp.baseSalaryMonthly > 0,
             derivedPreview,
+            autoITAbsence,
           }
         }),
       )
@@ -321,6 +351,7 @@ interface EmployeeGenerationInput {
     overtimeHours: number
     vacationDays: number
     itDays: number
+    itContingencyType?: string
     commissions: number
     advances: number
     incentives: number
@@ -383,18 +414,34 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-// SMI (Salario Mínimo Interprofesional) anual en €/mes (14 pagas).
-// Fuente: RD anuales. Ajustable desde payroll_config.annual_parameters.smiMonthly.
-const SMI_MONTHLY: Record<number, number> = {
-  2023: 1080,
-  2024: 1134,
-  2025: 1184,
-  2026: 1221, // 14 pagas — RD SMI 2026 (17.094 €/año)
-}
+// SMI en €/mes (14 pagas) con fecha de entrada en vigor.
+const SMI_RECORDS: Array<{ effectiveFrom: string; monthly: number }> = [
+  { effectiveFrom: '2023-02-15', monthly: 1080 },
+  { effectiveFrom: '2024-01-01', monthly: 1134 },
+  { effectiveFrom: '2025-01-01', monthly: 1184 },
+  { effectiveFrom: '2026-03-01', monthly: 1221 },
+]
 
-function getSmi(year: number, override?: number | null): number {
-  if (override && override > 0) return override
-  return SMI_MONTHLY[year] ?? SMI_MONTHLY[2025]
+function getSmiForDate(onDate: string, annualParameters?: any): { monthly: number; effectiveFrom: string } {
+  const overrides = Array.isArray(annualParameters?.smiHistory)
+    ? annualParameters.smiHistory
+      .map((row: any) => ({
+        effectiveFrom: String(row.effectiveFrom ?? row.effective_from ?? ''),
+        monthly: Number(row.monthly ?? row.smiMonthly ?? row.smi),
+      }))
+      .filter((row: { effectiveFrom: string; monthly: number }) => row.effectiveFrom && row.monthly > 0)
+    : []
+
+  if (annualParameters?.smiEffectiveFrom && (annualParameters?.smiMonthly || annualParameters?.smi)) {
+    overrides.push({
+      effectiveFrom: String(annualParameters.smiEffectiveFrom),
+      monthly: Number(annualParameters.smiMonthly ?? annualParameters.smi),
+    })
+  }
+
+  const records = [...SMI_RECORDS, ...overrides]
+    .sort((a, b) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime())
+  return records.find((record) => record.effectiveFrom <= onDate) ?? records[records.length - 1]
 }
 
 function yearsBetween(startIso: string | null | undefined, refIso: string): number {
@@ -629,6 +676,8 @@ export async function POST(request: NextRequest) {
     const calendarDays = getDaysInMonth(month, year)
     const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
     const periodEnd = `${year}-${String(month).padStart(2, '0')}-${calendarDays}`
+    const smiForPeriod = getSmiForDate(periodStart, payrollConfig?.annual_parameters)
+    config.smiMonthly = smiForPeriod.monthly
 
     const results: Array<{
       employeeId: string
@@ -774,7 +823,7 @@ export async function POST(request: NextRequest) {
         // SMI check: aviso si la base (proporcional a parcialidad) queda por
         // debajo del SMI anual en €/mes. No bloquea la generación pero se
         // adjunta a warnings y a calculation_details.smi_check.
-        const smiMonthly = getSmi(year, (payrollConfig?.annual_parameters as any)?.smiMonthly)
+        const smiMonthly = smiForPeriod.monthly
         const smiThreshold = round2(smiMonthly * partTimeCoefficient)
         const smiWarning =
           effectiveBase > 0 && effectiveBase < smiThreshold
@@ -845,8 +894,67 @@ export async function POST(request: NextRequest) {
           partTimeCoefficient,
         }
 
-        // Build MonthlyVariablesInput
         const vars = emp.variables
+        const autoITAbsence = await resolveApprovedITAbsence(supabase as any, {
+          companyId,
+          employeeId: emp.employeeId,
+          periodStart,
+          periodEnd,
+        })
+        const manualContingency =
+          vars.itContingencyType === TipoContingenciaIT.ACCIDENTE_TRABAJO
+            ? TipoContingenciaIT.ACCIDENTE_TRABAJO
+            : TipoContingenciaIT.ENFERMEDAD_COMUN
+        const resolvedITAbsence: PayrollITAbsence | null = autoITAbsence ?? (
+          vars.itDays && vars.itDays > 0
+            ? {
+                active: true,
+                contingencyType: manualContingency,
+                startDay: 1,
+                endDay: vars.itDays,
+                daysInPeriod: vars.itDays,
+                absoluteDaysSinceStart: 1,
+                typeId: 'manual',
+                typeName: manualContingency === TipoContingenciaIT.ACCIDENTE_TRABAJO
+                  ? 'Accidente laboral'
+                  : 'Baja médica IT común',
+                sourceRecordId: null,
+              }
+            : null
+        )
+        const previousDailyRegulatoryBase = resolvedITAbsence
+          ? await fetchPreviousDailyRegulatoryBase(supabase as any, {
+              companyId,
+              employeeId: emp.employeeId,
+              periodStart,
+            })
+          : null
+        const currentMonthlySalaryForIT = round2(
+          effectiveBase +
+          effectiveFixed +
+          monthlyBonusAccrual +
+          integralBonusPayment
+        )
+        const fallbackDailyRegulatoryBase = round2(
+          (effectiveBase + effectiveFixed + effectiveProratedForCC + monthlyBonusAccrual) / 30
+        )
+        const dailyRegulatoryBaseForIT =
+          previousDailyRegulatoryBase && previousDailyRegulatoryBase > 0
+            ? previousDailyRegulatoryBase
+            : fallbackDailyRegulatoryBase
+        let itComplement: ITComplementResult = { total: 0, lines: [], warnings: [] }
+        if (derived && resolvedITAbsence) {
+          const rules = await fetchITComplementRules(supabase as any, derived.context, periodStart)
+          itComplement = calculateITAgreementComplement({
+            rules,
+            context: derived.context,
+            absence: resolvedITAbsence,
+            dailyRegulatoryBase: dailyRegulatoryBaseForIT,
+            dailySalaryBase: round2(currentMonthlySalaryForIT / 30),
+          })
+        }
+
+        // Build MonthlyVariablesInput
         const monthlyVars: MonthlyVariablesInput = {
           calendarDaysInMonth: calendarDays,
           workedDays: vars.workedDays ?? calendarDays,
@@ -867,14 +975,16 @@ export async function POST(request: NextRequest) {
           otherDeductions: 0,
         }
 
-        // Handle IT (temporary disability)
-        if (vars.itDays && vars.itDays > 0) {
+        // Handle IT (temporary disability) desde ausencias aprobadas o input manual.
+        if (resolvedITAbsence) {
           monthlyVars.temporaryDisability = {
             active: true,
-            contingencyType: 'ENFERMEDAD_COMUN' as any,
-            startDay: 1,
-            endDay: vars.itDays,
-            absoluteDaysSinceStart: vars.itDays,
+            contingencyType: resolvedITAbsence.contingencyType,
+            startDay: resolvedITAbsence.startDay,
+            endDay: resolvedITAbsence.endDay,
+            absoluteDaysSinceStart: resolvedITAbsence.absoluteDaysSinceStart,
+            dailyRegulatoryBaseOverride: dailyRegulatoryBaseForIT,
+            agreementComplementAmount: itComplement.total,
           }
         }
 
@@ -927,6 +1037,9 @@ export async function POST(request: NextRequest) {
         }
         if (payslipResult.accruals.itSSBenefit > 0) {
           perceptions.push({ concept: 'IT – Seg. Social', amount: payslipResult.accruals.itSSBenefit })
+        }
+        for (const line of itComplement.lines) {
+          perceptions.push({ concept: line.concept, amount: line.amount })
         }
         if (payslipResult.accruals.otherSalaryAccruals > 0) {
           perceptions.push({ concept: 'Otros devengos salariales', amount: payslipResult.accruals.otherSalaryAccruals })
@@ -1014,11 +1127,21 @@ export async function POST(request: NextRequest) {
             warnings: [
               ...payslipResult.warnings,
               ...(derived?.context.warnings ?? []),
+              ...itComplement.warnings,
               ...(smiWarning ? [smiWarning] : []),
             ],
+            temporary_disability: resolvedITAbsence
+              ? {
+                  ...resolvedITAbsence,
+                  previous_daily_regulatory_base: previousDailyRegulatoryBase,
+                  daily_regulatory_base_used: dailyRegulatoryBaseForIT,
+                }
+              : null,
+            it_agreement_complement: itComplement,
             smi_check: {
               year,
               smi_monthly: smiMonthly,
+              effective_from: smiForPeriod.effectiveFrom,
               threshold_part_time: smiThreshold,
               effective_base: effectiveBase,
               below_smi: !!smiWarning,
@@ -1188,8 +1311,14 @@ export async function POST(request: NextRequest) {
             amount: monthlyVars.overtimeAmount,
           },
           vacation_days: vars.vacationDays || 0,
-          temporary_disability: vars.itDays > 0
-            ? { days: vars.itDays, type: 'ENFERMEDAD_COMUN' }
+          temporary_disability: resolvedITAbsence
+            ? {
+                days: resolvedITAbsence.daysInPeriod,
+                type: resolvedITAbsence.contingencyType,
+                source: resolvedITAbsence.sourceRecordId ? 'absences' : 'manual',
+                type_name: resolvedITAbsence.typeName,
+                agreement_complement: itComplement.total,
+              }
             : null,
           commissions: vars.commissions || 0,
           incentives: vars.incentives || 0,

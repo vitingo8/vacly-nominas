@@ -102,6 +102,10 @@ export interface TemporaryDisabilityInput {
   endDay: number;
   /** Día absoluto de la baja (desde el inicio). Ej: si empezó el mes anterior en día 20 y hoy es día 5, sería 15+5=20 */
   absoluteDaysSinceStart: number;
+  /** Base reguladora diaria calculada desde el mes anterior cuando está disponible */
+  dailyRegulatoryBaseOverride?: number;
+  /** Complemento salarial de convenio para la IT del mes */
+  agreementComplementAmount?: number;
 }
 
 export interface MonthlyVariablesInput {
@@ -257,6 +261,8 @@ export interface PayslipAccruals {
   itCompanyBenefit: number;
   /** Prestación IT a cargo de la Seguridad Social */
   itSSBenefit: number;
+  /** Complemento salarial de convenio por IT */
+  itAgreementComplement: number;
   /** Otros devengos salariales */
   otherSalaryAccruals: number;
   /** Otros devengos no salariales */

@@ -74,6 +74,9 @@ interface EmployeeRow {
   overtimeHours: number
   vacationDays: number
   itDays: number
+  itContingencyType: 'ENFERMEDAD_COMUN' | 'ACCIDENTE_TRABAJO'
+  itStartDay: number
+  itAbsoluteDaysSinceStart: number
   sickLeaveDays: number
   expenses: number
   commissions: number
@@ -390,10 +393,10 @@ function GeneracionContent() {
       if (row.itDays > 0) {
         monthlyVars.temporaryDisability = {
           active: true,
-          contingencyType: 'ENFERMEDAD_COMUN' as any,
-          startDay: 1,
-          endDay: row.itDays,
-          absoluteDaysSinceStart: row.itDays,
+          contingencyType: row.itContingencyType as any,
+          startDay: row.itStartDay,
+          endDay: Math.min(calendarDays, row.itStartDay + row.itDays - 1),
+          absoluteDaysSinceStart: row.itAbsoluteDaysSinceStart,
         }
       }
 
@@ -429,7 +432,7 @@ function GeneracionContent() {
     setGenerationResults(null)
 
     try {
-      const res = await fetch(`/api/generacion?action=load_employees&company_id=${companyId}`)
+      const res = await fetch(`/api/generacion?action=load_employees&company_id=${companyId}&month=${selectedMonth}&year=${selectedYear}`)
       const data = await res.json()
 
       if (!data.success) {
@@ -449,6 +452,8 @@ function GeneracionContent() {
         const derived = emp.derivedPreview || null
 
         const daysInMonth = getDaysInMonth(selectedMonth, selectedYear)
+        const autoIT = emp.autoITAbsence || null
+        const autoITDays = Number(autoIT?.daysInPeriod ?? 0)
 
         // Pagas: convenio > compensation > defaults > 2
         const numberOfBonuses =
@@ -483,10 +488,13 @@ function GeneracionContent() {
           seniorityPeriods: derived?.seniorityPeriods ?? 0,
           yearsOfService: derived?.yearsOfService ?? 0,
           monthlyProratedBonusFromAgreement: derived?.monthlyProratedBonuses ?? null,
-          workedDays: daysInMonth,
+          workedDays: Math.max(0, daysInMonth - autoITDays),
           overtimeHours: 0,
           vacationDays: 0,
-          itDays: 0,
+          itDays: autoITDays,
+          itContingencyType: autoIT?.contingencyType ?? 'ENFERMEDAD_COMUN',
+          itStartDay: Number(autoIT?.startDay ?? 1),
+          itAbsoluteDaysSinceStart: Number(autoIT?.absoluteDaysSinceStart ?? 1),
           sickLeaveDays: 0,
           expenses: 0,
           commissions: 0,
@@ -619,6 +627,7 @@ function GeneracionContent() {
               overtimeHours: emp.overtimeHours,
               vacationDays: emp.vacationDays,
               itDays: emp.itDays,
+              itContingencyType: emp.itContingencyType,
               sickLeaveDays: emp.sickLeaveDays,
               expenses: emp.expenses,
               commissions: emp.commissions,
@@ -1668,6 +1677,7 @@ function GeneracionContent() {
               { concept: 'Comisiones / Incentivos', amount: a.commissions + a.incentives },
               { concept: 'IT – Empresa', amount: a.itCompanyBenefit },
               { concept: 'IT – Seg. Social', amount: a.itSSBenefit },
+              { concept: 'Complemento IT convenio', amount: a.itAgreementComplement },
             ]
             const nonSalaryLines: Array<{ concept: string; amount: number }> = [
               { concept: 'Indemnizaciones o suplidos', amount: 0 },

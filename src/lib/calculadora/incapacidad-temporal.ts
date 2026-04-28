@@ -20,16 +20,13 @@
 //                  A CARGO DE LA SEGURIDAD SOCIAL
 //                  (la empresa paga en pago delegado y compensa).
 //
-//   Día 21 en adelante: 75% de la base reguladora diaria.
+//   Día 21 en adelante: 70% de la base reguladora diaria.
 //                        A CARGO DE LA SEGURIDAD SOCIAL.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // B) ACCIDENTE DE TRABAJO / ENFERMEDAD PROFESIONAL:
 // ─────────────────────────────────────────────────────────────────────────────
-//   Día del accidente: Salario íntegro a cargo de la empresa.
-//
-//   Día siguiente en adelante: 75% de la base reguladora diaria.
-//                               A CARGO DE LA SEGURIDAD SOCIAL.
+//   Accidente laboral: 100% desde el inicio.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // BASE REGULADORA:
@@ -66,16 +63,14 @@ const IT_ENFERMEDAD_COMUN = {
   PORCENTAJE_60: 60,
   /** Días 16-20: 60% a cargo de la SS */
   DIAS_SS_60_FIN: 20,
-  /** Día 21+: 75% a cargo de la SS */
-  PORCENTAJE_75: 75,
+  /** Día 21+: 70% a cargo de la SS */
+  PORCENTAJE_70: 70,
 } as const;
 
 /** Porcentajes de prestación por accidente de trabajo */
 const IT_ACCIDENTE_TRABAJO = {
-  /** Día del accidente: salario íntegro (100%) a cargo de la empresa */
-  DIA_ACCIDENTE: 1,
-  /** Día 2 en adelante: 75% a cargo de la SS */
-  PORCENTAJE_75: 75,
+  /** Baja por accidente laboral: 100% desde el primer día */
+  PORCENTAJE_100: 100,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -190,7 +185,7 @@ interface ITTramoResult {
  *   Días absolutos 1-3:   0% (sin prestación)
  *   Días absolutos 4-15:  60% base reguladora → a cargo de la EMPRESA
  *   Días absolutos 16-20: 60% base reguladora → a cargo de la SS
- *   Días absolutos 21+:   75% base reguladora → a cargo de la SS
+ *   Días absolutos 21+:   70% base reguladora → a cargo de la SS
  *
  * Se calcula día a día cuántos días de cada tramo caen en el mes actual.
  */
@@ -223,11 +218,11 @@ function calculateEnfermedadComun(
       daysSSPays++;
       lastPercentage = IT_ENFERMEDAD_COMUN.PORCENTAJE_60;
     } else {
-      // Días 21+: 75% a cargo de la SS
-      const amount = round2((dailyBase * IT_ENFERMEDAD_COMUN.PORCENTAJE_75) / 100);
+      // Días 21+: 70% a cargo de la SS
+      const amount = round2((dailyBase * IT_ENFERMEDAD_COMUN.PORCENTAJE_70) / 100);
       ssAmount += amount;
       daysSSPays++;
-      lastPercentage = IT_ENFERMEDAD_COMUN.PORCENTAJE_75;
+      lastPercentage = IT_ENFERMEDAD_COMUN.PORCENTAJE_70;
     }
   }
 
@@ -245,11 +240,7 @@ function calculateEnfermedadComun(
  * Calcula la prestación por accidente de trabajo / enfermedad profesional.
  *
  * Tramos:
- *   Día 1 (día del accidente): Salario íntegro a cargo de la empresa
- *   Día 2 en adelante:         75% base reguladora → a cargo de la SS
- *
- * En accidentes de trabajo la prestación comienza desde el día siguiente
- * al accidente (el día del accidente la empresa paga el salario completo).
+ *   Todos los días: 100% base reguladora desde el inicio.
  */
 function calculateAccidenteTrabajo(
   absoluteStart: number,
@@ -264,19 +255,13 @@ function calculateAccidenteTrabajo(
   let daysSSPays = 0;
   let lastPercentage = 0;
 
-  for (let day = absoluteStart; day <= absoluteEnd; day++) {
-    if (day <= IT_ACCIDENTE_TRABAJO.DIA_ACCIDENTE) {
-      // Día del accidente: salario íntegro a cargo de la empresa
-      companyAmount += round2(dailySalary);
-      daysCompanyPays++;
-      lastPercentage = 100;
-    } else {
-      // Día 2 en adelante: 75% a cargo de la SS
-      const amount = round2((dailyBase * IT_ACCIDENTE_TRABAJO.PORCENTAJE_75) / 100);
-      ssAmount += amount;
-      daysSSPays++;
-      lastPercentage = IT_ACCIDENTE_TRABAJO.PORCENTAJE_75;
-    }
+  void dailySalary;
+  const totalDays = Math.max(0, absoluteEnd - absoluteStart + 1);
+  for (let i = 0; i < totalDays; i++) {
+    const amount = round2((dailyBase * IT_ACCIDENTE_TRABAJO.PORCENTAJE_100) / 100);
+    ssAmount += amount;
+    daysSSPays++;
+    lastPercentage = IT_ACCIDENTE_TRABAJO.PORCENTAJE_100;
   }
 
   return {

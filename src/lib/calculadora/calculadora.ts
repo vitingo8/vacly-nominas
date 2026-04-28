@@ -37,7 +37,7 @@ import type {
 } from './tipos';
 
 import { validateAll } from './validadores';
-import { calculateBases, calculateProratedBonuses, round2 } from './bases';
+import { calculateBases, calculateProratedBonuses, round2, roundUp2 } from './bases';
 import { calculateWorkerCotizations, calculateCompanyCotizations } from './cotizaciones';
 import { calculateIRPF, validateIRPFPercentage } from './irpf';
 import { calculateOvertime } from './horas-extra';
@@ -244,10 +244,15 @@ export function calculatePayslip(
       variables.calendarDaysInMonth
     );
 
+    const dailyRegulatoryBase =
+      variables.temporaryDisability.dailyRegulatoryBaseOverride && variables.temporaryDisability.dailyRegulatoryBaseOverride > 0
+        ? variables.temporaryDisability.dailyRegulatoryBaseOverride
+        : basesResult.baseReguladoraIT;
+
     itResult = calculateIT(
       variables.temporaryDisability,
       variables,
-      basesResult.baseReguladoraIT,
+      dailyRegulatoryBase,
       dailySalary
     );
 
@@ -265,6 +270,7 @@ export function calculatePayslip(
     proratedBonuses,
     itCompanyBenefit,
     itSSBenefit,
+    variables.temporaryDisability?.agreementComplementAmount ?? 0,
     salaryDeductionForIT
   );
 
@@ -392,6 +398,7 @@ function calculateAccruals(
   proratedBonuses: number,
   itCompanyBenefit: number,
   itSSBenefit: number,
+  itAgreementComplement: number,
   salaryDeductionForIT: number
 ): PayslipAccruals {
   // Salario base ajustado por IT:
@@ -435,11 +442,12 @@ function calculateAccruals(
     overtimeForceMajeure +
     bonusPayment +
     itCompanyBenefit +
+    itAgreementComplement +
     otherSalaryAccruals
   );
 
   // Total devengos = salariales + no salariales + IT SS
-  const totalAccruals = round2(
+  const totalAccruals = roundUp2(
     totalSalaryAccruals +
     nonSalaryComplements +
     itSSBenefit +
@@ -458,6 +466,7 @@ function calculateAccruals(
     proratedBonuses,
     itCompanyBenefit,
     itSSBenefit,
+    itAgreementComplement: round2(itAgreementComplement),
     otherSalaryAccruals,
     otherNonSalaryAccruals,
     totalAccruals,

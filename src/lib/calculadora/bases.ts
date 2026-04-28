@@ -218,4 +218,9 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export { round2 };
+/** Redondea siempre hacia arriba a céntimos de euro. */
+function roundUp2(value: number): number {
+  return Math.ceil((value - Number.EPSILON) * 100) / 100;
+}
+
+export { round2, roundUp2 };
