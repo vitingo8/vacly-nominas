@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import {
   calculatePayslip,
-  getDefaultPayrollConfig,
+  isIndefiniteContract,
   TipoContrato,
   TipoJornada,
   TipoContingenciaIT,
@@ -33,6 +33,7 @@ import {
   type ITComplementResult,
   type PayrollITAbsence,
 } from '@/lib/payroll-it-engine'
+import { resolvePayrollConfigForDate } from '@/lib/payroll-parameters'
 
 // ─── GET: List generated nominas with filters ─────────────────────────
 export async function GET(request: NextRequest) {
@@ -108,6 +109,27 @@ export async function GET(request: NextRequest) {
 
       console.log(`[load_employees] Loaded ${employees?.length || 0} employees`)
 
+      const loadMonth = month ? parseInt(month, 10) : new Date().getMonth() + 1
+      const loadYear = year ? parseInt(year, 10) : new Date().getFullYear()
+      const loadCalendarDays = getDaysInMonth(loadMonth, loadYear)
+      const loadPeriodStart = `${loadYear}-${String(loadMonth).padStart(2, '0')}-01`
+      const loadPeriodEnd = `${loadYear}-${String(loadMonth).padStart(2, '0')}-${loadCalendarDays}`
+
+      const { data: loadPayrollConfig } = await supabase
+        .from('payroll_config')
+        .select('annual_parameters')
+        .eq('company_id', companyId)
+        .maybeSingle()
+      const loadPayrollParameters = resolvePayrollConfigForDate(
+        loadPeriodStart,
+        (loadPayrollConfig as any)?.annual_parameters,
+      )
+      const { data: loadSalaryConcepts } = await supabase
+        .from('salary_concepts')
+        .select('id, code, name, type, cotizes_ss, tributes_irpf, agreement_id, active')
+        .eq('company_id', companyId)
+        .eq('active', true)
+
       // Resuelve el convenio activo de la empresa usando los RPCs v3 directos
       // sobre public.company_convenios + v3_docs.
       let companyAgreementId: string | null = null
@@ -116,7 +138,7 @@ export async function GET(request: NextRequest) {
       try {
         const { data: agrRows } = await (supabase as any).rpc('fn_v3_agreement_for_company', {
           p_company_id: companyId,
-          p_on_date: new Date().toISOString().slice(0, 10),
+          p_on_date: loadPeriodStart,
         })
         const row = Array.isArray(agrRows) ? agrRows[0] : agrRows
         companyAgreementId = row?.doc_id ?? row?.agreement_id ?? null
@@ -129,7 +151,7 @@ export async function GET(request: NextRequest) {
             const { data: baseVal } = await (supabase as any).rpc('fn_v3_resolve_salary_base', {
               p_doc_id: companyAgreementId,
               p_province: companyAgreementDefaults?.province ?? null,
-              p_year: new Date().getFullYear(),
+              p_year: loadYear,
               p_grupo: null,
               p_nivel: null,
               p_categoria: null,
@@ -151,21 +173,14 @@ export async function GET(request: NextRequest) {
       // info derivada (antigüedad mensual, pagas, prorrata) jornada-adjusted,
       // de forma que el preview de la UI use exactamente los mismos números
       // que la generación real.
-      const today = new Date().toISOString().slice(0, 10)
-      const loadMonth = month ? parseInt(month, 10) : new Date(today).getMonth() + 1
-      const loadYear = year ? parseInt(year, 10) : new Date(today).getFullYear()
-      const loadCalendarDays = getDaysInMonth(loadMonth, loadYear)
-      const loadPeriodStart = `${loadYear}-${String(loadMonth).padStart(2, '0')}-01`
-      const loadPeriodEnd = `${loadYear}-${String(loadMonth).padStart(2, '0')}-${loadCalendarDays}`
       const processed = await Promise.all(
         (employees || []).map(async (emp: any) => {
           const activeContracts = (emp.contracts || []).filter((c: any) => c.status === 'active')
           const comp = { ...(emp.compensation || {}) }
-          const tipoAeat = (emp.irpf_data as { lastResult?: { tipoRetencion?: number } } | null)
-            ?.lastResult?.tipoRetencion
-          if (typeof tipoAeat === 'number' && Number.isFinite(tipoAeat)) {
-            comp.irpfPercentage = tipoAeat
-          }
+          comp.irpfPercentage = resolveEmployeeIrpfPercentage(
+            { id: emp.id, compensation: emp.compensation, irpf_data: emp.irpf_data },
+            comp.irpfPercentage,
+          )
           const hasActiveContract = activeContracts.length > 0
 
           if (!hasActiveContract && !comp.baseSalaryMonthly && agreementDefaultBase > 0) {
@@ -181,6 +196,8 @@ export async function GET(request: NextRequest) {
             numberOfBonuses: number
             monthlyProratedBonuses: number
             monthlyBaseWithSeniority: number
+            automaticConcepts: AgreementPayrollConcept[]
+            warnings: string[]
           } | null = null
 
           const contract = activeContracts[0]
@@ -195,18 +212,23 @@ export async function GET(request: NextRequest) {
               const profGroup = parseProfessionalCategoryForResolver(contract.professional_category)
               const ctx = await resolveAgreementContext(supabase as any, {
                 companyId,
-                onDate: today,
+                onDate: loadPeriodStart,
                 province: province ?? undefined,
-                year: new Date().getFullYear(),
+                year: loadYear,
                 grupo: profGroup?.grupo ?? null,
                 nivel: profGroup?.nivel ?? null,
                 categoria: profGroup?.categoria ?? null,
               })
-              const years = yearsBetween(contract.start_date, today)
+              const years = yearsBetween(contract.start_date, loadPeriodStart)
               // monthlyBase ya viene jornada-adjusted (= agreed_base_salary).
               const sen = computeSeniorityAmount(ctx, years, agreedBase)
               const baseWithSen = round2(agreedBase + sen.amount)
               const prorrata = computeProratedBonuses(ctx, baseWithSen)
+              const agreementConcepts = resolveAgreementPayrollConcepts(
+                ctx,
+                (loadSalaryConcepts ?? []) as SalaryConceptCatalogRow[],
+                Number(contract.workday_percentage ?? 100) / 100,
+              )
               derivedPreview = {
                 seniorityAmount: sen.amount,
                 seniorityPercent: sen.percentApplied,
@@ -215,6 +237,8 @@ export async function GET(request: NextRequest) {
                 numberOfBonuses: ctx.numberOfBonuses,
                 monthlyProratedBonuses: round2(prorrata),
                 monthlyBaseWithSeniority: baseWithSen,
+                automaticConcepts: agreementConcepts.concepts,
+                warnings: agreementConcepts.warnings,
               }
             } catch (err) {
               // Si falla la resolución (sin convenio o categoria mal mapeada),
@@ -267,6 +291,14 @@ export async function GET(request: NextRequest) {
         companyAgreement: companyAgreementId
           ? { agreement_id: companyAgreementId, defaults: companyAgreementDefaults }
           : null,
+        payrollConfig: {
+          smiForPeriod: loadPayrollParameters.smiForPeriod,
+          parameters: {
+            sourceYear: loadPayrollParameters.sourceYear,
+            effectiveFrom: loadPayrollParameters.sourceEffectiveFrom,
+            warnings: loadPayrollParameters.warnings,
+          },
+        },
       })
     }
 
@@ -380,12 +412,64 @@ interface AgreementDerived {
   numberOfBonuses: number
 }
 
+type SalaryConceptCatalogRow = {
+  id: string
+  code?: string | null
+  name: string
+  type?: 'salary' | 'non_salary' | string | null
+  cotizes_ss?: boolean | null
+  tributes_irpf?: boolean | null
+  agreement_id?: string | null
+  active?: boolean | null
+}
+
+type AgreementPayrollConcept = {
+  concept: string
+  amount: number
+  type: 'salary' | 'non_salary'
+  cotizesSS: boolean
+  tributesIRPF: boolean
+  automatic: true
+  source: {
+    kind: 'agreement_plus'
+    agreementId: string
+    amountKind: string
+    conceptId?: string | null
+    originalAmount: number
+    partTimeCoefficient: number
+  }
+}
+
 interface GenerationRequest {
   companyId: string
   companyData?: Record<string, unknown>
   month: number
   year: number
   employees: EmployeeGenerationInput[]
+}
+
+type EmployeeIrpfSource = {
+  id: string
+  compensation?: { irpfPercentage?: unknown } | null
+  irpf_data?: { lastResult?: { tipoRetencion?: unknown } | null } | null
+}
+
+function toValidIrpfPercentage(value: unknown): number | null {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) return null
+  return numeric
+}
+
+function resolveEmployeeIrpfPercentage(
+  persisted: EmployeeIrpfSource | null | undefined,
+  fallback: unknown,
+): number {
+  return (
+    toValidIrpfPercentage(persisted?.irpf_data?.lastResult?.tipoRetencion) ??
+    toValidIrpfPercentage(persisted?.compensation?.irpfPercentage) ??
+    toValidIrpfPercentage(fallback) ??
+    0
+  )
 }
 
 function mapContractType(type: string): TipoContrato {
@@ -414,34 +498,124 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-// SMI en €/mes (14 pagas) con fecha de entrada en vigor.
-const SMI_RECORDS: Array<{ effectiveFrom: string; monthly: number }> = [
-  { effectiveFrom: '2023-02-15', monthly: 1080 },
-  { effectiveFrom: '2024-01-01', monthly: 1134 },
-  { effectiveFrom: '2025-01-01', monthly: 1184 },
-  { effectiveFrom: '2026-03-01', monthly: 1221 },
-]
+function normalizeConceptName(value: string | null | undefined): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
 
-function getSmiForDate(onDate: string, annualParameters?: any): { monthly: number; effectiveFrom: string } {
-  const overrides = Array.isArray(annualParameters?.smiHistory)
-    ? annualParameters.smiHistory
-      .map((row: any) => ({
-        effectiveFrom: String(row.effectiveFrom ?? row.effective_from ?? ''),
-        monthly: Number(row.monthly ?? row.smiMonthly ?? row.smi),
-      }))
-      .filter((row: { effectiveFrom: string; monthly: number }) => row.effectiveFrom && row.monthly > 0)
-    : []
+function isCoreAgreementConcept(concept: string): boolean {
+  const normalized = normalizeConceptName(concept)
+  return (
+    normalized.includes('salario base') ||
+    normalized.includes('antiguedad') ||
+    normalized.includes('trienio') ||
+    normalized.includes('bienio') ||
+    normalized.includes('cuatrienio') ||
+    normalized.includes('paga extra') ||
+    normalized.includes('paga extraordinaria') ||
+    normalized.includes('gratificacion extraordinaria') ||
+    normalized.includes('hora extra') ||
+    normalized.includes('horas extra') ||
+    normalized.includes('incapacidad temporal') ||
+    normalized.includes('baja medica')
+  )
+}
 
-  if (annualParameters?.smiEffectiveFrom && (annualParameters?.smiMonthly || annualParameters?.smi)) {
-    overrides.push({
-      effectiveFrom: String(annualParameters.smiEffectiveFrom),
-      monthly: Number(annualParameters.smiMonthly ?? annualParameters.smi),
+function inferConceptType(concept: string): 'salary' | 'non_salary' {
+  const normalized = normalizeConceptName(concept)
+  const nonSalaryKeywords = [
+    'dieta',
+    'kilometraje',
+    'km',
+    'indemnizacion',
+    'suplido',
+    'desplazamiento',
+    'locomocion',
+    'transporte',
+    'manutencion',
+    'alojamiento',
+  ]
+  return nonSalaryKeywords.some((keyword) => normalized.includes(keyword)) ? 'non_salary' : 'salary'
+}
+
+function shouldAutoApplyAgreementPlus(concept: string, amountKind: string | undefined): boolean {
+  if (amountKind === 'monthly') return true
+  if (amountKind === 'unit') return false
+  const normalized = normalizeConceptName(concept)
+  const variableKeywords = [
+    'hora',
+    'nocturn',
+    'festiv',
+    'domingo',
+    'kilometraje',
+    'km',
+    'dieta',
+    'guardia',
+    'turno',
+  ]
+  return !variableKeywords.some((keyword) => normalized.includes(keyword))
+}
+
+function resolveAgreementPayrollConcepts(
+  context: AgreementContext | null | undefined,
+  catalog: SalaryConceptCatalogRow[],
+  partTimeCoefficient: number,
+): { concepts: AgreementPayrollConcept[]; warnings: string[] } {
+  if (!context) return { concepts: [], warnings: [] }
+
+  const warnings: string[] = []
+  const byName = new Map(
+    catalog
+      .filter((concept) => concept.active !== false)
+      .map((concept) => [normalizeConceptName(concept.name), concept]),
+  )
+  const concepts: AgreementPayrollConcept[] = []
+
+  for (const plus of context.pluses) {
+    if (!plus.concepto || !plus.importe || plus.importe <= 0) continue
+    if (isCoreAgreementConcept(plus.concepto)) continue
+
+    const amountKind = plus.amountKind ?? 'unknown'
+    if (!shouldAutoApplyAgreementPlus(plus.concepto, amountKind)) {
+      warnings.push(
+        `Concepto de convenio "${plus.concepto}" detectado como unitario/variable; no se aplica automáticamente sin variable mensual.`,
+      )
+      continue
+    }
+
+    const catalogConcept = byName.get(normalizeConceptName(plus.concepto))
+    const type =
+      catalogConcept?.type === 'salary' || catalogConcept?.type === 'non_salary'
+        ? catalogConcept.type
+        : inferConceptType(plus.concepto)
+    const cotizesSS = catalogConcept?.cotizes_ss ?? type === 'salary'
+    const tributesIRPF = catalogConcept?.tributes_irpf ?? type === 'salary'
+    const coef = type === 'salary' ? Math.max(0, Math.min(1, partTimeCoefficient)) : 1
+    const amount = round2(plus.importe * coef)
+
+    concepts.push({
+      concept: plus.concepto,
+      amount,
+      type,
+      cotizesSS,
+      tributesIRPF,
+      automatic: true,
+      source: {
+        kind: 'agreement_plus',
+        agreementId: context.lookup.docId,
+        amountKind,
+        conceptId: catalogConcept?.id ?? null,
+        originalAmount: plus.importe,
+        partTimeCoefficient: coef,
+      },
     })
   }
 
-  const records = [...SMI_RECORDS, ...overrides]
-    .sort((a, b) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime())
-  return records.find((record) => record.effectiveFrom <= onDate) ?? records[records.length - 1]
+  return { concepts, warnings }
 }
 
 function yearsBetween(startIso: string | null | undefined, refIso: string): number {
@@ -658,11 +832,17 @@ export async function POST(request: NextRequest) {
       logo_url: (companyRow as any)?.logo_url || (companyData as any)?.logo_url || '',
     }
 
-    // Build config from payroll_config or use defaults (por ejercicio: 2026 = MEI, bases…)
-    let config: PayrollConfigInput = { ...getDefaultPayrollConfig(year) }
-    if (payrollConfig?.annual_parameters) {
-      config = { ...config, ...payrollConfig.annual_parameters }
-    }
+    const calendarDays = getDaysInMonth(month, year)
+    const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
+    const periodEnd = `${year}-${String(month).padStart(2, '0')}-${calendarDays}`
+
+    // Build config from payroll_config versionado por fecha/año.
+    // Si 2027 no está cargado, se usa el último vigente con warning auditable.
+    const payrollParameterResolution = resolvePayrollConfigForDate(
+      periodStart,
+      payrollConfig?.annual_parameters,
+    )
+    let config: PayrollConfigInput = payrollParameterResolution.config
     if (payrollConfig?.at_ep_rate) {
       config = {
         ...config,
@@ -672,12 +852,7 @@ export async function POST(request: NextRequest) {
         },
       }
     }
-
-    const calendarDays = getDaysInMonth(month, year)
-    const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
-    const periodEnd = `${year}-${String(month).padStart(2, '0')}-${calendarDays}`
-    const smiForPeriod = getSmiForDate(periodStart, payrollConfig?.annual_parameters)
-    config.smiMonthly = smiForPeriod.monthly
+    const smiForPeriod = payrollParameterResolution.smiForPeriod
 
     const results: Array<{
       employeeId: string
@@ -688,8 +863,33 @@ export async function POST(request: NextRequest) {
       error?: string
     }> = []
 
+    const employeeIds = Array.from(new Set(employees.map((emp) => emp.employeeId).filter(Boolean)))
+    const persistedIrpfByEmployeeId = new Map<string, EmployeeIrpfSource>()
+    if (employeeIds.length > 0) {
+      const { data: persistedEmployees, error: persistedEmployeesError } = await supabase
+        .from('employees')
+        .select('id, compensation, irpf_data')
+        .eq('company_id', companyId)
+        .in('id', employeeIds)
+
+      if (persistedEmployeesError) {
+        console.warn('[generacion] No se pudo recargar IRPF guardado de empleados:', persistedEmployeesError.message)
+      } else {
+        ;((persistedEmployees || []) as EmployeeIrpfSource[]).forEach((employee) => {
+          persistedIrpfByEmployeeId.set(employee.id, employee)
+        })
+      }
+    }
+    const { data: salaryConcepts } = await supabase
+      .from('salary_concepts')
+      .select('id, code, name, type, cotizes_ss, tributes_irpf, agreement_id, active')
+      .eq('company_id', companyId)
+      .eq('active', true)
+
     for (const emp of employees) {
       try {
+        const persistedEmployee = persistedIrpfByEmployeeId.get(emp.employeeId)
+        const effectiveIrpfPercentage = resolveEmployeeIrpfPercentage(persistedEmployee, emp.irpfPercentage)
         const partTimeCoefficient = emp.fullTime
           ? 1
           : (emp.workdayPercentage || 100) / 100
@@ -865,8 +1065,24 @@ export async function POST(request: NextRequest) {
           // silent
         }
 
+        const automaticAgreementConcepts = resolveAgreementPayrollConcepts(
+          derived?.context,
+          (salaryConcepts ?? []) as SalaryConceptCatalogRow[],
+          partTimeCoefficient,
+        )
+        const automaticSalaryConceptAmount = round2(
+          automaticAgreementConcepts.concepts
+            .filter((concept) => concept.type === 'salary')
+            .reduce((sum, concept) => sum + concept.amount, 0),
+        )
+        const automaticNonSalaryConceptAmount = round2(
+          automaticAgreementConcepts.concepts
+            .filter((concept) => concept.type === 'non_salary')
+            .reduce((sum, concept) => sum + concept.amount, 0),
+        )
+
         const effectiveFixed =
-          (emp.fixedComplements || 0) + (derived?.seniorityAmount ?? 0)
+          (emp.fixedComplements || 0) + (derived?.seniorityAmount ?? 0) + automaticSalaryConceptAmount
         // Prorrata a base CC:
         //  - Modo prorrateado: 0 (ya va como devengo mensual en otherSalaryAccruals)
         //  - Modo íntegro: prorrata solo los meses sin paga (bonusBaseCC)
@@ -885,8 +1101,9 @@ export async function POST(request: NextRequest) {
         const employeeInput: EmployeePayrollInput = {
           baseSalaryMonthly: effectiveBase,
           cotizationGroup: (emp.cotizationGroup || 7) as GrupoCotizacion,
-          irpfPercentage: emp.irpfPercentage || 0,
+          irpfPercentage: effectiveIrpfPercentage,
           fixedComplements: effectiveFixed,
+          nonSalaryComplements: automaticNonSalaryConceptAmount,
           proratedBonuses: effectiveProratedForCC,
           numberOfBonuses: effectiveNumberOfBonuses,
           contractType: mapContractType(emp.contractType),
@@ -990,10 +1207,20 @@ export async function POST(request: NextRequest) {
 
         // Calculate payslip
         const payslipResult = calculatePayslip(employeeInput, monthlyVars, config, month)
+        const workerCcRate = config.workerRates.contingenciasComunes + config.workerRates.mei
+        const companyCcRate = config.companyRates.contingenciasComunes + config.companyRates.mei
+        const workerUnemploymentRate = isIndefiniteContract(employeeInput.contractType)
+          ? config.workerRates.desempleoIndefinido
+          : config.workerRates.desempleoTemporal
+        const companyUnemploymentRate = isIndefiniteContract(employeeInput.contractType)
+          ? config.companyRates.desempleoIndefinido
+          : config.companyRates.desempleoTemporal
 
         // Build perceptions array (desglose línea a línea dirigido por convenio)
         const manualFixedComplements = round2(
-          payslipResult.accruals.fixedComplements - (derived?.seniorityAmount ?? 0),
+          payslipResult.accruals.fixedComplements -
+            (derived?.seniorityAmount ?? 0) -
+            automaticSalaryConceptAmount,
         )
         // ── Percepciones salariales: siempre se incluyen todas las líneas, aunque sean 0 ──
         const perceptions: Array<{ concept: string; amount: number }> = [
@@ -1016,6 +1243,9 @@ export async function POST(request: NextRequest) {
           perceptions.push({ concept: 'Complementos Salariales', amount: manualFixedComplements })
         } else {
           perceptions.push({ concept: 'Complementos Salariales', amount: 0 })
+        }
+        for (const concept of automaticAgreementConcepts.concepts.filter((item) => item.type === 'salary')) {
+          perceptions.push({ concept: concept.concept, amount: concept.amount })
         }
         // Pagas extra: una línea por cada paga o prorrateo mensual
         if (derived && derived.bonusMode === 'prorated' && derived.allExtraPayNames.length > 0) {
@@ -1050,12 +1280,16 @@ export async function POST(request: NextRequest) {
           { concept: 'Indemnizaciones o suplidos', amount: 0 },
           { concept: 'Prestaciones e ind. de la Seg. Soc.', amount: 0 },
           { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
+          ...automaticAgreementConcepts.concepts
+            .filter((concept) => concept.type === 'non_salary')
+            .map((concept) => ({ concept: concept.concept, amount: concept.amount })),
           {
             concept: 'Otras percepciones no salariales',
-            amount: round2(
+            amount: Math.max(0, round2(
               (payslipResult.accruals.nonSalaryComplements ?? 0) +
-              (payslipResult.accruals.otherNonSalaryAccruals ?? 0)
-            ),
+              (payslipResult.accruals.otherNonSalaryAccruals ?? 0) -
+              automaticNonSalaryConceptAmount
+            )),
           },
         ]
 
@@ -1076,11 +1310,10 @@ export async function POST(request: NextRequest) {
 
         // Build deductions array
         const deductions = [
-          { concept: 'Contingencias Comunes', rate: config.workerRates.contingenciasComunes, amount: payslipResult.workerDeductions.contingenciasComunes },
-          { concept: 'Desempleo', amount: payslipResult.workerDeductions.desempleo },
+          { concept: 'Contingencias Comunes', rate: workerCcRate, amount: payslipResult.workerDeductions.contingenciasComunes },
+          { concept: 'Desempleo', rate: workerUnemploymentRate, amount: payslipResult.workerDeductions.desempleo },
           { concept: 'Formación Profesional', rate: config.workerRates.formacionProfesional, amount: payslipResult.workerDeductions.formacionProfesional },
-          { concept: 'MEI', rate: config.workerRates.mei, amount: payslipResult.workerDeductions.mei },
-          { concept: 'IRPF', rate: emp.irpfPercentage, amount: payslipResult.workerDeductions.irpf },
+          { concept: 'IRPF', rate: effectiveIrpfPercentage, amount: payslipResult.workerDeductions.irpf },
           ...(payslipResult.workerDeductions.advances > 0
             ? [{ concept: 'Anticipos', amount: payslipResult.workerDeductions.advances }]
             : []),
@@ -1088,12 +1321,11 @@ export async function POST(request: NextRequest) {
 
         // Build contributions array
         const contributions = [
-          { concept: 'Contingencias Comunes', base: payslipResult.bases.baseCC, rate: config.companyRates.contingenciasComunes, amount: payslipResult.companyDeductions.contingenciasComunes },
+          { concept: 'Contingencias Comunes', base: payslipResult.bases.baseCC, rate: companyCcRate, amount: payslipResult.companyDeductions.contingenciasComunes },
           { concept: 'AT/EP', base: payslipResult.bases.baseCP, rate: config.companyRates.atEp, amount: payslipResult.companyDeductions.atEp },
-          { concept: 'Desempleo', base: payslipResult.bases.baseCP, amount: payslipResult.companyDeductions.desempleo },
+          { concept: 'Desempleo', base: payslipResult.bases.baseCP, rate: companyUnemploymentRate, amount: payslipResult.companyDeductions.desempleo },
           { concept: 'FOGASA', base: payslipResult.bases.baseCP, rate: config.companyRates.fogasa, amount: payslipResult.companyDeductions.fogasa },
           { concept: 'Formación Profesional', base: payslipResult.bases.baseCP, rate: config.companyRates.formacionProfesional, amount: payslipResult.companyDeductions.formacionProfesional },
-          { concept: 'MEI', base: payslipResult.bases.baseCP, rate: config.companyRates.mei, amount: payslipResult.companyDeductions.mei },
         ]
 
         // Save nomina to database
@@ -1129,6 +1361,8 @@ export async function POST(request: NextRequest) {
               ...(derived?.context.warnings ?? []),
               ...itComplement.warnings,
               ...(smiWarning ? [smiWarning] : []),
+              ...payrollParameterResolution.warnings,
+              ...automaticAgreementConcepts.warnings,
             ],
             temporary_disability: resolvedITAbsence
               ? {
@@ -1138,6 +1372,15 @@ export async function POST(request: NextRequest) {
                 }
               : null,
             it_agreement_complement: itComplement,
+            automatic_agreement_concepts: automaticAgreementConcepts,
+            irpf: {
+              rate: effectiveIrpfPercentage,
+              source: persistedEmployee?.irpf_data?.lastResult?.tipoRetencion != null
+                ? 'aeat_employee_irpf_data'
+                : persistedEmployee?.compensation?.irpfPercentage != null
+                  ? 'employee_compensation'
+                  : 'request_fallback',
+            },
             smi_check: {
               year,
               smi_monthly: smiMonthly,
@@ -1145,6 +1388,12 @@ export async function POST(request: NextRequest) {
               threshold_part_time: smiThreshold,
               effective_base: effectiveBase,
               below_smi: !!smiWarning,
+            },
+            payroll_parameters: {
+              source_year: payrollParameterResolution.sourceYear,
+              effective_from: payrollParameterResolution.sourceEffectiveFrom,
+              smi_effective_from: smiForPeriod.effectiveFrom,
+              warnings: payrollParameterResolution.warnings,
             },
             annual_diff: annualDiff,
             virtual_contract: isVirtualContract,
@@ -1248,12 +1497,12 @@ export async function POST(request: NextRequest) {
             netPay: payslipResult.netSalary,
             baseCC: payslipResult.bases.baseCC,
             baseCP: payslipResult.bases.baseCP,
-            baseIRPF: payslipResult.accruals.totalAccruals,
-            irpfRate: emp.irpfPercentage,
+            baseIRPF: payslipResult.bases.baseIRPF,
+            irpfRate: effectiveIrpfPercentage,
             // Desglose de la base CC para la sección "Determinación bases"
             remuneracionMensualCC:
-              payslipResult.bases.baseCC - (effectiveProratedForCC + monthlyBonusAccrual),
-            prorrataPagasCC: effectiveProratedForCC + monthlyBonusAccrual,
+              payslipResult.bases.baseCC - effectiveProratedForCC,
+            prorrataPagasCC: effectiveProratedForCC,
             iban: rawIban,
             bankEntity,
             bankAccount,

@@ -38,11 +38,12 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
-  calculatePayslip, getDefaultPayrollConfig, TipoContrato, TipoJornada
+  calculatePayslip, isIndefiniteContract, TipoContrato, TipoJornada
 } from '@/lib/calculadora'
 import type {
-  EmployeePayrollInput, MonthlyVariablesInput, PayslipResult, GrupoCotizacion
+  EmployeePayrollInput, MonthlyVariablesInput, PayslipResult, GrupoCotizacion, PayrollConfigInput
 } from '@/lib/calculadora'
+import { resolvePayrollConfigForDate, type PeriodSmi } from '@/lib/payroll-parameters'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -69,6 +70,11 @@ interface EmployeeRow {
   yearsOfService: number
   // Prorrata mensual jornada-adjusted (convenio)
   monthlyProratedBonusFromAgreement: number | null
+  automaticAgreementConcepts: Array<{
+    concept: string
+    amount: number
+    type: 'salary' | 'non_salary'
+  }>
   // Editable variables
   workedDays: number
   overtimeHours: number
@@ -184,6 +190,15 @@ function mapContractType(type: string): TipoContrato {
   return CONTRACT_TYPE_MAP[type] || TipoContrato.INDEFINIDO
 }
 
+function getPreviewPayrollConfig(month: number, year: number, periodSmi?: PeriodSmi | null): PayrollConfigInput {
+  const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const resolved = resolvePayrollConfigForDate(periodStart)
+  return {
+    ...resolved.config,
+    smiMonthly: periodSmi?.monthly ?? resolved.smiForPeriod.monthly,
+  }
+}
+
 // ─── Main Page Content ──────────────────────────────────────────────────
 
 // ─── Controlled numeric input ─────────────────────────────────────────────────
@@ -270,6 +285,7 @@ function GeneracionContent() {
   // ── Tab 1: Generation state ──
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
   const [companyAgreement, setCompanyAgreement] = useState<CompanyAgreementSummary | null>(null)
+  const [periodSmi, setPeriodSmi] = useState<PeriodSmi | null>(null)
   const [loadingEmployees, setLoadingEmployees] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -329,7 +345,7 @@ function GeneracionContent() {
   }, [employees])
 
   // ── Calculate a single row ──
-  const calculateRow = useCallback((row: EmployeeRow, month: number, year: number): EmployeeRow => {
+  const calculateRow = useCallback((row: EmployeeRow, month: number, year: number, smiOverride?: PeriodSmi | null): EmployeeRow => {
     try {
       const calendarDays = getDaysInMonth(month, year)
 
@@ -345,6 +361,10 @@ function GeneracionContent() {
       //   prorrata mes  = (monthlyBase + antigüedad) × nº pagas / 12
       // ────────────────────────────────────────────────────────────────
       const seniorityAmount = row.seniorityAmount || 0
+      const automaticSalaryConcepts = row.automaticAgreementConcepts.filter((concept) => concept.type === 'salary')
+      const automaticNonSalaryConcepts = row.automaticAgreementConcepts.filter((concept) => concept.type === 'non_salary')
+      const automaticSalaryConceptAmount = automaticSalaryConcepts.reduce((sum, concept) => sum + concept.amount, 0)
+      const automaticNonSalaryConceptAmount = automaticNonSalaryConcepts.reduce((sum, concept) => sum + concept.amount, 0)
       const baseWithSeniority = row.baseSalary + seniorityAmount
 
       // Si el backend ya nos dio la prorrata jornada-adjusted del convenio,
@@ -360,7 +380,8 @@ function GeneracionContent() {
         irpfPercentage: row.irpfPercentage || 0,
         // Antigüedad como complemento fijo (devengo salarial mensual).
         // Se suma al complemento manual que el usuario haya configurado.
-        fixedComplements: (row.fixedComplements || 0) + seniorityAmount,
+        fixedComplements: (row.fixedComplements || 0) + seniorityAmount + automaticSalaryConceptAmount,
+        nonSalaryComplements: automaticNonSalaryConceptAmount,
         // Se pasa 0 aquí; la prorrata entra como devengo mensual (otherSalaryAccruals)
         // para replicar el modo "prorrateado" del backend y que aparezca en totalDevengos.
         proratedBonuses: 0,
@@ -400,7 +421,12 @@ function GeneracionContent() {
         }
       }
 
-      const result = calculatePayslip(employeeInput, monthlyVars, getDefaultPayrollConfig(year), month)
+      const result = calculatePayslip(
+        employeeInput,
+        monthlyVars,
+        getPreviewPayrollConfig(month, year, smiOverride ?? periodSmi),
+        month,
+      )
 
       return {
         ...row,
@@ -418,7 +444,7 @@ function GeneracionContent() {
         payslipResult: null,
       }
     }
-  }, [])
+  }, [periodSmi])
 
   // ── Load employees ──
   const loadEmployees = useCallback(async () => {
@@ -441,7 +467,13 @@ function GeneracionContent() {
 
       // Guardar info del convenio activo (si la empresa tiene alguno asignado).
       const agreementInfo: CompanyAgreementSummary | null = data.companyAgreement || null
+      const nextPeriodSmi: PeriodSmi | null =
+        data.payrollConfig?.smiForPeriod ??
+        resolvePayrollConfigForDate(
+          `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`,
+        ).smiForPeriod
       setCompanyAgreement(agreementInfo)
+      setPeriodSmi(nextPeriodSmi)
 
       const rows: EmployeeRow[] = (data.employees || []).map((emp: any) => {
         const comp = emp.compensation || {}
@@ -488,6 +520,7 @@ function GeneracionContent() {
           seniorityPeriods: derived?.seniorityPeriods ?? 0,
           yearsOfService: derived?.yearsOfService ?? 0,
           monthlyProratedBonusFromAgreement: derived?.monthlyProratedBonuses ?? null,
+          automaticAgreementConcepts: derived?.automaticConcepts ?? [],
           workedDays: Math.max(0, daysInMonth - autoITDays),
           overtimeHours: 0,
           vacationDays: 0,
@@ -515,7 +548,7 @@ function GeneracionContent() {
             Math.round((row.baseSalary * row.numberOfBonuses) / 12 * 100) / 100
         }
 
-        return calculateRow(row, selectedMonth, selectedYear)
+        return calculateRow(row, selectedMonth, selectedYear, nextPeriodSmi)
       })
 
       setEmployees(rows)
@@ -1658,7 +1691,11 @@ function GeneracionContent() {
             // pero la mostramos como línea separada y restamos del bloque "Complementos
             // salariales" para no contarla dos veces visualmente.
             const seniorityAmount = previewEmployee.seniorityAmount || 0
-            const manualComplements = Math.max(0, a.fixedComplements - seniorityAmount)
+            const autoSalaryConcepts = previewEmployee.automaticAgreementConcepts.filter((concept) => concept.type === 'salary')
+            const autoNonSalaryConcepts = previewEmployee.automaticAgreementConcepts.filter((concept) => concept.type === 'non_salary')
+            const autoSalaryAmount = autoSalaryConcepts.reduce((sum, concept) => sum + concept.amount, 0)
+            const autoNonSalaryAmount = autoNonSalaryConcepts.reduce((sum, concept) => sum + concept.amount, 0)
+            const manualComplements = Math.max(0, a.fixedComplements - seniorityAmount - autoSalaryAmount)
             const salaryLines: Array<{ concept: string; amount: number; meta?: string }> = [
               { concept: 'Salario Base', amount: a.baseSalary },
               {
@@ -1673,6 +1710,7 @@ function GeneracionContent() {
               { concept: 'Gratificaciones extraordinarias', amount: a.bonusPayment },
               { concept: 'Salario en especie', amount: 0 },
               { concept: 'Complementos salariales', amount: manualComplements },
+              ...autoSalaryConcepts,
               { concept: 'Prorrata pagas extra', amount: a.otherSalaryAccruals },
               { concept: 'Comisiones / Incentivos', amount: a.commissions + a.incentives },
               { concept: 'IT – Empresa', amount: a.itCompanyBenefit },
@@ -1683,13 +1721,22 @@ function GeneracionContent() {
               { concept: 'Indemnizaciones o suplidos', amount: 0 },
               { concept: 'Prestaciones e ind. de la Seg. Soc.', amount: 0 },
               { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
-              { concept: 'Otras percepciones no salariales', amount: a.nonSalaryComplements + a.otherNonSalaryAccruals },
+              ...autoNonSalaryConcepts,
+              {
+                concept: 'Otras percepciones no salariales',
+                amount: Math.max(0, a.nonSalaryComplements + a.otherNonSalaryAccruals - autoNonSalaryAmount),
+              },
             ]
+            const previewConfig = getPreviewPayrollConfig(selectedMonth, selectedYear, periodSmi)
+            const previewContractType = mapContractType(previewEmployee.contractType)
+            const workerCcRate = previewConfig.workerRates.contingenciasComunes + previewConfig.workerRates.mei
+            const workerUnemploymentRate = isIndefiniteContract(previewContractType)
+              ? previewConfig.workerRates.desempleoIndefinido
+              : previewConfig.workerRates.desempleoTemporal
             const deductionLines = [
-              { concept: 'Contingencias Comunes', base: r.bases.baseCC, rate: 4.70, amount: wd.contingenciasComunes },
-              { concept: 'Desempleo', base: r.bases.baseCP, rate: previewEmployee.fullTime ? 1.55 : 1.60, amount: wd.desempleo },
-              { concept: 'Formación Profesional', base: r.bases.baseCP, rate: 0.10, amount: wd.formacionProfesional },
-              { concept: 'MEI', base: r.bases.baseCP, rate: 0.12, amount: wd.mei },
+              { concept: 'Contingencias Comunes', base: r.bases.baseCC, rate: workerCcRate, amount: wd.contingenciasComunes },
+              { concept: 'Desempleo', base: r.bases.baseCP, rate: workerUnemploymentRate, amount: wd.desempleo },
+              { concept: 'Formación Profesional', base: r.bases.baseCP, rate: previewConfig.workerRates.formacionProfesional, amount: wd.formacionProfesional },
               { concept: `IRPF`, base: r.bases.baseIRPF, rate: previewEmployee.irpfPercentage, amount: wd.irpf },
               { concept: 'Anticipos', base: 0, rate: 0, amount: wd.advances },
               { concept: 'Otras deducciones', base: 0, rate: 0, amount: wd.otherDeductions },

@@ -260,6 +260,12 @@ export async function fetchPluses(
         row.importe ?? row.importe_mensual ?? row.importe_unitario,
       );
       if (importe === null) continue;
+      const amountKind =
+        row.importe_mensual != null
+          ? 'monthly'
+          : row.importe_unitario != null
+            ? 'unit'
+            : 'unknown';
 
       // mantenemos la entrada más reciente por concepto
       if (
@@ -272,6 +278,7 @@ export async function fetchPluses(
           importe,
           year: tableYear,
           province,
+          amountKind,
         });
       }
     }

@@ -194,8 +194,7 @@ export function calculateBases(
     monthlySalaryAccruals +
     variables.overtimeAmount +
     variables.overtimeForceMajeureAmount +
-    variables.bonusPayment +
-    variables.otherSalaryAccruals
+    variables.bonusPayment
   );
 
   return {

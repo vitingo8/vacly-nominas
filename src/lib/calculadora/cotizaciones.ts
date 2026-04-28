@@ -66,8 +66,10 @@ export function calculateWorkerCotizations(
 ): WorkerCotizationResult {
   const rates = config.workerRates;
 
-  // Contingencias Comunes: 4,70% sobre Base CC
-  const contingenciasComunes = round2((bases.baseCC * rates.contingenciasComunes) / 100);
+  // Contingencias Comunes + MEI: en el recibo se informa como un único tipo
+  // (2026 trabajador: 4,70% + 0,15% = 4,85%). Se redondea una sola vez.
+  const contingenciasComunesRate = rates.contingenciasComunes + rates.mei;
+  const contingenciasComunes = round2((bases.baseCC * contingenciasComunesRate) / 100);
 
   // Desempleo: depende del tipo de contrato
   // - Indefinido: 1,55% sobre Base CP
@@ -80,8 +82,9 @@ export function calculateWorkerCotizations(
   // Formación Profesional: 0,10% sobre Base CP
   const formacionProfesional = round2((bases.baseCP * rates.formacionProfesional) / 100);
 
-  // MEI (Mecanismo de Equidad Intergeneracional): % según `config.workerRates.mei` sobre Base CC
-  const mei = round2((bases.baseCC * rates.mei) / 100);
+  // MEI queda integrado en Contingencias Comunes para evitar diferencias de 0,01 €
+  // por redondear CC y MEI por separado.
+  const mei = 0;
 
   // Horas extras normales: 4,70% (mismo tipo que CC)
   const horasExtrasNormales = round2(
@@ -136,8 +139,10 @@ export function calculateCompanyCotizations(
 ): CompanyCotizationResult {
   const rates = config.companyRates;
 
-  // Contingencias Comunes: 23,60% sobre Base CC
-  const contingenciasComunes = round2((bases.baseCC * rates.contingenciasComunes) / 100);
+  // Contingencias Comunes + MEI: en el recibo se informa como un único tipo
+  // (2026 empresa: 23,60% + 0,75% = 24,35%). Se redondea una sola vez.
+  const contingenciasComunesRate = rates.contingenciasComunes + rates.mei;
+  const contingenciasComunes = round2((bases.baseCC * contingenciasComunesRate) / 100);
 
   // AT/EP: tipo variable según actividad económica (tarifa de primas RD 1299/2006)
   // Se aplica sobre la Base CP (incluye horas extras)
@@ -158,8 +163,8 @@ export function calculateCompanyCotizations(
   // Formación Profesional: 0,60% sobre Base CP
   const formacionProfesional = round2((bases.baseCP * rates.formacionProfesional) / 100);
 
-  // MEI: % según `config.companyRates.mei` sobre Base CC
-  const mei = round2((bases.baseCC * rates.mei) / 100);
+  // MEI queda integrado en Contingencias Comunes.
+  const mei = 0;
 
   // Horas extras normales: 23,60% (mismo tipo que CC empresa)
   const horasExtrasNormales = round2(

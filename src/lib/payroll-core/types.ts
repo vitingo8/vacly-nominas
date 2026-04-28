@@ -44,6 +44,7 @@ export interface Plus {
   importe: number;
   year: number | null;
   province: string | null;
+  amountKind?: 'monthly' | 'unit' | 'unknown';
 }
 
 export interface LicenciaRetribuida {
