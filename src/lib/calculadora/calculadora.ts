@@ -91,7 +91,7 @@ export const DEFAULT_CONFIG_2025: PayrollConfigInput = {
     desempleoTemporal: 6.70,
     fogasa: 0.20,
     formacionProfesional: 0.60,
-    atEp: 1.50,  // Valor por defecto — varía según CNAE de la empresa
+    atEp: 3.60,  // Valor por defecto — varía según CNAE de la empresa
     mei: 0.58,
     horasExtrasNormales: 23.60,
     horasExtrasFuerzaMayor: 12.00,
@@ -140,7 +140,7 @@ export const DEFAULT_CONFIG_2026: PayrollConfigInput = {
     desempleoTemporal: 6.7,
     fogasa: 0.2,
     formacionProfesional: 0.6,
-    atEp: 1.5,
+    atEp: 3.6,
     mei: 0.75,
     horasExtrasNormales: 23.6,
     horasExtrasFuerzaMayor: 12.0,
@@ -229,7 +229,6 @@ export function calculatePayslip(
   // Base CC = devengos salariales + prorrata pagas extras (ajustada a topes)
   // Base CP = Base CC + horas extras (ajustada a topes)
   const basesResult: BasesCalculationResult = calculateBases(employee, variables, config);
-  allWarnings.push(...basesResult.warnings);
 
   // ─── PASO 4: Cálculo de Incapacidad Temporal (si aplica) ───
   let itResult: ITCalculationResult | null = null;
@@ -274,9 +273,20 @@ export function calculatePayslip(
     salaryDeductionForIT
   );
 
+  // Las deducciones porcentuales se liquidan sobre el mismo devengado
+  // salarial que se usa para IRPF, de forma que preview, PDF y nómina
+  // muestran una única base de cálculo.
+  const cotizationBase = round2(accruals.totalSalaryAccruals);
+  const cotizationBases: BasesCalculationResult = {
+    ...basesResult,
+    baseCC: cotizationBase,
+    baseCP: cotizationBase,
+    baseIRPF: cotizationBase,
+  };
+
   // ─── PASO 6: Cotizaciones del trabajador ───
   const workerCotizations: WorkerCotizationResult = calculateWorkerCotizations(
-    basesResult,
+    cotizationBases,
     employee.contractType,
     config
   );
@@ -287,7 +297,7 @@ export function calculatePayslip(
 
   // ─── PASO 8: Cotizaciones de la empresa ───
   const companyCotizations: CompanyCotizationResult = calculateCompanyCotizations(
-    basesResult,
+    cotizationBases,
     employee.contractType,
     config
   );
@@ -327,11 +337,11 @@ export function calculatePayslip(
 
   // ─── PASO 11: Bases de cotización para el resultado ───
   const bases: PayslipBases = {
-    baseCC: basesResult.baseCC,
-    baseCP: basesResult.baseCP,
+    baseCC: cotizationBases.baseCC,
+    baseCP: cotizationBases.baseCP,
     baseOvertimeNormal: basesResult.baseOvertimeNormal,
     baseOvertimeForceMajeure: basesResult.baseOvertimeForceMajeure,
-    baseIRPF: accruals.totalSalaryAccruals,
+    baseIRPF: cotizationBases.baseIRPF,
     baseReguladoraIT: basesResult.baseReguladoraIT,
   };
 

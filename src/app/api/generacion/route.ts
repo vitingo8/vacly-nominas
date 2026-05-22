@@ -541,10 +541,6 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-function amountFromRate(base: number, rate: number): number {
-  return round2((base * rate) / 100)
-}
-
 function resolveWorkdayCoefficient(fullTime: unknown, workdayPercentage: unknown): number {
   const pct = Number(workdayPercentage)
   if (Number.isFinite(pct) && pct > 0 && pct <= 100) return pct / 100
@@ -1347,6 +1343,7 @@ export async function POST(request: NextRequest) {
         const companyUnemploymentRate = isIndefiniteContract(employeeInput.contractType)
           ? config.companyRates.desempleoIndefinido
           : config.companyRates.desempleoTemporal
+        const contributionBase = payslipResult.bases.baseIRPF
 
         // Build perceptions array (desglose línea a línea dirigido por convenio)
         const manualFixedComplements = round2(
@@ -1448,27 +1445,27 @@ export async function POST(request: NextRequest) {
         const deductions: PayrollDeductionLine[] = [
           {
             concept: 'Contingencias Comunes',
-            base: payslipResult.bases.baseCC,
+            base: contributionBase,
             rate: workerCcRate,
-            amount: amountFromRate(payslipResult.bases.baseCC, workerCcRate),
+            amount: payslipResult.workerDeductions.contingenciasComunes,
           },
           {
             concept: 'Desempleo',
-            base: payslipResult.bases.baseCP,
+            base: contributionBase,
             rate: workerUnemploymentRate,
-            amount: amountFromRate(payslipResult.bases.baseCP, workerUnemploymentRate),
+            amount: payslipResult.workerDeductions.desempleo,
           },
           {
             concept: 'Formación Profesional',
-            base: payslipResult.bases.baseCP,
+            base: contributionBase,
             rate: config.workerRates.formacionProfesional,
-            amount: amountFromRate(payslipResult.bases.baseCP, config.workerRates.formacionProfesional),
+            amount: payslipResult.workerDeductions.formacionProfesional,
           },
           {
             concept: 'IRPF',
-            base: payslipResult.bases.baseIRPF,
+            base: contributionBase,
             rate: effectiveIrpfPercentage,
-            amount: amountFromRate(payslipResult.bases.baseIRPF, effectiveIrpfPercentage),
+            amount: payslipResult.workerDeductions.irpf,
           },
           ...(payslipResult.workerDeductions.advances > 0
             ? [{ concept: 'Anticipos', amount: payslipResult.workerDeductions.advances }]
@@ -1477,11 +1474,11 @@ export async function POST(request: NextRequest) {
 
         // Build contributions array
         const contributions = [
-          { concept: 'Contingencias Comunes', base: payslipResult.bases.baseCC, rate: companyCcRate, amount: payslipResult.companyDeductions.contingenciasComunes },
-          { concept: 'AT/EP', base: payslipResult.bases.baseCP, rate: config.companyRates.atEp, amount: payslipResult.companyDeductions.atEp },
-          { concept: 'Desempleo', base: payslipResult.bases.baseCP, rate: companyUnemploymentRate, amount: payslipResult.companyDeductions.desempleo },
-          { concept: 'FOGASA', base: payslipResult.bases.baseCP, rate: config.companyRates.fogasa, amount: payslipResult.companyDeductions.fogasa },
-          { concept: 'Formación Profesional', base: payslipResult.bases.baseCP, rate: config.companyRates.formacionProfesional, amount: payslipResult.companyDeductions.formacionProfesional },
+          { concept: 'Contingencias Comunes', base: contributionBase, rate: companyCcRate, amount: payslipResult.companyDeductions.contingenciasComunes },
+          { concept: 'AT/EP', base: contributionBase, rate: config.companyRates.atEp, amount: payslipResult.companyDeductions.atEp },
+          { concept: 'Desempleo', base: contributionBase, rate: companyUnemploymentRate, amount: payslipResult.companyDeductions.desempleo },
+          { concept: 'FOGASA', base: contributionBase, rate: config.companyRates.fogasa, amount: payslipResult.companyDeductions.fogasa },
+          { concept: 'Formación Profesional', base: contributionBase, rate: config.companyRates.formacionProfesional, amount: payslipResult.companyDeductions.formacionProfesional },
         ]
 
         // Save nomina to database

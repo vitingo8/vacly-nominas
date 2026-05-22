@@ -1817,17 +1817,30 @@ function GeneracionContent() {
             const workerUnemploymentRate = isIndefiniteContract(previewContractType)
               ? previewConfig.workerRates.desempleoIndefinido
               : previewConfig.workerRates.desempleoTemporal
+            const companyCcRate = previewConfig.companyRates.contingenciasComunes + previewConfig.companyRates.mei
+            const companyUnemploymentRate = isIndefiniteContract(previewContractType)
+              ? previewConfig.companyRates.desempleoIndefinido
+              : previewConfig.companyRates.desempleoTemporal
+            const contributionBase = r.bases.baseIRPF
             const deductionLines = [
-              { concept: 'Contingencias Comunes', base: r.bases.baseCC, rate: workerCcRate, amount: wd.contingenciasComunes },
-              { concept: 'Desempleo', base: r.bases.baseCP, rate: workerUnemploymentRate, amount: wd.desempleo },
-              { concept: 'Formación Profesional', base: r.bases.baseCP, rate: previewConfig.workerRates.formacionProfesional, amount: wd.formacionProfesional },
-              { concept: `IRPF`, base: r.bases.baseIRPF, rate: previewEmployee.irpfPercentage, amount: wd.irpf },
+              { concept: 'Contingencias Comunes', base: contributionBase, rate: workerCcRate, amount: wd.contingenciasComunes },
+              { concept: 'Desempleo', base: contributionBase, rate: workerUnemploymentRate, amount: wd.desempleo },
+              { concept: 'Formación Profesional', base: contributionBase, rate: previewConfig.workerRates.formacionProfesional, amount: wd.formacionProfesional },
+              { concept: `IRPF`, base: contributionBase, rate: previewEmployee.irpfPercentage, amount: wd.irpf },
               { concept: 'Anticipos', base: 0, rate: 0, amount: wd.advances },
               { concept: 'Otras deducciones', base: 0, rate: 0, amount: wd.otherDeductions },
+            ]
+            const companyContributionLines = [
+              { concept: 'Contingencias comunes', rate: companyCcRate, amount: cd.contingenciasComunes },
+              { concept: 'AT/EP empresa', rate: previewConfig.companyRates.atEp, amount: cd.atEp },
+              { concept: 'Desempleo empresa', rate: companyUnemploymentRate, amount: cd.desempleo },
+              { concept: 'FOGASA', rate: previewConfig.companyRates.fogasa, amount: cd.fogasa },
+              { concept: 'FP empresa', rate: previewConfig.companyRates.formacionProfesional, amount: cd.formacionProfesional },
             ]
 
             const fmt = (v: number) =>
               v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            const fmtRate = (v: number) => v.toFixed(2).replace('.', ',')
 
             return (
               <>
@@ -1971,11 +1984,12 @@ function GeneracionContent() {
                         Aportación empresa
                       </div>
                       <div className="text-[11px] space-y-0.5">
-                        <div className="flex justify-between"><span>Contingencias comunes</span><span className="tabular-nums">{fmt(cd.contingenciasComunes)} €</span></div>
-                        <div className="flex justify-between"><span>AT/EP</span><span className="tabular-nums">{fmt(cd.atEp)} €</span></div>
-                        <div className="flex justify-between"><span>Desempleo</span><span className="tabular-nums">{fmt(cd.desempleo)} €</span></div>
-                        <div className="flex justify-between"><span>FOGASA</span><span className="tabular-nums">{fmt(cd.fogasa)} €</span></div>
-                        <div className="flex justify-between"><span>FP empresa</span><span className="tabular-nums">{fmt(cd.formacionProfesional)} €</span></div>
+                        {companyContributionLines.map((line) => (
+                          <div key={line.concept} className="flex justify-between gap-2">
+                            <span className="truncate">{line.concept} ({fmtRate(line.rate)}%)</span>
+                            <span className="tabular-nums">{fmt(line.amount)} €</span>
+                          </div>
+                        ))}
                         <div className="flex justify-between font-semibold border-t pt-0.5 mt-0.5">
                           <span>Total coste empresa</span>
                           <span className="tabular-nums">{fmt(r.totalCostCompany)} €</span>

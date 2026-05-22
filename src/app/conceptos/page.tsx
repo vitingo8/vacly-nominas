@@ -73,6 +73,15 @@ interface PredefinedConcept {
   educational_tooltip: string
 }
 
+interface LegalContributionConcept {
+  code: string
+  name: string
+  payer: 'Trabajador' | 'Empresa'
+  rate: string
+  base: string
+  effect: string
+}
+
 const PREDEFINED_CONCEPTS: PredefinedConcept[] = [
   {
     code: 'PA001',
@@ -164,6 +173,73 @@ const PREDEFINED_CONCEPTS: PredefinedConcept[] = [
     tributes_irpf: false,
     educational_tooltip: 'El seguro médico está exento de IRPF hasta 500€/año por asegurado (1.500€ para personas con discapacidad). Incluye al cónyuge y descendientes.'
   }
+]
+
+const LEGAL_CONTRIBUTION_CONCEPTS: LegalContributionConcept[] = [
+  {
+    code: 'SS-CC-T',
+    name: 'Contingencias comunes',
+    payer: 'Trabajador',
+    rate: '4,85%',
+    base: 'Total devengado',
+    effect: 'Deducción',
+  },
+  {
+    code: 'SS-DES-T',
+    name: 'Desempleo',
+    payer: 'Trabajador',
+    rate: '1,55% / 1,60%',
+    base: 'Total devengado',
+    effect: 'Deducción',
+  },
+  {
+    code: 'SS-FP-T',
+    name: 'Formación Profesional',
+    payer: 'Trabajador',
+    rate: '0,10%',
+    base: 'Total devengado',
+    effect: 'Deducción',
+  },
+  {
+    code: 'IRPF',
+    name: 'IRPF',
+    payer: 'Trabajador',
+    rate: 'Según empleado',
+    base: 'Total devengado',
+    effect: 'Deducción',
+  },
+  {
+    code: 'SS-CC-E',
+    name: 'Contingencias comunes empresa',
+    payer: 'Empresa',
+    rate: '24,35%',
+    base: 'Total devengado',
+    effect: 'Coste empresa',
+  },
+  {
+    code: 'AT-EP-E',
+    name: 'AT/EP empresa',
+    payer: 'Empresa',
+    rate: '3,60%',
+    base: 'Total devengado',
+    effect: 'Coste empresa',
+  },
+  {
+    code: 'SS-DES-E',
+    name: 'Desempleo empresa',
+    payer: 'Empresa',
+    rate: '5,50% / 6,70%',
+    base: 'Total devengado',
+    effect: 'Coste empresa',
+  },
+  {
+    code: 'SS-FP-E',
+    name: 'FP + FOGASA empresa',
+    payer: 'Empresa',
+    rate: '0,60% + 0,20%',
+    base: 'Total devengado',
+    effect: 'Coste empresa',
+  },
 ]
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -653,6 +729,59 @@ export default function ConceptosPage() {
             </CardContent>
           </Card>
         </div>
+
+        <Card className="mb-6 border-slate-200/50 bg-white/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <div className="flex items-start gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1B2A41] shadow-sm">
+                <InformationCircleIcon className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <CardTitle className="text-sm font-semibold text-slate-800">
+                  Contingencias y recaudación legal
+                </CardTitle>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Estos conceptos no son pluses editables: se calculan automáticamente al generar la nómina sobre el total devengado.
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {LEGAL_CONTRIBUTION_CONCEPTS.map((item) => (
+                <div key={item.code} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-mono text-[11px] font-semibold text-[#1B2A41]">{item.code}</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-800">{item.name}</div>
+                    </div>
+                    <Badge
+                      className={cn(
+                        'shrink-0 text-[10px]',
+                        item.payer === 'Empresa'
+                          ? 'bg-[#C6A664]/15 text-[#8F7430] border-[#C6A664]/30'
+                          : 'bg-rose-100 text-rose-700 border-rose-200'
+                      )}
+                    >
+                      {item.payer}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div className="text-slate-400">Tipo</div>
+                      <div className="font-medium text-slate-700">{item.rate}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400">Base</div>
+                      <div className="font-medium text-slate-700">{item.base}</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500">{item.effect}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Filters */}
         <Card className="mb-6 border-slate-200/50 bg-white/80 backdrop-blur-md shadow-sm">
