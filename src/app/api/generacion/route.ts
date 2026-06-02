@@ -6,6 +6,7 @@ import {
   TipoContrato,
   TipoJornada,
   TipoContingenciaIT,
+  TipoErte,
 } from '@/lib/calculadora'
 import type {
   EmployeePayrollInput,
@@ -34,6 +35,12 @@ import {
   type PayrollITAbsence,
 } from '@/lib/payroll-it-engine'
 import { getSmiForDate, resolvePayrollConfigForDate } from '@/lib/payroll-parameters'
+import {
+  resolveAnnualIrpfRate,
+  buildIrpfInputFromEmployee,
+  estimateIRPFRate,
+} from '@/lib/irpf'
+import { resolveMonthAbsences } from '@/lib/payroll-absence-engine'
 
 // ─── GET: List generated nominas with filters ─────────────────────────
 export async function GET(request: NextRequest) {
@@ -537,6 +544,33 @@ function getDaysInMonth(month: number, year: number): number {
   return new Date(year, month, 0).getDate()
 }
 
+/**
+ * Suma las horas extras normales ya cotizadas en el año (meses anteriores)
+ * para controlar el límite anual de 80h (Art. 35 ET).
+ */
+async function fetchAccumulatedOvertimeHours(
+  supabase: { from: (table: string) => any },
+  params: { companyId: string; employeeId: string; year: number; month: number },
+): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from('monthly_variables')
+      .select('overtime, month')
+      .eq('company_id', params.companyId)
+      .eq('employee_id', params.employeeId)
+      .eq('year', params.year)
+      .lt('month', params.month)
+    let total = 0
+    for (const row of (data ?? []) as Array<{ overtime?: { hours?: unknown } }>) {
+      const hours = Number(row?.overtime?.hours)
+      if (Number.isFinite(hours)) total += hours
+    }
+    return total
+  } catch {
+    return 0
+  }
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
@@ -987,7 +1021,7 @@ export async function POST(request: NextRequest) {
     if (employeeIds.length > 0) {
       const { data: persistedEmployees, error: persistedEmployeesError } = await supabase
         .from('employees')
-        .select('id, compensation, irpf_data')
+        .select('id, compensation, irpf_data, nif, first_name, last_name, family_situation, entry_date')
         .eq('company_id', companyId)
         .in('id', employeeIds)
 
@@ -1008,7 +1042,10 @@ export async function POST(request: NextRequest) {
     for (const emp of employees) {
       try {
         const persistedEmployee = persistedIrpfByEmployeeId.get(emp.employeeId)
-        const effectiveIrpfPercentage = resolveEmployeeIrpfPercentage(persistedEmployee, emp.irpfPercentage)
+        let effectiveIrpfPercentage = resolveEmployeeIrpfPercentage(persistedEmployee, emp.irpfPercentage)
+        let irpfRateSource: string = persistedEmployee?.irpf_data?.lastResult?.tipoRetencion != null
+          ? 'aeat_employee_irpf_data'
+          : 'manual'
         const partTimeCoefficient = resolveWorkdayCoefficient(emp.fullTime, emp.workdayPercentage)
 
         // Cargar contrato activo (agreement_ref_id, professional_category, start_date, …)
@@ -1225,6 +1262,79 @@ export async function POST(request: NextRequest) {
         // Pago íntegro este mes (modo íntegro)
         const integralBonusPayment = derived?.integralBonusThisMonth ?? 0
 
+        // ── IRPF: resolver el tipo de retención real (AEAT) si no está persistido ──
+        // Se calcula con el Modelo 145 del empleado y la retribución anual estimada,
+        // con fallback offline para que la nómina sea 100% automática.
+        if (irpfRateSource === 'manual' || effectiveIrpfPercentage <= 0) {
+          try {
+            const persistedAny = persistedEmployee as any
+            const annualGross = round2((effectiveBase + effectiveFixed) * (12 + effectiveNumberOfBonuses))
+            const resolvedIrpf = await resolveAnnualIrpfRate({
+              company: { nif: resolvedCompany.cif, name: resolvedCompany.name },
+              employee: {
+                nif: persistedAny?.nif ?? emp.dni ?? '',
+                name: persistedAny
+                  ? `${persistedAny.last_name ?? ''} ${persistedAny.first_name ?? ''}`.trim() || emp.employeeName
+                  : emp.employeeName,
+                irpfData: persistedAny?.irpf_data ?? null,
+                familySituation: persistedAny?.family_situation ?? null,
+                cotizationGroup: emp.cotizationGroup,
+                contractType: emp.contractType,
+              },
+              annualGross,
+              year,
+              test: process.env.NODE_ENV !== 'production',
+            })
+            effectiveIrpfPercentage = resolvedIrpf.rate
+            irpfRateSource = resolvedIrpf.source
+            try {
+              const prevIrpf = (persistedAny?.irpf_data && typeof persistedAny.irpf_data === 'object')
+                ? persistedAny.irpf_data
+                : {}
+              await supabase.from('employees').update({
+                irpf_data: {
+                  ...prevIrpf,
+                  lastResult: {
+                    ...(prevIrpf.lastResult ?? {}),
+                    tipoRetencion: resolvedIrpf.rate,
+                    source: resolvedIrpf.source,
+                    resolvedAt: new Date().toISOString(),
+                  },
+                },
+              }).eq('id', emp.employeeId)
+              await supabase.from('irpf_calculos').insert({
+                employee_id: emp.employeeId,
+                company_id: companyId,
+                nif_trabajador: resolvedIrpf.input.nifTrabajador,
+                nombre_trabajador: resolvedIrpf.input.nombreTrabajador,
+                nif_empresa: resolvedIrpf.input.nifEmpresa,
+                anio: year,
+                retrib_anuales: resolvedIrpf.input.retribAnuales,
+                tipo_retencion: resolvedIrpf.rate,
+                importe_anual:
+                  resolvedIrpf.output?.importeAnualRetenciones ??
+                  resolvedIrpf.estimated?.importeAnualRetenciones ??
+                  round2((resolvedIrpf.input.retribAnuales * resolvedIrpf.rate) / 100),
+                base_retencion:
+                  resolvedIrpf.output?.baseRetencion ?? resolvedIrpf.estimated?.baseRetencion ?? null,
+                minimo_personal_familiar:
+                  resolvedIrpf.output?.minimoPersonalFamiliar?.total ??
+                  resolvedIrpf.estimated?.minimoPersonalFamiliar ??
+                  null,
+                input_json: resolvedIrpf.input,
+                resultado_completo: resolvedIrpf.output ?? resolvedIrpf.estimated ?? null,
+                xml_input: resolvedIrpf.xmlInput ?? null,
+                xml_output: resolvedIrpf.xmlOutput ?? null,
+                entorno: process.env.NODE_ENV !== 'production' ? 'test' : 'prod',
+              })
+            } catch (persistErr) {
+              console.warn('[generacion] No se pudo persistir IRPF resuelto:', persistErr)
+            }
+          } catch (irpfErr) {
+            console.warn('[generacion] Error resolviendo IRPF, se mantiene tipo previo:', irpfErr)
+          }
+        }
+
         // Build EmployeePayrollInput
         const employeeInput: EmployeePayrollInput = {
           baseSalaryMonthly: effectiveBase,
@@ -1237,9 +1347,57 @@ export async function POST(request: NextRequest) {
           contractType: mapContractType(emp.contractType),
           workdayType: resolveWorkdayType(emp.fullTime, emp.workdayPercentage),
           partTimeCoefficient,
+          companyBonifications: 0,
         }
 
         const vars = emp.variables
+
+        // ── Vacaciones y ausencias (no IT) del periodo: carga automática ──
+        let monthAbsences = {
+          vacationDays: 0,
+          paidLeaveDays: 0,
+          unpaidLeaveDays: 0,
+          details: [] as Array<{ typeId: string; typeName: string; days: number; paid: boolean; kind: string }>,
+          warnings: [] as string[],
+        }
+        try {
+          monthAbsences = await resolveMonthAbsences(supabase as any, {
+            companyId,
+            employeeId: emp.employeeId,
+            periodStart,
+            periodEnd,
+          })
+        } catch (absErr) {
+          console.warn('[generacion] No se pudieron cargar ausencias/vacaciones:', absErr)
+        }
+
+        // ── Variables mensuales adicionales persistidas (especie, embargos, ERTE) ──
+        let persistedMonthlyVars: any = null
+        try {
+          const { data: pmv } = await supabase
+            .from('monthly_variables')
+            .select('in_kind, garnishments, erte, unpaid_leave_days, bonifications')
+            .eq('employee_id', emp.employeeId)
+            .eq('company_id', companyId)
+            .eq('month', month)
+            .eq('year', year)
+            .maybeSingle()
+          persistedMonthlyVars = pmv
+        } catch (_) {
+          // columnas opcionales: si la migración no está aplicada, se ignora.
+        }
+        // Las variables adicionales pueden venir en el cuerpo de la petición
+        // (asistente) y tienen prioridad sobre las persistidas.
+        const reqExtras: any = (vars as any) ?? {}
+        const inKindInput = reqExtras.inKind ?? persistedMonthlyVars?.in_kind ?? null
+        const garnishmentInput = reqExtras.garnishment ?? persistedMonthlyVars?.garnishments ?? null
+        const erteInput = reqExtras.erte ?? persistedMonthlyVars?.erte ?? null
+        const unpaidLeaveExtra = Number(reqExtras.unpaidLeaveDays ?? persistedMonthlyVars?.unpaid_leave_days) || 0
+        const bonificationsInput = reqExtras.bonifications ?? persistedMonthlyVars?.bonifications
+        if (bonificationsInput != null) {
+          employeeInput.companyBonifications = Number(bonificationsInput) || 0
+        }
+
         const autoITAbsence = await resolveApprovedITAbsence(supabase as any, {
           companyId,
           employeeId: emp.employeeId,
@@ -1307,8 +1465,15 @@ export async function POST(request: NextRequest) {
           overtimeAmount: (vars.overtimeHours || 0) * (effectiveBase / 30 / 8) * 1.25,
           overtimeForceMajeureHours: 0,
           overtimeForceMajeureAmount: 0,
-          accumulatedOvertimeHoursYear: 0,
-          vacationDays: vars.vacationDays || 0,
+          accumulatedOvertimeHoursYear: await fetchAccumulatedOvertimeHours(supabase as any, {
+            companyId,
+            employeeId: emp.employeeId,
+            year,
+            month,
+          }),
+          vacationDays: (vars.vacationDays || 0) + monthAbsences.vacationDays,
+          paidLeaveDays: monthAbsences.paidLeaveDays,
+          unpaidLeaveDays: monthAbsences.unpaidLeaveDays + unpaidLeaveExtra,
           commissions: vars.commissions || 0,
           incentives: vars.incentives || 0,
           // Pago íntegro de paga extra este mes (modo íntegro)
@@ -1318,6 +1483,33 @@ export async function POST(request: NextRequest) {
           otherSalaryAccruals: monthlyBonusAccrual,
           otherNonSalaryAccruals: 0,
           otherDeductions: 0,
+          inKind: inKindInput
+            ? {
+                amount: Number(inKindInput.amount ?? inKindInput) || 0,
+                repercutido: inKindInput.repercutido ?? true,
+              }
+            : undefined,
+          garnishment: garnishmentInput
+            ? {
+                active: garnishmentInput.active ?? true,
+                familyReductionPercent: Number(garnishmentInput.familyReductionPercent) || 0,
+                pensionAlimentos: Number(garnishmentInput.pensionAlimentos) || 0,
+                fixedAmount: garnishmentInput.fixedAmount != null
+                  ? Number(garnishmentInput.fixedAmount)
+                  : undefined,
+                maxAmount: garnishmentInput.maxAmount != null
+                  ? Number(garnishmentInput.maxAmount)
+                  : undefined,
+              }
+            : undefined,
+          erte: erteInput
+            ? {
+                type: erteInput.type === 'REDUCCION' ? TipoErte.REDUCCION : TipoErte.SUSPENSION,
+                affectedDays: Number(erteInput.affectedDays) || 0,
+                reductionPercent: Number(erteInput.reductionPercent) || 0,
+                exemptionPercent: Number(erteInput.exemptionPercent) || 0,
+              }
+            : undefined,
         }
 
         // Handle IT (temporary disability) desde ausencias aprobadas o input manual.
@@ -1734,9 +1926,28 @@ export async function POST(request: NextRequest) {
           status: 'generated',
         }
 
-        await supabase.from('monthly_variables').upsert(monthlyVarsRecord, {
-          onConflict: 'employee_id,company_id,month,year',
-        })
+        // Campos adicionales (especie/embargos/ERTE/permisos): solo si la
+        // migración añadió las columnas. Se intenta con el set ampliado y, si
+        // falla por columna inexistente, se reintenta con el set base.
+        const extendedMonthlyVarsRecord = {
+          ...monthlyVarsRecord,
+          paid_leave_days: monthlyVars.paidLeaveDays ?? 0,
+          unpaid_leave_days: monthlyVars.unpaidLeaveDays ?? 0,
+          in_kind: monthlyVars.inKind ?? null,
+          garnishments: garnishmentInput ?? null,
+          erte: erteInput ?? null,
+          bonifications: employeeInput.companyBonifications ?? 0,
+        }
+        {
+          const { error: extErr } = await supabase
+            .from('monthly_variables')
+            .upsert(extendedMonthlyVarsRecord, { onConflict: 'employee_id,company_id,month,year' })
+          if (extErr) {
+            await supabase.from('monthly_variables').upsert(monthlyVarsRecord, {
+              onConflict: 'employee_id,company_id,month,year',
+            })
+          }
+        }
 
         results.push({
           employeeId: emp.employeeId,

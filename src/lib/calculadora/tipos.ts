@@ -85,11 +85,66 @@ export interface EmployeePayrollInput {
    * NO se incluyen en base de cotización.
    */
   nonSalaryComplements?: number;
+
+  /**
+   * Bonificaciones / reducciones de la cuota empresarial a la SS (€/mes).
+   * Se restan del coste de cotización de la empresa (contratos bonificados,
+   * tarifas planas, etc.). No afectan al líquido del trabajador.
+   */
+  companyBonifications?: number;
 }
 
 // ---------------------------------------------------------------------------
 // Entrada: Variables mensuales
 // ---------------------------------------------------------------------------
+
+/** Salario en especie (Art. 42 ET / Art. 43 LIRPF). Cotiza y tributa. */
+export interface InKindInput {
+  /** Valoración mensual de la retribución en especie (€). */
+  amount: number;
+  /**
+   * ¿El ingreso a cuenta del IRPF se repercute al trabajador?
+   * true (default): se descuenta del líquido. false: lo asume la empresa.
+   */
+  repercutido?: boolean;
+}
+
+/** Orden de embargo / retención judicial (Art. 607 LEC). */
+export interface GarnishmentInput {
+  active: boolean;
+  /**
+   * Reducción discrecional por cargas familiares (0-100%). El juzgado puede
+   * rebajar entre el 10% y el 15% los porcentajes de la escala.
+   */
+  familyReductionPercent?: number;
+  /**
+   * Pensión de alimentos a hijos: se descuenta de forma íntegra y NO está
+   * sujeta a los límites de inembargabilidad (Art. 608 LEC).
+   */
+  pensionAlimentos?: number;
+  /** Importe fijo fijado por el juzgado (si aplica, ignora la escala). */
+  fixedAmount?: number;
+  /** Deuda pendiente: tope total a retener. */
+  maxAmount?: number;
+}
+
+export enum TipoErte {
+  /** Suspensión total del contrato (días sin actividad). */
+  SUSPENSION = 'SUSPENSION',
+  /** Reducción de jornada. */
+  REDUCCION = 'REDUCCION',
+}
+
+/** Expediente de Regulación Temporal de Empleo (ERTE). */
+export interface ErteInput {
+  type: TipoErte;
+  /** Días suspendidos en el mes (tipo SUSPENSION). */
+  affectedDays?: number;
+  /** % de reducción de jornada (tipo REDUCCION, 0-100). */
+  reductionPercent?: number;
+  /** % de exoneración de la cuota empresarial (0-100). */
+  exemptionPercent?: number;
+}
 
 export interface TemporaryDisabilityInput {
   /** ¿Está de baja por IT este mes? */
@@ -159,6 +214,24 @@ export interface MonthlyVariablesInput {
 
   /** Deducciones adicionales del trabajador (préstamos, embargos...) (€) */
   otherDeductions: number;
+
+  /** Días de vacaciones devengadas en el año y no disfrutadas (para finiquito/cuadre). */
+  accruedUnusedVacationDays?: number;
+
+  /** Días de ausencia NO retribuida en el mes (descuenta salario y días cotizados). */
+  unpaidLeaveDays?: number;
+
+  /** Días de permiso retribuido (Art. 37 ET / convenio): no descuentan, informativo. */
+  paidLeaveDays?: number;
+
+  /** Salario en especie del mes (cotiza y tributa). */
+  inKind?: InKindInput;
+
+  /** Orden de embargo judicial activa este mes. */
+  garnishment?: GarnishmentInput;
+
+  /** Situación de ERTE en el mes. */
+  erte?: ErteInput;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +283,23 @@ export interface CompanyCotizationRates {
   horasExtrasFuerzaMayor: number;
 }
 
+/** Tramo de la cotización adicional de solidaridad (sobre exceso de base máxima). */
+export interface SolidarityBracket {
+  /** Inicio del tramo, en % por encima de la base máxima (0 = base máxima). */
+  fromPercentOverMax: number;
+  /** Fin del tramo, en % por encima de la base máxima. null = sin límite. */
+  toPercentOverMax: number | null;
+  /** Tipo total (trabajador + empresa) del tramo (%). */
+  rate: number;
+}
+
+/** Configuración de la cotización adicional de solidaridad (DA 42ª LGSS). */
+export interface SolidarityConfig {
+  brackets: SolidarityBracket[];
+  /** Reparto trabajador del tipo total (0-1). Empresa = 1 - workerShare. */
+  workerShare: number;
+}
+
 export interface PayrollConfigInput {
   /** Año fiscal */
   year: number;
@@ -231,6 +321,9 @@ export interface PayrollConfigInput {
 
   /** Límite anual de horas extras normales (80h) */
   maxOvertimeHoursYear: number;
+
+  /** Cotización adicional de solidaridad (opcional; aplica sobre exceso de base máxima). */
+  solidarity?: SolidarityConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +360,8 @@ export interface PayslipAccruals {
   otherSalaryAccruals: number;
   /** Otros devengos no salariales */
   otherNonSalaryAccruals: number;
+  /** Retribución en especie (valoración; cotiza y tributa, no se paga en metálico) */
+  inKind: number;
   /** TOTAL DEVENGOS */
   totalAccruals: number;
   /** Total devengos salariales (sujetos a cotización e IRPF) */
@@ -303,12 +398,20 @@ export interface WorkerDeductions {
   horasExtrasNormales: number;
   /** Cotización horas extras fuerza mayor trabajador */
   horasExtrasFuerzaMayor: number;
+  /** Cotización adicional de solidaridad (trabajador) */
+  solidaridad: number;
   /** Total cotizaciones SS trabajador */
   totalSS: number;
   /** Retención IRPF */
   irpf: number;
+  /** Valor de la retribución en especie descontado (no se paga en metálico) */
+  inKindValue: number;
+  /** Ingreso a cuenta IRPF sobre especie repercutido al trabajador */
+  inKindIngresoACuenta: number;
   /** Anticipos */
   advances: number;
+  /** Embargo / retención judicial */
+  garnishment: number;
   /** Otras deducciones */
   otherDeductions: number;
   /** TOTAL DEDUCCIONES TRABAJADOR */
@@ -333,7 +436,13 @@ export interface CompanyDeductions {
   horasExtrasNormales: number;
   /** Cotización horas extras fuerza mayor empresa */
   horasExtrasFuerzaMayor: number;
-  /** TOTAL COTIZACIONES EMPRESA */
+  /** Cotización adicional de solidaridad (empresa) */
+  solidaridad: number;
+  /** Ingreso a cuenta IRPF sobre especie a cargo de la empresa */
+  inKindIngresoACuenta: number;
+  /** Bonificaciones / reducciones de cuota (restan; valor positivo) */
+  bonifications: number;
+  /** TOTAL COTIZACIONES EMPRESA (neto de bonificaciones) */
   totalCompanySS: number;
 }
 
@@ -353,6 +462,49 @@ export interface ITDetail {
   dailyRegulatoryBase: number;
   /** Porcentaje aplicado */
   percentageApplied: number;
+}
+
+/** Detalle del embargo aplicado */
+export interface GarnishmentDetail {
+  /** Base neta sobre la que se calcula la inembargabilidad */
+  netBase: number;
+  /** SMI mensual de referencia (inembargable) */
+  smiReference: number;
+  /** Importe retenido por la escala del Art. 607 LEC */
+  scaleAmount: number;
+  /** Pensión de alimentos retenida (Art. 608 LEC) */
+  pensionAlimentos: number;
+  /** Reducción por cargas familiares aplicada (%) */
+  familyReductionPercent: number;
+  /** Total retenido por embargo */
+  total: number;
+  /** Desglose por tramos */
+  brackets: Array<{ from: number; to: number; rate: number; amount: number }>;
+}
+
+/** Detalle de la cotización adicional de solidaridad */
+export interface SolidarityDetail {
+  /** Exceso sobre la base máxima */
+  excess: number;
+  /** Cuota trabajador */
+  worker: number;
+  /** Cuota empresa */
+  company: number;
+  /** Total */
+  total: number;
+  brackets: Array<{ from: number; to: number; rate: number; base: number; amount: number }>;
+}
+
+/** Detalle del ERTE aplicado */
+export interface ErteDetail {
+  type: TipoErte;
+  affectedDays: number;
+  reductionPercent: number;
+  exemptionPercent: number;
+  /** Importe de salario reducido por el ERTE */
+  salaryReduction: number;
+  /** Exoneración de cuota empresarial aplicada */
+  companyExemption: number;
 }
 
 /** Resultado completo de la nómina */
@@ -383,6 +535,15 @@ export interface PayslipResult {
   /** Detalle de IT (si hay baja en el mes) */
   itDetail?: ITDetail;
 
+  /** Detalle de embargo (si aplica) */
+  garnishmentDetail?: GarnishmentDetail;
+
+  /** Detalle de cotización de solidaridad (si aplica) */
+  solidarityDetail?: SolidarityDetail;
+
+  /** Detalle de ERTE (si aplica) */
+  erteDetail?: ErteDetail;
+
   /** Warnings / avisos generados durante el cálculo */
   warnings: string[];
 }
@@ -410,6 +571,7 @@ export interface WorkerCotizationResult {
   mei: number;
   horasExtrasNormales: number;
   horasExtrasFuerzaMayor: number;
+  solidaridad: number;
   totalSS: number;
 }
 
@@ -423,6 +585,7 @@ export interface CompanyCotizationResult {
   mei: number;
   horasExtrasNormales: number;
   horasExtrasFuerzaMayor: number;
+  solidaridad: number;
   totalCompanySS: number;
 }
 

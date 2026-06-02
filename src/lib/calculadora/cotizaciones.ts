@@ -113,6 +113,7 @@ export function calculateWorkerCotizations(
     mei,
     horasExtrasNormales,
     horasExtrasFuerzaMayor,
+    solidaridad: 0, // se calcula aparte en el motor (solidaridad.ts)
     totalSS,
   };
 }
@@ -197,6 +198,7 @@ export function calculateCompanyCotizations(
     mei,
     horasExtrasNormales,
     horasExtrasFuerzaMayor,
+    solidaridad: 0, // se calcula aparte en el motor (solidaridad.ts)
     totalCompanySS,
   };
 }

@@ -1,51 +1,72 @@
 'use client'
 
-import { useState, useCallback, useMemo, useEffect, useRef, Suspense } from 'react'
+// ============================================================================
+// Asistente guiado de generación de nóminas (4 pasos)
+//   1. Periodo y empresa
+//   2. Checklist de preparación
+//   3. Revisión por empleado (desglose en vivo + variables editables)
+//   4. Generar y resultados (exportación PDF/SEPA/RED y modelos 111/190)
+// La vista avanzada/clásica sigue disponible en /generacion/clasico.
+// ============================================================================
+
+import { useState, useCallback, useMemo, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
-  ArchiveBoxIcon,
-  ArrowDownTrayIcon,
   ArrowPathIcon,
-  ArrowTrendingUpIcon,
-  ArrowUpTrayIcon,
-  ArrowUturnLeftIcon,
-  CalculatorIcon,
-  CalendarIcon,
+  ArrowRightIcon,
+  ArrowLeftIcon,
+  BanknotesIcon,
+  BuildingOffice2Icon,
+  CalendarDaysIcon,
   CheckCircleIcon,
   ChevronDownIcon,
-  CircleStackIcon,
-  ClipboardDocumentCheckIcon,
-  CodeBracketIcon,
+  CurrencyEuroIcon,
   DocumentTextIcon,
-  ExclamationCircleIcon,
-  EyeIcon,
+  ExclamationTriangleIcon,
+  ReceiptPercentIcon,
+  ScaleIcon,
+  ShieldCheckIcon,
   UserGroupIcon,
-  MagnifyingGlassIcon,
+  XCircleIcon,
 } from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
-} from '@/components/ui/table'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogDescription, DialogFooter
-} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
-  calculatePayslip, isIndefiniteContract, TipoContrato, TipoJornada
+  calculatePayslip,
+  TipoContrato,
+  TipoJornada,
+  TipoErte,
 } from '@/lib/calculadora'
 import type {
-  EmployeePayrollInput, MonthlyVariablesInput, PayslipResult, GrupoCotizacion, PayrollConfigInput
+  EmployeePayrollInput,
+  MonthlyVariablesInput,
+  PayslipResult,
+  GrupoCotizacion,
+  PayrollConfigInput,
 } from '@/lib/calculadora'
 import { resolvePayrollConfigForDate, type PeriodSmi } from '@/lib/payroll-parameters'
 
-// ─── Types ──────────────────────────────────────────────────────────────
+// ─── Tipos ───────────────────────────────────────────────────────────────
+
+interface InKindExtra { amount: number; repercutido: boolean }
+interface GarnishmentExtra {
+  active: boolean
+  familyReductionPercent: number
+  pensionAlimentos: number
+  fixedAmount?: number
+  maxAmount?: number
+}
+interface ErteExtra {
+  type: 'SUSPENSION' | 'REDUCCION'
+  affectedDays: number
+  reductionPercent: number
+  exemptionPercent: number
+}
 
 interface EmployeeRow {
   id: string
@@ -63,19 +84,12 @@ interface EmployeeRow {
   contractType: string
   fullTime: boolean
   workdayPercentage: number
-  // Antigüedad jornada-adjusted resuelta desde el convenio (devengo)
   seniorityAmount: number
   seniorityPercent: number
   seniorityPeriods: number
   yearsOfService: number
-  // Prorrata mensual jornada-adjusted (convenio)
   monthlyProratedBonusFromAgreement: number | null
-  automaticAgreementConcepts: Array<{
-    concept: string
-    amount: number
-    type: 'salary' | 'non_salary'
-  }>
-  // Editable variables
+  automaticAgreementConcepts: Array<{ concept: string; amount: number; type: 'salary' | 'non_salary' }>
   workedDays: number
   overtimeHours: number
   vacationDays: number
@@ -83,57 +97,28 @@ interface EmployeeRow {
   itContingencyType: 'ENFERMEDAD_COMUN' | 'ACCIDENTE_TRABAJO'
   itStartDay: number
   itAbsoluteDaysSinceStart: number
-  sickLeaveDays: number
-  expenses: number
   commissions: number
   advances: number
-  // Calculated
+  // extras (Fase 3-6)
+  inKind: InKindExtra
+  garnishment: GarnishmentExtra
+  erte: ErteExtra | null
+  bonifications: number
+  // calculado
   grossSalary: number | null
   netSalary: number | null
   calcError: string | null
   payslipResult: PayslipResult | null
-  // Selection
   selected: boolean
-  // Generation status
   generated: boolean
-  // Contrato / convenio
   hasActiveContract: boolean
   usingAgreementDefaults: boolean
+  irpfSource: string
 }
 
 interface CompanyAgreementSummary {
   agreement_id: string
-  defaults: {
-    province?: string | null
-    weekly_hours?: number | null
-    trial_period_months?: number | null
-    number_of_bonuses?: number | null
-    vacation_days_per_year?: number | null
-    default_professional_category?: string | null
-    default_cotization_group?: number | null
-  } | null
-}
-
-interface NominaHistorico {
-  id: string
-  employee_id: string
-  employee: { name?: string; dni?: string; social_security_number?: string }
-  company: Record<string, unknown>
-  period_start: string
-  period_end: string
-  perceptions: Array<{ concept: string; amount: number }>
-  deductions: Array<{ concept: string; rate?: number; amount: number }>
-  contributions: Array<{ concept: string; base?: number; rate?: number; amount: number }>
-  gross_salary: number
-  net_pay: number
-  base_ss: number
-  cost_empresa: number
-  total_contributions: number
-  status: string
-  calculation_details: Record<string, unknown>
-  dni: string
-  document_name: string
-  created_at: string
+  defaults: Record<string, any> | null
 }
 
 interface GenerationResult {
@@ -143,19 +128,10 @@ interface GenerationResult {
   error?: string
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────
-
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ]
-
-const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  draft: { label: 'Borrador', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-  generated: { label: 'Generada', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-  sent: { label: 'Enviada', className: 'bg-green-100 text-green-800 border-green-200' },
-  paid: { label: 'Pagada', className: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
-}
 
 const CONTRACT_TYPE_MAP: Record<string, TipoContrato> = {
   permanent: TipoContrato.INDEFINIDO,
@@ -172,323 +148,201 @@ const CONTRACT_TYPE_MAP: Record<string, TipoContrato> = {
   PRACTICAS: TipoContrato.PRACTICAS,
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
 function getDaysInMonth(month: number, year: number): number {
   return new Date(year, month, 0).getDate()
 }
 
-function formatCurrency(value: number | null): string {
+function formatCurrency(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—'
-  return value.toLocaleString('es-ES', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }) + ' €'
+  return value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+}
+
+function moneyValue(value: number): number {
+  return Math.round((Number(value) || 0) * 100) / 100
 }
 
 function mapContractType(type: string): TipoContrato {
   return CONTRACT_TYPE_MAP[type] || TipoContrato.INDEFINIDO
 }
 
-function getPreviewPayrollConfig(month: number, year: number, periodSmi?: PeriodSmi | null): PayrollConfigInput {
-  const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
-  const resolved = resolvePayrollConfigForDate(periodStart)
-  return {
-    ...resolved.config,
-    smiMonthly: periodSmi?.monthly ?? resolved.smiForPeriod.monthly,
-  }
-}
-
-function moneyValue(value: unknown): number {
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : 0
-}
-
-function resolveWorkdayCoefficient(fullTime: unknown, workdayPercentage: unknown): number {
-  const pct = Number(workdayPercentage)
-  if (Number.isFinite(pct) && pct > 0 && pct <= 100) return pct / 100
+function resolveWorkdayCoefficient(fullTime: boolean, pct: number): number {
+  if (fullTime) return 1
+  const c = Number(pct)
+  if (Number.isFinite(c) && c > 0 && c <= 100) return c / 100
   return 1
 }
 
-function resolveWorkdayType(fullTime: unknown, workdayPercentage: unknown): TipoJornada {
-  const coefficient = resolveWorkdayCoefficient(fullTime, workdayPercentage)
-  return coefficient < 1 ? TipoJornada.PARCIAL : TipoJornada.COMPLETA
+function resolveWorkdayType(fullTime: boolean, pct: number): TipoJornada {
+  return resolveWorkdayCoefficient(fullTime, pct) >= 1 ? TipoJornada.COMPLETA : TipoJornada.PARCIAL
 }
 
-// ─── Main Page Content ──────────────────────────────────────────────────
+function getPreviewPayrollConfig(month: number, year: number, periodSmi?: PeriodSmi | null): PayrollConfigInput {
+  const periodStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const resolved = resolvePayrollConfigForDate(periodStart)
+  return { ...resolved.config, smiMonthly: periodSmi?.monthly ?? resolved.smiForPeriod.monthly }
+}
 
-// ─── Controlled numeric input ─────────────────────────────────────────────────
-// Allows the user to clear the field and type freely; normalises on blur.
-// Uses type="text" to avoid browser spinner arrows entirely.
-function NumericInput({
-  value,
-  onChange,
-  min = 0,
-  max,
-  step,
-  className,
-}: {
-  value: number
-  onChange: (v: number) => void
-  min?: number
-  max?: number
-  step?: number
-  className?: string
-}) {
-  const [raw, setRaw] = useState(String(value))
-  const focused = useRef(false)
-
-  useEffect(() => {
-    if (!focused.current) setRaw(String(value))
-  }, [value])
-
-  const clamp = (n: number) => {
-    let v = n
-    if (min !== undefined) v = Math.max(min, v)
-    if (max !== undefined) v = Math.min(max, v)
-    return v
+function defaultExtras(): { inKind: InKindExtra; garnishment: GarnishmentExtra; erte: ErteExtra | null; bonifications: number } {
+  return {
+    inKind: { amount: 0, repercutido: true },
+    garnishment: { active: false, familyReductionPercent: 0, pensionAlimentos: 0 },
+    erte: null,
+    bonifications: 0,
   }
-
-  return (
-    <input
-      type="text"
-      inputMode={step !== undefined && step < 1 ? 'decimal' : 'numeric'}
-      value={raw}
-      onFocus={() => { focused.current = true }}
-      onChange={e => {
-        const s = e.target.value
-        setRaw(s)
-        const n = parseFloat(s)
-        if (!isNaN(n)) onChange(clamp(n))
-      }}
-      onBlur={() => {
-        focused.current = false
-        const n = parseFloat(raw)
-        const safe = isNaN(n) ? (min ?? 0) : clamp(n)
-        setRaw(String(safe))
-        onChange(safe)
-      }}
-      className={cn(
-        'h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm text-center tabular-nums shadow-sm',
-        'focus:outline-none focus:ring-1 focus:ring-ring',
-        className,
-      )}
-    />
-  )
 }
 
-function GeneracionContent() {
+// ─── Componente principal ───────────────────────────────────────────────────
+
+function WizardInner() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get('company_id') || ''
 
-  // ── Period selection ──
   const now = new Date()
-  const currentMonth = now.getMonth() + 1   // 1-12
-  const currentYear = now.getFullYear()
+  const [step, setStep] = useState(1)
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() === 0 ? 12 : now.getMonth())
+  const [selectedYear, setSelectedYear] = useState(now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear())
 
-  // A month is "closed" only if it has already fully passed
-  const isPeriodClosed = (m: number, y: number) =>
-    y < currentYear || (y === currentYear && m < currentMonth)
-
-  // Default to the last closed month
-  const defaultMonth = currentMonth > 1 ? currentMonth - 1 : 12
-  const defaultYear  = currentMonth > 1 ? currentYear : currentYear - 1
-  const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
-  const [selectedYear, setSelectedYear] = useState(defaultYear)
-
-  const periodIsValid = isPeriodClosed(selectedMonth, selectedYear)
-
-  // ── Tab 1: Generation state ──
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
   const [companyAgreement, setCompanyAgreement] = useState<CompanyAgreementSummary | null>(null)
   const [periodSmi, setPeriodSmi] = useState<PeriodSmi | null>(null)
   const [loadingEmployees, setLoadingEmployees] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
   const [generationResults, setGenerationResults] = useState<GenerationResult[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [autoCreatingContractFor, setAutoCreatingContractFor] = useState<string | null>(null)
 
-  // ── Tab 2: History state ──
-  const [historico, setHistorico] = useState<NominaHistorico[]>([])
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyMonth, setHistoryMonth] = useState('')
-  const [historyYear, setHistoryYear] = useState(String(now.getFullYear()))
-  const [historyEmployee, setHistoryEmployee] = useState('')
-  const [historyStatus, setHistoryStatus] = useState('')
-  
-  // ── Export actions state ──
-  const [downloadingPDFs, setDownloadingPDFs] = useState(false)
-  const [generatingSEPA, setGeneratingSEPA] = useState(false)
-  const [generatingRED, setGeneratingRED] = useState(false)
-  const [historyTotal, setHistoryTotal] = useState(0)
-  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set())
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [exportBusy, setExportBusy] = useState<string | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [exportInfo, setExportInfo] = useState<string | null>(null)
 
-  // ── Detail dialog (historial) ──
-  const [detailNomina, setDetailNomina] = useState<NominaHistorico | null>(null)
+  // ── Cálculo de una fila (preview en vivo) ──
+  const calculateRow = useCallback(
+    (row: EmployeeRow, month: number, year: number, smiOverride?: PeriodSmi | null): EmployeeRow => {
+      try {
+        const calendarDays = getDaysInMonth(month, year)
+        const nBonuses = row.numberOfBonuses || 2
+        const seniorityAmount = moneyValue(row.seniorityAmount)
+        const automaticSalary = row.automaticAgreementConcepts.filter((c) => c.type === 'salary')
+        const automaticNonSalary = row.automaticAgreementConcepts.filter((c) => c.type === 'non_salary')
+        const automaticSalaryAmount = automaticSalary.reduce((s, c) => s + moneyValue(c.amount), 0)
+        const automaticNonSalaryAmount = automaticNonSalary.reduce((s, c) => s + moneyValue(c.amount), 0)
+        const baseWithSeniority = moneyValue(row.baseSalary) + seniorityAmount
+        const monthlyProratedBonus =
+          row.monthlyProratedBonusFromAgreement != null
+            ? row.monthlyProratedBonusFromAgreement
+            : Math.round((baseWithSeniority * nBonuses) / 12 * 100) / 100
 
-  // ── Preview nómina (pre-generación) ──
-  const [previewEmployee, setPreviewEmployee] = useState<EmployeeRow | null>(null)
+        const employeeInput: EmployeePayrollInput = {
+          baseSalaryMonthly: moneyValue(row.baseSalary),
+          cotizationGroup: (row.cotizationGroup || 7) as GrupoCotizacion,
+          irpfPercentage: row.irpfPercentage || 0,
+          fixedComplements: moneyValue(row.fixedComplements) + seniorityAmount + automaticSalaryAmount,
+          nonSalaryComplements: automaticNonSalaryAmount,
+          proratedBonuses: 0,
+          numberOfBonuses: nBonuses,
+          contractType: mapContractType(row.contractType),
+          workdayType: resolveWorkdayType(row.fullTime, row.workdayPercentage),
+          partTimeCoefficient: resolveWorkdayCoefficient(row.fullTime, row.workdayPercentage),
+          companyBonifications: moneyValue(row.bonifications),
+        }
 
-  // ── Contract modal (misma página, iframe a Contratos) ──
-  const [contractModalOpen, setContractModalOpen] = useState(false)
-  const [contractModalMode, setContractModalMode] = useState<'create' | 'upload_pdf'>('create')
-  const [contractModalEmployee, setContractModalEmployee] = useState<{ id: string; first_name: string; last_name: string } | null>(null)
-  const [contractIframeUrl, setContractIframeUrl] = useState<string | null>(null)
+        const monthlyVars: MonthlyVariablesInput = {
+          calendarDaysInMonth: calendarDays,
+          workedDays: row.workedDays,
+          overtimeHours: row.overtimeHours,
+          overtimeAmount: row.overtimeHours * (row.baseSalary / 30 / 8) * 1.25,
+          overtimeForceMajeureHours: 0,
+          overtimeForceMajeureAmount: 0,
+          accumulatedOvertimeHoursYear: 0,
+          vacationDays: row.vacationDays,
+          commissions: row.commissions,
+          incentives: 0,
+          bonusPayment: 0,
+          advances: row.advances,
+          otherSalaryAccruals: monthlyProratedBonus,
+          otherNonSalaryAccruals: 0,
+          otherDeductions: 0,
+          inKind: row.inKind.amount > 0 ? { amount: row.inKind.amount, repercutido: row.inKind.repercutido } : undefined,
+          garnishment: row.garnishment.active
+            ? {
+                active: true,
+                familyReductionPercent: row.garnishment.familyReductionPercent,
+                pensionAlimentos: row.garnishment.pensionAlimentos,
+                fixedAmount: row.garnishment.fixedAmount,
+                maxAmount: row.garnishment.maxAmount,
+              }
+            : undefined,
+          erte: row.erte
+            ? {
+                type: row.erte.type === 'REDUCCION' ? TipoErte.REDUCCION : TipoErte.SUSPENSION,
+                affectedDays: row.erte.affectedDays,
+                reductionPercent: row.erte.reductionPercent,
+                exemptionPercent: row.erte.exemptionPercent,
+              }
+            : undefined,
+        }
 
-  // ── Active tab ──
-  const [activeTab, setActiveTab] = useState('generar')
+        if (row.itDays > 0) {
+          monthlyVars.temporaryDisability = {
+            active: true,
+            contingencyType: row.itContingencyType as any,
+            startDay: row.itStartDay,
+            endDay: Math.min(calendarDays, row.itStartDay + row.itDays - 1),
+            absoluteDaysSinceStart: row.itAbsoluteDaysSinceStart,
+          }
+        }
 
-  // URL del iframe de contratos (solo en cliente para evitar hidratación)
-  useEffect(() => {
-    if (contractModalOpen && companyId && contractModalEmployee) {
-      setContractIframeUrl(
-        `${typeof window !== 'undefined' ? window.location.origin : ''}/contratos?company_id=${companyId}&employee_id=${contractModalEmployee.id}${contractModalMode === 'upload_pdf' ? '&upload_pdf=true' : '&open=create'}`
-      )
-    } else {
-      setContractIframeUrl(null)
-    }
-  }, [contractModalOpen, companyId, contractModalEmployee, contractModalMode])
+        const result = calculatePayslip(
+          employeeInput,
+          monthlyVars,
+          getPreviewPayrollConfig(month, year, smiOverride ?? periodSmi),
+          month,
+        )
 
-  // ── Calculated summaries ──
-  const summary = useMemo(() => {
-    const loaded = employees.length
-    const selected = employees.filter(e => e.selected).length
-    const totalGross = employees.reduce((sum, e) => sum + (e.grossSalary ?? 0), 0)
-    const totalNet = employees.reduce((sum, e) => sum + (e.netSalary ?? 0), 0)
-    const errors = employees.filter(e => e.calcError).length
-    return { loaded, selected, totalGross, totalNet, errors }
-  }, [employees])
-
-  // ── Calculate a single row ──
-  const calculateRow = useCallback((row: EmployeeRow, month: number, year: number, smiOverride?: PeriodSmi | null): EmployeeRow => {
-    try {
-      const calendarDays = getDaysInMonth(month, year)
-
-      const nBonuses = row.numberOfBonuses || 2
-      // ────────────────────────────────────────────────────────────────
-      // FÓRMULA UNIFICADA con Contratos.tsx + backend (route.ts):
-      //
-      //   monthlyBase   = row.baseSalary  (= contract.agreed_base_salary,
-      //                    salary_table × jornada%, fuente única de verdad)
-      //   antigüedad    = monthlyBase × seniorityPercent / 100
-      //                    (NO se multiplica por jornada porque el base ya
-      //                     la lleva aplicada)
-      //   prorrata mes  = (monthlyBase + antigüedad) × nº pagas / 12
-      // ────────────────────────────────────────────────────────────────
-      const seniorityAmount = moneyValue(row.seniorityAmount)
-      const automaticSalaryConcepts = row.automaticAgreementConcepts.filter((concept) => concept.type === 'salary')
-      const automaticNonSalaryConcepts = row.automaticAgreementConcepts.filter((concept) => concept.type === 'non_salary')
-      const automaticSalaryConceptAmount = automaticSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
-      const automaticNonSalaryConceptAmount = automaticNonSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
-      const baseWithSeniority = moneyValue(row.baseSalary) + seniorityAmount
-
-      // Si el backend ya nos dio la prorrata jornada-adjusted del convenio,
-      // la usamos. Si no, calculamos a partir del base+antigüedad.
-      const monthlyProratedBonus =
-        row.monthlyProratedBonusFromAgreement != null
-          ? row.monthlyProratedBonusFromAgreement
-          : Math.round((baseWithSeniority * nBonuses) / 12 * 100) / 100
-
-      const employeeInput: EmployeePayrollInput = {
-        baseSalaryMonthly: moneyValue(row.baseSalary),
-        cotizationGroup: (row.cotizationGroup || 7) as GrupoCotizacion,
-        irpfPercentage: row.irpfPercentage || 0,
-        // Antigüedad como complemento fijo (devengo salarial mensual).
-        // Se suma al complemento manual que el usuario haya configurado.
-        fixedComplements: moneyValue(row.fixedComplements) + seniorityAmount + automaticSalaryConceptAmount,
-        nonSalaryComplements: automaticNonSalaryConceptAmount,
-        // Se pasa 0 aquí; la prorrata entra como devengo mensual (otherSalaryAccruals)
-        // para replicar el modo "prorrateado" del backend y que aparezca en totalDevengos.
-        proratedBonuses: 0,
-        numberOfBonuses: nBonuses,
-        contractType: mapContractType(row.contractType),
-        workdayType: resolveWorkdayType(row.fullTime, row.workdayPercentage),
-        partTimeCoefficient: resolveWorkdayCoefficient(row.fullTime, row.workdayPercentage),
-      }
-
-      const monthlyVars: MonthlyVariablesInput = {
-        calendarDaysInMonth: calendarDays,
-        workedDays: row.workedDays,
-        overtimeHours: row.overtimeHours,
-        overtimeAmount: row.overtimeHours * (row.baseSalary / 30 / 8) * 1.25,
-        overtimeForceMajeureHours: 0,
-        overtimeForceMajeureAmount: 0,
-        accumulatedOvertimeHoursYear: 0,
-        vacationDays: row.vacationDays,
-        commissions: row.commissions,
-        incentives: 0,
-        bonusPayment: 0,
-        advances: row.advances,
-        // Prorrata mensual de pagas extras → devengo salarial del mes
-        // (coincide con la lógica del endpoint /api/generacion en modo prorrateado)
-        otherSalaryAccruals: monthlyProratedBonus,
-        otherNonSalaryAccruals: 0,
-        otherDeductions: 0,
-      }
-
-      if (row.itDays > 0) {
-        monthlyVars.temporaryDisability = {
-          active: true,
-          contingencyType: row.itContingencyType as any,
-          startDay: row.itStartDay,
-          endDay: Math.min(calendarDays, row.itStartDay + row.itDays - 1),
-          absoluteDaysSinceStart: row.itAbsoluteDaysSinceStart,
+        return {
+          ...row,
+          grossSalary: result.accruals.totalAccruals,
+          netSalary: result.netSalary,
+          calcError: null,
+          payslipResult: result,
+        }
+      } catch (err) {
+        return {
+          ...row,
+          grossSalary: null,
+          netSalary: null,
+          calcError: err instanceof Error ? err.message : 'Error de cálculo',
+          payslipResult: null,
         }
       }
+    },
+    [periodSmi],
+  )
 
-      const result = calculatePayslip(
-        employeeInput,
-        monthlyVars,
-        getPreviewPayrollConfig(month, year, smiOverride ?? periodSmi),
-        month,
-      )
-
-      return {
-        ...row,
-        grossSalary: result.accruals.totalAccruals,
-        netSalary: result.netSalary,
-        calcError: null,
-        payslipResult: result,
-      }
-    } catch (err) {
-      return {
-        ...row,
-        grossSalary: null,
-        netSalary: null,
-        calcError: err instanceof Error ? err.message : 'Error de cálculo',
-        payslipResult: null,
-      }
-    }
-  }, [periodSmi])
-
-  // ── Load employees ──
+  // ── Cargar empleados ──
   const loadEmployees = useCallback(async () => {
     if (!companyId) {
       setLoadError('No se ha especificado company_id en la URL')
       return
     }
-
     setLoadingEmployees(true)
     setLoadError(null)
     setGenerationResults(null)
-
     try {
-      const res = await fetch(`/api/generacion?action=load_employees&company_id=${companyId}&month=${selectedMonth}&year=${selectedYear}`)
+      const res = await fetch(
+        `/api/generacion?action=load_employees&company_id=${companyId}&month=${selectedMonth}&year=${selectedYear}`,
+      )
       const data = await res.json()
+      if (!data.success) throw new Error(data.error || 'Error al cargar empleados')
 
-      if (!data.success) {
-        throw new Error(data.error || 'Error al cargar empleados')
-      }
-
-      // Guardar info del convenio activo (si la empresa tiene alguno asignado).
       const agreementInfo: CompanyAgreementSummary | null = data.companyAgreement || null
       const nextPeriodSmi: PeriodSmi | null =
         data.payrollConfig?.smiForPeriod ??
-        resolvePayrollConfigForDate(
-          `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`,
-        ).smiForPeriod
+        resolvePayrollConfigForDate(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`).smiForPeriod
       setCompanyAgreement(agreementInfo)
       setPeriodSmi(nextPeriodSmi)
 
@@ -497,18 +351,14 @@ function GeneracionContent() {
         const contract = emp.contracts?.[0] || {}
         const hasActiveContract = !!emp.hasActiveContract
         const defaults = agreementInfo?.defaults || {}
-        // Datos derivados del convenio resueltos en el backend (jornada-adjusted)
         const derived = emp.derivedPreview || null
-
         const daysInMonth = getDaysInMonth(selectedMonth, selectedYear)
         const autoIT = emp.autoITAbsence || null
         const autoITDays = Number(autoIT?.daysInPeriod ?? 0)
-
-        // Pagas: convenio > compensation > defaults > 2
         const numberOfBonuses =
-          derived?.numberOfBonuses
-          || comp.numberOfBonuses
-          || (hasActiveContract ? 2 : Number(defaults.number_of_bonuses) || 2)
+          derived?.numberOfBonuses || comp.numberOfBonuses ||
+          (hasActiveContract ? 2 : Number(defaults.number_of_bonuses) || 2)
+        const extras = defaultExtras()
 
         const row: EmployeeRow = {
           id: emp.id,
@@ -520,15 +370,12 @@ function GeneracionContent() {
           baseSalary:
             derived?.baseSalaryMonthly != null
               ? Number(derived.baseSalaryMonthly)
-              : (
-                  hasActiveContract && Number(contract.agreed_base_salary) > 0
-                    ? Number(contract.agreed_base_salary)
-                    : Number(comp.baseSalaryMonthly) || 0
-                ),
+              : hasActiveContract && Number(contract.agreed_base_salary) > 0
+                ? Number(contract.agreed_base_salary)
+                : Number(comp.baseSalaryMonthly) || 0,
           cotizationGroup:
-            comp.cotizationGroup
-            || contract.cotization_group
-            || (hasActiveContract ? 7 : Number(defaults.default_cotization_group) || 7),
+            comp.cotizationGroup || contract.cotization_group ||
+            (hasActiveContract ? 7 : Number(defaults.default_cotization_group) || 7),
           irpfPercentage: comp.irpfPercentage || 0,
           fixedComplements: comp.fixedComplements || 0,
           proratedBonuses: comp.proratedBonuses || 0,
@@ -551,10 +398,9 @@ function GeneracionContent() {
           itContingencyType: autoIT?.contingencyType ?? 'ENFERMEDAD_COMUN',
           itStartDay: Number(autoIT?.startDay ?? 1),
           itAbsoluteDaysSinceStart: Number(autoIT?.absoluteDaysSinceStart ?? 1),
-          sickLeaveDays: 0,
-          expenses: 0,
           commissions: 0,
           advances: 0,
+          ...extras,
           grossSalary: null,
           netSalary: null,
           calcError: null,
@@ -563,17 +409,13 @@ function GeneracionContent() {
           generated: false,
           hasActiveContract,
           usingAgreementDefaults: !hasActiveContract && !!agreementInfo,
+          irpfSource: comp.irpfPercentage ? 'persistido' : 'pendiente',
         }
-
-        // Si el convenio no nos dio prorrata, calculamos: (salario_base × nº pagas) / 12
         if (!row.proratedBonuses && row.baseSalary > 0) {
-          row.proratedBonuses =
-            Math.round((row.baseSalary * row.numberOfBonuses) / 12 * 100) / 100
+          row.proratedBonuses = Math.round((row.baseSalary * row.numberOfBonuses) / 12 * 100) / 100
         }
-
         return calculateRow(row, selectedMonth, selectedYear, nextPeriodSmi)
       })
-
       setEmployees(rows)
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Error desconocido')
@@ -584,86 +426,111 @@ function GeneracionContent() {
     }
   }, [companyId, selectedMonth, selectedYear, calculateRow])
 
-  // ── Auto-crear contrato desde convenio para un empleado ─────────────
-  const autoCreateContract = useCallback(async (employeeId: string) => {
-    if (!companyId) return
-    setAutoCreatingContractFor(employeeId)
-    try {
-      const res = await fetch('/api/contratos/auto-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, employeeId }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        alert(data.error || 'No se pudo auto-crear el contrato desde el convenio.')
-        return
-      }
-      // Recarga empleados para reflejar el nuevo contrato y la base salarial.
-      await loadEmployees()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al auto-crear contrato')
-    } finally {
-      setAutoCreatingContractFor(null)
+  // ── Actualizar una variable de un empleado y recalcular ──
+  const updateRow = useCallback(
+    (id: string, patch: Partial<EmployeeRow>) => {
+      setEmployees((prev) =>
+        prev.map((e) => (e.id === id ? calculateRow({ ...e, ...patch }, selectedMonth, selectedYear) : e)),
+      )
+    },
+    [calculateRow, selectedMonth, selectedYear],
+  )
+
+  // ── Resumen agregado ──
+  const summary = useMemo(() => {
+    const selected = employees.filter((e) => e.selected && !e.calcError)
+    const totalGross = selected.reduce((s, e) => s + (e.grossSalary ?? 0), 0)
+    const totalNet = selected.reduce((s, e) => s + (e.netSalary ?? 0), 0)
+    const totalIrpf = selected.reduce((s, e) => s + (e.payslipResult?.workerDeductions.irpf ?? 0), 0)
+    const totalSS = selected.reduce((s, e) => s + (e.payslipResult?.workerDeductions.totalSS ?? 0), 0)
+    const totalCost = selected.reduce((s, e) => s + (e.payslipResult?.totalCostCompany ?? 0), 0)
+    return {
+      count: selected.length,
+      totalGross,
+      totalNet,
+      totalIrpf,
+      totalSS,
+      totalCost,
+      errors: employees.filter((e) => e.calcError).length,
     }
-  }, [companyId, loadEmployees])
+  }, [employees])
 
-  // ── Update a variable for a specific row ──
-  const updateVariable = useCallback((index: number, field: keyof EmployeeRow, value: number) => {
-    setEmployees(prev => {
-      const updated = [...prev]
-      const row = { ...updated[index], [field]: value }
-      updated[index] = calculateRow(row, selectedMonth, selectedYear)
-      return updated
-    })
-  }, [calculateRow, selectedMonth, selectedYear])
+  // ── Checklist de preparación ──
+  const checklist = useMemo(() => {
+    const total = employees.length
+    const withContract = employees.filter((e) => e.hasActiveContract).length
+    const withAgreement = !!companyAgreement
+    const withIrpf = employees.filter((e) => e.irpfPercentage > 0).length
+    const withSalary = employees.filter((e) => e.baseSalary > 0).length
+    const withIban = employees.filter((e) => e.iban).length
+    const errors = employees.filter((e) => e.calcError).length
+    return [
+      {
+        id: 'employees',
+        label: 'Empleados cargados',
+        ok: total > 0,
+        detail: `${total} empleado(s)`,
+      },
+      {
+        id: 'contracts',
+        label: 'Contratos activos',
+        ok: total > 0 && withContract === total,
+        detail: `${withContract}/${total} con contrato`,
+      },
+      {
+        id: 'agreement',
+        label: 'Convenio asignado',
+        ok: withAgreement,
+        detail: withAgreement ? 'Convenio activo' : 'Sin convenio',
+      },
+      {
+        id: 'salary',
+        label: 'Salario base definido',
+        ok: total > 0 && withSalary === total,
+        detail: `${withSalary}/${total}`,
+      },
+      {
+        id: 'irpf',
+        label: 'IRPF calculado',
+        ok: total > 0 && withIrpf === total,
+        detail: `${withIrpf}/${total} (se resuelve en generación si falta)`,
+      },
+      {
+        id: 'iban',
+        label: 'IBAN para transferencia',
+        ok: total > 0 && withIban === total,
+        detail: `${withIban}/${total}`,
+      },
+      {
+        id: 'calc',
+        label: 'Sin errores de cálculo',
+        ok: errors === 0,
+        detail: errors === 0 ? 'Todo correcto' : `${errors} con error`,
+      },
+    ]
+  }, [employees, companyAgreement])
 
-  // ── Selection handlers ──
-  const toggleSelect = useCallback((index: number) => {
-    setEmployees(prev => {
-      const updated = [...prev]
-      updated[index] = { ...updated[index], selected: !updated[index].selected }
-      return updated
-    })
-  }, [])
+  const blockers = checklist.filter((c) => !c.ok && (c.id === 'employees' || c.id === 'calc'))
 
-  const allSelected = useMemo(() =>
-    employees.length > 0 && employees.every(e => e.selected),
-  [employees])
-
-  const someSelected = useMemo(() =>
-    employees.some(e => e.selected),
-  [employees])
-
-  const toggleSelectAll = useCallback(() => {
-    setEmployees(prev => prev.map(e => ({ ...e, selected: !allSelected })))
-  }, [allSelected])
-
-  // ── Generate payslips ──
-  const generatePayslips = useCallback(async (onlySelected: boolean) => {
-    const toGenerate = onlySelected
-      ? employees.filter(e => e.selected && !e.calcError)
-      : employees.filter(e => !e.calcError)
-
+  // ── Generar nóminas ──
+  const generatePayslips = useCallback(async () => {
+    const toGenerate = employees.filter((e) => e.selected && !e.calcError)
     if (toGenerate.length === 0) return
-
     setGenerating(true)
     setProgress(0)
     setGenerationResults(null)
-
     const results: GenerationResult[] = []
     const batchSize = 5
     const totalBatches = Math.ceil(toGenerate.length / batchSize)
 
     for (let batch = 0; batch < totalBatches; batch++) {
       const batchEmployees = toGenerate.slice(batch * batchSize, (batch + 1) * batchSize)
-
       try {
         const payload = {
           companyId,
           month: selectedMonth,
           year: selectedYear,
-          employees: batchEmployees.map(emp => ({
+          employees: batchEmployees.map((emp) => ({
             employeeId: emp.id,
             employeeName: emp.name,
             dni: emp.nif,
@@ -684,1541 +551,596 @@ function GeneracionContent() {
               vacationDays: emp.vacationDays,
               itDays: emp.itDays,
               itContingencyType: emp.itContingencyType,
-              sickLeaveDays: emp.sickLeaveDays,
-              expenses: emp.expenses,
               commissions: emp.commissions,
               advances: emp.advances,
               incentives: 0,
+              // extras Fase 3-6
+              inKind: emp.inKind.amount > 0 ? emp.inKind : undefined,
+              garnishment: emp.garnishment.active ? emp.garnishment : undefined,
+              erte: emp.erte ?? undefined,
+              bonifications: emp.bonifications || undefined,
             },
           })),
         }
-
         const res = await fetch('/api/generacion', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
-
         const data = await res.json()
-
         if (data.results) {
           for (const r of data.results) {
-            results.push({
-              employeeId: r.employeeId,
-              employeeName: r.employeeName,
-              success: r.success,
-              error: r.error,
-            })
+            results.push({ employeeId: r.employeeId, employeeName: r.employeeName, success: r.success, error: r.error })
           }
         }
       } catch (err) {
         for (const emp of batchEmployees) {
-          results.push({
-            employeeId: emp.id,
-            employeeName: emp.name,
-            success: false,
-            error: err instanceof Error ? err.message : 'Error de red',
-          })
+          results.push({ employeeId: emp.id, employeeName: emp.name, success: false, error: err instanceof Error ? err.message : 'Error de red' })
         }
       }
-
       setProgress(Math.round(((batch + 1) / totalBatches) * 100))
     }
 
-    // Mark generated rows
-    const successIds = new Set(results.filter(r => r.success).map(r => r.employeeId))
-    setEmployees(prev => prev.map(e =>
-      successIds.has(e.id) ? { ...e, generated: true } : e
-    ))
-
+    const successIds = new Set(results.filter((r) => r.success).map((r) => r.employeeId))
+    setEmployees((prev) => prev.map((e) => (successIds.has(e.id) ? { ...e, generated: true } : e)))
     setGenerationResults(results)
     setGenerating(false)
   }, [employees, companyId, selectedMonth, selectedYear])
 
-  // ── Load history ──
-  const loadHistory = useCallback(async () => {
-    if (!companyId) return
-
-    setHistoryLoading(true)
-    try {
-      const params = new URLSearchParams({ company_id: companyId })
-      if (historyMonth) params.set('month', historyMonth)
-      if (historyYear) params.set('year', historyYear)
-      if (historyEmployee) params.set('employee_id', historyEmployee)
-      if (historyStatus) params.set('status', historyStatus)
-
-      const res = await fetch(`/api/generacion?${params.toString()}`)
-      const data = await res.json()
-
-      if (data.success) {
-        setHistorico(data.data || [])
-        setHistoryTotal(data.total || 0)
-        setSelectedHistoryIds(new Set())
-      }
-    } catch {
-      // silent fail
-    } finally {
-      setHistoryLoading(false)
+  // ── Exportaciones ──
+  const downloadBlob = async (url: string, body: any, fileName: string) => {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    if (!res.ok) {
+      let msg = `Error ${res.status}`
+      try { const d = await res.json(); msg = d.error || msg } catch {}
+      throw new Error(msg)
     }
-  }, [companyId, historyMonth, historyYear, historyEmployee, historyStatus])
+    const blob = await res.blob()
+    const objectUrl = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(objectUrl)
+    document.body.removeChild(a)
+  }
 
-  const allHistorySelected = useMemo(
-    () => historico.length > 0 && historico.every((nomina) => selectedHistoryIds.has(nomina.id)),
-    [historico, selectedHistoryIds],
+  const runExport = useCallback(
+    async (kind: 'pdf' | 'sepa' | 'red' | 'm111' | 'm190') => {
+      setExportBusy(kind)
+      setExportError(null)
+      setExportInfo(null)
+      try {
+        if (kind === 'sepa') {
+          await downloadBlob('/api/sepa', { companyId, month: selectedMonth, year: selectedYear }, `SEPA_${selectedYear}${String(selectedMonth).padStart(2, '0')}.xml`)
+        } else if (kind === 'red') {
+          await downloadBlob('/api/red', { companyId, month: selectedMonth, year: selectedYear }, `RED_${selectedYear}${String(selectedMonth).padStart(2, '0')}.txt`)
+        } else if (kind === 'pdf') {
+          const listRes = await fetch(`/api/generacion?company_id=${companyId}&month=${selectedMonth}&year=${selectedYear}&status=generated`)
+          const listData = await listRes.json()
+          const nominaIds = (listData.nominas || listData.data || []).map((n: any) => n.id).filter(Boolean)
+          if (nominaIds.length === 0) throw new Error('No hay nóminas generadas para descargar.')
+          await downloadBlob('/api/download-pdfs', { companyId, month: selectedMonth, year: selectedYear, nominaIds }, `Nominas_${selectedYear}${String(selectedMonth).padStart(2, '0')}.zip`)
+        } else if (kind === 'm111' || kind === 'm190') {
+          const quarter = Math.ceil(selectedMonth / 3)
+          const res = await fetch('/api/filing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              companyId,
+              kind: kind === 'm111' ? 'modelo_111' : 'modelo_190',
+              year: selectedYear,
+              quarter: kind === 'm111' ? quarter : undefined,
+            }),
+          })
+          const data = await res.json()
+          if (!data.success) throw new Error(data.error || 'Error generando el modelo')
+          const blob = new Blob([data.result.csv], { type: 'text/csv;charset=utf-8' })
+          const objectUrl = window.URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = objectUrl
+          a.download = data.fileName
+          document.body.appendChild(a)
+          a.click()
+          window.URL.revokeObjectURL(objectUrl)
+          document.body.removeChild(a)
+          setExportInfo(`${kind === 'm111' ? 'Modelo 111' : 'Modelo 190'} generado: ${formatCurrency(data.result.totalAIngresar ?? data.result.totalRetenciones)} en retenciones.`)
+        }
+      } catch (err) {
+        setExportError(err instanceof Error ? err.message : 'Error en la exportación')
+      } finally {
+        setExportBusy(null)
+      }
+    },
+    [companyId, selectedMonth, selectedYear],
   )
 
-  const someHistorySelected = useMemo(
-    () => historico.some((nomina) => selectedHistoryIds.has(nomina.id)),
-    [historico, selectedHistoryIds],
-  )
-
-  const toggleHistorySelect = useCallback((id: string) => {
-    setSelectedHistoryIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }, [])
-
-  const toggleHistorySelectAll = useCallback(() => {
-    setSelectedHistoryIds(() => {
-      if (allHistorySelected) return new Set()
-      return new Set(historico.map((nomina) => nomina.id))
-    })
-  }, [allHistorySelected, historico])
-
-  // ── Recalculate all when period changes ──
-  const recalculateAll = useCallback(() => {
-    setEmployees(prev =>
-      prev.map(row => calculateRow(row, selectedMonth, selectedYear))
-    )
-  }, [calculateRow, selectedMonth, selectedYear])
-
-  // ── Download PDFs as ZIP ──
-  const downloadPDFs = useCallback(async () => {
-    if (!companyId) return
-    const month = historyMonth || selectedMonth
-    const year = historyYear || selectedYear
-    const nominaIds = Array.from(selectedHistoryIds)
-
-    if (nominaIds.length === 0) {
-      setExportError('Selecciona al menos una nómina para descargar el ZIP.')
-      return
+  useEffect(() => {
+    if (companyId && step >= 2 && employees.length === 0 && !loadingEmployees && !loadError) {
+      loadEmployees()
     }
-
-    setDownloadingPDFs(true)
-    setExportError(null)
-    try {
-      const res = await fetch('/api/download-pdfs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId,
-          month: Number(month),
-          year: Number(year),
-          nominaIds,
-        }),
-      })
-
-      if (!res.ok) {
-        let msg = `Error ${res.status} al descargar PDFs`
-        try {
-          const data = await res.json()
-          msg = data.error || msg
-          if (data.details) msg += ` — ${Array.isArray(data.details) ? data.details.join('; ') : data.details}`
-        } catch {}
-        setExportError(msg)
-        return
-      }
-
-      const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `Nominas_seleccionadas_${nominaIds.length}.zip`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Error al descargar PDFs')
-    } finally {
-      setDownloadingPDFs(false)
-    }
-  }, [companyId, historyMonth, historyYear, selectedMonth, selectedYear, selectedHistoryIds])
-
-  // ── Generate SEPA file ──
-  const generateSEPA = useCallback(async () => {
-    if (!companyId) return
-    const month = historyMonth || selectedMonth
-    const year = historyYear || selectedYear
-
-    setGeneratingSEPA(true)
-    setExportError(null)
-    try {
-      const res = await fetch('/api/sepa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId,
-          month: Number(month),
-          year: Number(year),
-        }),
-      })
-
-      if (!res.ok) {
-        let msg = `Error ${res.status} al generar SEPA`
-        try {
-          const data = await res.json()
-          msg = data.error || msg
-          if (data.hint) msg += ` — ${data.hint}`
-        } catch {}
-        setExportError(msg)
-        return
-      }
-
-      const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `SEPA_Nominas_${year}${String(month).padStart(2, '0')}.xml`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Error al generar SEPA')
-    } finally {
-      setGeneratingSEPA(false)
-    }
-  }, [companyId, historyMonth, historyYear, selectedMonth, selectedYear])
-
-  // ── Generate RED file ──
-  const generateRED = useCallback(async () => {
-    if (!companyId) return
-    const month = historyMonth || selectedMonth
-    const year = historyYear || selectedYear
-
-    setGeneratingRED(true)
-    setExportError(null)
-    try {
-      const res = await fetch('/api/red', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId,
-          month: Number(month),
-          year: Number(year),
-        }),
-      })
-
-      if (!res.ok) {
-        let msg = `Error ${res.status} al generar RED`
-        try {
-          const data = await res.json()
-          msg = data.error || msg
-          if (data.hint) msg += ` — ${data.hint}`
-        } catch {}
-        setExportError(msg)
-        return
-      }
-
-      const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `RED_${companyId}_${year}${String(month).padStart(2, '0')}.txt`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Error al generar RED')
-    } finally {
-      setGeneratingRED(false)
-    }
-  }, [companyId, historyMonth, historyYear, selectedMonth, selectedYear])
-
-  // ─── RENDER ─────────────────────────────────────────────────────────
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
 
   if (!companyId) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <Card className="max-w-md w-full">
-          <CardContent className="pt-6 text-center">
-            <ExclamationCircleIcon className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold mb-2">Empresa no especificada</h2>
-            <p className="text-sm text-muted-foreground">
-              Añade <code className="bg-slate-100 px-1 rounded">?company_id=ID</code> a la URL para acceder a esta página.
-            </p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <Card className="max-w-md">
+          <CardHeader><CardTitle>Falta el identificador de empresa</CardTitle></CardHeader>
+          <CardContent className="text-sm text-slate-600">
+            Añade <code className="bg-slate-100 px-1 rounded">?company_id=ID</code> a la URL para acceder al asistente.
           </CardContent>
         </Card>
       </div>
     )
   }
 
+  const steps = [
+    { n: 1, label: 'Periodo', icon: CalendarDaysIcon },
+    { n: 2, label: 'Preparación', icon: ShieldCheckIcon },
+    { n: 3, label: 'Revisión', icon: UserGroupIcon },
+    { n: 4, label: 'Generar', icon: DocumentTextIcon },
+  ]
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* ── Content ── */}
-      <div className="max-w-[1600px] mx-auto px-6 py-6">
-        <Tabs value={activeTab} onValueChange={(val) => {
-          setActiveTab(val)
-          if (val === 'historico') loadHistory()
-        }}>
-          <TabsList className="mb-6 bg-white border">
-            <TabsTrigger value="generar" className="data-[state=active]:bg-[#1B2A41] data-[state=active]:text-white gap-2">
-              <ClipboardDocumentCheckIcon className="w-4 h-4" />
-              Generar Nóminas
-            </TabsTrigger>
-            <TabsTrigger value="historico" className="data-[state=active]:bg-[#1B2A41] data-[state=active]:text-white gap-2">
-              <ArrowUturnLeftIcon className="w-4 h-4" />
-              Histórico
-            </TabsTrigger>
-          </TabsList>
-
-          {/* ════════════════════════════════════════════════════════════ */}
-          {/* TAB 1: GENERAR NÓMINAS                                      */}
-          {/* ════════════════════════════════════════════════════════════ */}
-          <TabsContent value="generar">
-            {/* ── Period Selector & Actions ── */}
-            <Card className="mb-6">
-              <CardContent className="pt-6">
-                <div className="flex flex-wrap items-end gap-4">
-                  {/* Month */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Mes</Label>
-                    <div className="relative">
-                      <select
-                        value={selectedMonth}
-                        onChange={(e) => {
-                          setSelectedMonth(Number(e.target.value))
-                          setTimeout(recalculateAll, 0)
-                        }}
-                        className="h-9 w-[160px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        {MONTH_NAMES.map((name, i) => (
-                          <option key={i} value={i + 1} disabled={!isPeriodClosed(i + 1, selectedYear)}>
-                            {name}{!isPeriodClosed(i + 1, selectedYear) ? ' (no cerrado)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-
-                  {/* Year */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Año</Label>
-                    <div className="relative">
-                      <select
-                        value={selectedYear}
-                        onChange={(e) => {
-                          const newYear = Number(e.target.value)
-                          setSelectedYear(newYear)
-                          // If the current month is no longer valid for the new year, reset to last closed month
-                          if (!isPeriodClosed(selectedMonth, newYear)) {
-                            const lastValid = newYear < currentYear ? 12 : currentMonth - 1
-                            if (lastValid > 0) setSelectedMonth(lastValid)
-                          }
-                          setTimeout(recalculateAll, 0)
-                        }}
-                        className="h-9 w-[100px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        {[2024, 2025, 2026, 2027].map(y => (
-                          <option key={y} value={y} disabled={y > currentYear}>{y}</option>
-                        ))}
-                      </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-
-                  {/* Load Employees */}
-                  <Button
-                    onClick={loadEmployees}
-                    disabled={loadingEmployees || !periodIsValid}
-                    className="bg-[#1B2A41] hover:bg-[#1B2A41]/90"
-                  >
-                    {loadingEmployees ? (
-                      <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <UserGroupIcon className="w-4 h-4" />
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
+      {/* Cabecera + stepper */}
+      <div className="bg-[#1B2A41] text-white">
+        <div className="max-w-6xl mx-auto px-6 py-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">Asistente de nóminas</h1>
+              <p className="text-sm text-white/70 mt-1">
+                {MONTH_NAMES[selectedMonth - 1]} {selectedYear} · 100% automático conforme a la legislación española
+              </p>
+            </div>
+            <a
+              href={`/generacion/clasico?company_id=${companyId}`}
+              className="text-xs text-[#C6A664] hover:text-[#d8bd86] underline underline-offset-4"
+            >
+              Vista avanzada
+            </a>
+          </div>
+          <div className="mt-6 flex items-center gap-2">
+            {steps.map((s, idx) => {
+              const Icon = s.icon
+              const active = step === s.n
+              const done = step > s.n
+              return (
+                <div key={s.n} className="flex items-center flex-1">
+                  <button
+                    onClick={() => (s.n < step || s.n === step ? setStep(s.n) : null)}
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
+                      active ? 'bg-[#C6A664] text-[#1B2A41]' : done ? 'bg-white/15 text-white' : 'bg-white/5 text-white/50',
                     )}
-                    Cargar Empleados
-                  </Button>
-
-                  {/* Spacer */}
-                  <div className="flex-1" />
-
-                  {/* Generate Buttons */}
-                  {employees.length > 0 && (
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => generatePayslips(true)}
-                        disabled={generating || !someSelected || !periodIsValid}
-                        className="border-[#C6A664] text-[#C6A664] hover:bg-[#C6A664]/10"
-                      >
-                        {generating ? (
-                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <CheckCircleIcon className="w-4 h-4" />
-                        )}
-                        Generar Seleccionadas ({summary.selected})
-                      </Button>
-                      <Button
-                        onClick={() => generatePayslips(false)}
-                        disabled={generating || !periodIsValid}
-                        className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white"
-                      >
-                        {generating ? (
-                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <CalculatorIcon className="w-4 h-4" />
-                        )}
-                        Generar Todas
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* ── Period warning ── */}
-            {!periodIsValid && (
-              <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                <ExclamationCircleIcon className="h-5 w-5 shrink-0 text-amber-500" />
-                <span>
-                  Solo se pueden generar nóminas de <strong>meses ya cerrados</strong>. El mes actual y los meses futuros no están disponibles.
-                </span>
-              </div>
-            )}
-
-            {/* ── Progress Bar ── */}
-            {generating && (
-              <Card className="mb-6">
-                <CardContent className="pt-6 pb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-muted-foreground">Generando nóminas...</span>
-                    <span className="text-sm font-bold text-[#C6A664]">{progress}%</span>
-                  </div>
-                  <Progress value={progress} variant="gold" className="h-3" />
-                </CardContent>
-              </Card>
-            )}
-
-            {/* ── Generation Results ── */}
-            {generationResults && !generating && (
-              <Card className="mb-6 border-l-4 border-l-[#C6A664]">
-                <CardContent className="pt-5 pb-4">
-                  <div className="flex items-start gap-3">
-                    <CheckCircleIcon className="w-5 h-5 text-[#C6A664] mt-0.5 shrink-0" />
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-sm mb-1">Resultado de la generación</h3>
-                      <p className="text-sm text-muted-foreground mb-3">
-                        {generationResults.filter(r => r.success).length} nómina(s) generada(s) correctamente
-                        {generationResults.filter(r => !r.success).length > 0 &&
-                          `, ${generationResults.filter(r => !r.success).length} error(es)`
-                        }
-                      </p>
-                      {generationResults.filter(r => !r.success).length > 0 && (
-                        <div className="space-y-1">
-                          {generationResults.filter(r => !r.success).map((r, i) => (
-                            <div key={i} className="flex items-center gap-2 text-sm text-red-600">
-                              <ExclamationCircleIcon className="w-3.5 h-3.5 shrink-0" />
-                              <span>{r.employeeName}: {r.error}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setGenerationResults(null)}
-                      className="shrink-0"
-                    >
-                      Cerrar
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* ── Error ── */}
-            {loadError && (
-              <Card className="mb-6 border-l-4 border-l-red-500">
-                <CardContent className="pt-5 pb-4">
-                  <div className="flex items-center gap-3">
-                    <ExclamationCircleIcon className="w-5 h-5 text-red-500" />
-                    <span className="text-sm text-red-700">{loadError}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-
-            {/* ── Summary Cards ── */}
-            {employees.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <Card>
-                  <CardContent className="pt-4 pb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-[#1B2A41]/10 p-2 rounded-lg">
-                        <UserGroupIcon className="w-4 h-4 text-[#1B2A41]" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Empleados</p>
-                        <p className="text-xl font-bold">{summary.loaded}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4 pb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-[#C6A664]/10 p-2 rounded-lg">
-                        <ArrowTrendingUpIcon className="w-4 h-4 text-[#C6A664]" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Total Bruto</p>
-                        <p className="text-xl font-bold">{formatCurrency(summary.totalGross)}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4 pb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-emerald-500/10 p-2 rounded-lg">
-                        <ArrowDownTrayIcon className="w-4 h-4 text-emerald-600" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Total Neto</p>
-                        <p className="text-xl font-bold">{formatCurrency(summary.totalNet)}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4 pb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-blue-500/10 p-2 rounded-lg">
-                        <CheckCircleIcon className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Seleccionadas</p>
-                        <p className="text-xl font-bold">{summary.selected} / {summary.loaded}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            {/* ── Variables Table ── */}
-            {employees.length > 0 ? (
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">Variables Mensuales</CardTitle>
-                      <CardDescription>
-                        {MONTH_NAMES[selectedMonth - 1]} {selectedYear} — Edita las variables de cada empleado
-                      </CardDescription>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={recalculateAll}>
-                      <ArrowPathIcon className="w-4 h-4 mr-1" />
-                      Recalcular
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50/80">
-                          <TableHead className="w-[44px] px-3 text-center">
-                            <input
-                              type="checkbox"
-                              checked={allSelected}
-                              ref={(el) => {
-                                if (el) el.indeterminate = someSelected && !allSelected
-                              }}
-                              onChange={toggleSelectAll}
-                              className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
-                            />
-                          </TableHead>
-                          <TableHead className="min-w-[200px] px-3 text-xs font-semibold uppercase tracking-wider">Empleado</TableHead>
-                          <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Días Trab.</TableHead>
-                          <TableHead className="w-[80px] px-1 text-xs font-semibold uppercase tracking-wider text-center">H. Extra</TableHead>
-                          <TableHead className="w-[80px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Vacaciones</TableHead>
-                          <TableHead className="w-[75px] px-1 text-xs font-semibold uppercase tracking-wider text-center">IT / Baja</TableHead>
-                          <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Gastos</TableHead>
-                          <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Comisiones</TableHead>
-                          <TableHead className="w-[85px] px-1 text-xs font-semibold uppercase tracking-wider text-center">Anticipos</TableHead>
-                          <TableHead className="w-[110px] px-2 text-xs font-semibold uppercase tracking-wider text-center">Bruto</TableHead>
-                          <TableHead className="w-[110px] px-2 text-xs font-semibold uppercase tracking-wider text-center">Neto</TableHead>
-                          <TableHead className="w-[44px] px-2 text-center"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {employees.map((emp, idx) => (
-                          <TableRow
-                            key={emp.id}
-                            className={cn(
-                              'transition-colors',
-                              emp.generated && 'bg-emerald-50/50',
-                              emp.calcError && 'bg-red-50/50',
-                              !emp.selected && 'opacity-60'
-                            )}
-                          >
-                            {/* Checkbox */}
-                            <TableCell className="px-3 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={emp.selected}
-                                onChange={() => toggleSelect(idx)}
-                                className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
-                              />
-                            </TableCell>
-
-                            {/* Employee Name + Avatar */}
-                            <TableCell className="px-3 py-2">
-                              <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden border border-slate-200 bg-gradient-to-br from-[#1B2A41] to-slate-600 flex items-center justify-center">
-                                  {emp.imageUrl ? (
-                                    <img src={emp.imageUrl} alt={emp.name} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <span className="text-[11px] font-bold text-white">{emp.name.charAt(0).toUpperCase()}</span>
-                                  )}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium leading-tight truncate">{emp.name}</p>
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <p className="text-[11px] text-muted-foreground">{emp.nif}</p>
-                                    {!emp.hasActiveContract && emp.usingAgreementDefaults && (
-                                      <Badge
-                                        title="Sin contrato activo: se usa el convenio colectivo asignado a la empresa"
-                                        className="bg-[#C6A664]/15 text-[#8F7430] border-[#C6A664]/40 text-[10px] px-1.5 py-0 shrink-0"
-                                      >
-                                        Convenio
-                                      </Badge>
-                                    )}
-                                    {!emp.hasActiveContract && !emp.usingAgreementDefaults && (
-                                      <Badge
-                                        title="Sin contrato ni convenio: asigna uno para poder generar nómina"
-                                        className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0 shrink-0"
-                                      >
-                                        Sin convenio
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                                {emp.generated && (
-                                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0 shrink-0">
-                                    Generada
-                                  </Badge>
-                                )}
-                                {!emp.hasActiveContract && companyAgreement && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    disabled={autoCreatingContractFor === emp.id}
-                                    onClick={() => autoCreateContract(emp.id)}
-                                    title="Crear un contrato formal a partir del convenio colectivo (base, jornada, pagas, provincia). Un clic."
-                                    className="h-7 px-2 text-[11px] text-[#1B2A41] hover:text-[#C6A664] shrink-0"
-                                  >
-                                    {autoCreatingContractFor === emp.id ? (
-                                      <ArrowPathIcon className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <DocumentTextIcon className="w-3 h-3 mr-1" />
-                                    )}
-                                    Crear contrato
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-
-                            {/* Worked Days */}
-                            <TableCell className="px-1 py-2 text-center">
-                              <NumericInput
-                                value={emp.workedDays}
-                                onChange={v => updateVariable(idx, 'workedDays', v)}
-                                min={0}
-                                max={getDaysInMonth(selectedMonth, selectedYear)}
-                              />
-                            </TableCell>
-
-                            {/* Overtime Hours */}
-                            <TableCell className="px-1 py-2 text-center">
-                              <NumericInput
-                                value={emp.overtimeHours}
-                                onChange={v => updateVariable(idx, 'overtimeHours', v)}
-                                min={0}
-                                step={0.5}
-                              />
-                            </TableCell>
-
-                            {/* Vacation Days */}
-                            <TableCell className="px-1 py-2 text-center">
-                              <NumericInput
-                                value={emp.vacationDays}
-                                onChange={v => updateVariable(idx, 'vacationDays', v)}
-                                min={0}
-                                max={getDaysInMonth(selectedMonth, selectedYear)}
-                              />
-                            </TableCell>
-
-                            {/* IT / Baja Days */}
-                            <TableCell className="px-1 py-2 text-center">
-                              <NumericInput
-                                value={emp.itDays}
-                                onChange={v => updateVariable(idx, 'itDays', v)}
-                                min={0}
-                                max={getDaysInMonth(selectedMonth, selectedYear)}
-                              />
-                            </TableCell>
-
-                            {/* Expenses (Gastos) */}
-                            <TableCell className="px-1 py-2 text-center">
-                              <NumericInput
-                                value={emp.expenses}
-                                onChange={v => updateVariable(idx, 'expenses', v)}
-                                min={0}
-                                step={10}
-                              />
-                            </TableCell>
-
-                            {/* Commissions */}
-                            <TableCell className="px-1 py-2 text-center">
-                              <NumericInput
-                                value={emp.commissions}
-                                onChange={v => updateVariable(idx, 'commissions', v)}
-                                min={0}
-                                step={10}
-                              />
-                            </TableCell>
-
-                            {/* Advances */}
-                            <TableCell className="px-1 py-2 text-center">
-                              <NumericInput
-                                value={emp.advances}
-                                onChange={v => updateVariable(idx, 'advances', v)}
-                                min={0}
-                                step={10}
-                              />
-                            </TableCell>
-
-                            {/* Gross Salary */}
-                            <TableCell className="px-2 py-2 text-center">
-                              {emp.calcError ? (
-                                <span className="text-xs text-red-500" title={emp.calcError}>Error</span>
-                              ) : (
-                                <span className="text-sm font-semibold tabular-nums text-[#1B2A41]">
-                                  {formatCurrency(emp.grossSalary)}
-                                </span>
-                              )}
-                            </TableCell>
-
-                            {/* Net Salary */}
-                            <TableCell className="px-2 py-2 text-center">
-                              {emp.calcError ? (
-                                <span className="text-xs text-red-500">—</span>
-                              ) : (
-                                <span className="text-sm font-bold tabular-nums text-emerald-700">
-                                  {formatCurrency(emp.netSalary)}
-                                </span>
-                              )}
-                            </TableCell>
-
-                            {/* Preview button */}
-                            <TableCell className="px-2 py-2 text-center">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-slate-400 hover:text-[#C6A664] hover:bg-[#C6A664]/10"
-                                title="Vista previa de nómina"
-                                disabled={!emp.payslipResult}
-                                onClick={() => setPreviewEmployee(emp)}
-                              >
-                                <EyeIcon className="w-4 h-4" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  {/* Table Footer with Totals */}
-                  <div className="border-t bg-slate-50/80 px-4 py-3 flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      {employees.length} empleado(s) cargados
+                  >
+                    <span className={cn('flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold',
+                      active ? 'bg-[#1B2A41] text-white' : done ? 'bg-emerald-400 text-[#1B2A41]' : 'bg-white/10')}>
+                      {done ? '✓' : s.n}
                     </span>
-                    <div className="flex gap-6">
-                      <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Total Bruto</p>
-                        <p className="text-sm font-bold tabular-nums">{formatCurrency(summary.totalGross)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Total Neto</p>
-                        <p className="text-sm font-bold tabular-nums text-emerald-700">{formatCurrency(summary.totalNet)}</p>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : !loadingEmployees && !loadError ? (
-              <Card>
-                <CardContent className="py-16 text-center">
-                  <UserGroupIcon className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-1">Sin empleados cargados</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Selecciona el mes y año, luego pulsa &quot;Cargar Empleados&quot; para comenzar.
-                  </p>
-                  <Button onClick={loadEmployees} className="bg-[#1B2A41] hover:bg-[#1B2A41]/90">
-                    <UserGroupIcon className="w-4 h-4" />
-                    Cargar Empleados
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : null}
-          </TabsContent>
-
-          {/* ════════════════════════════════════════════════════════════ */}
-          {/* TAB 2: HISTÓRICO                                            */}
-          {/* ════════════════════════════════════════════════════════════ */}
-          <TabsContent value="historico">
-            {/* ── Filters ── */}
-            <Card className="mb-6">
-              <CardContent className="pt-6">
-                <div className="flex flex-wrap items-end gap-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Mes</Label>
-                    <div className="relative">
-                      <select
-                        value={historyMonth}
-                        onChange={(e) => setHistoryMonth(e.target.value)}
-                        className="h-9 w-[150px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        <option value="">Todos</option>
-                        {MONTH_NAMES.map((name, i) => (
-                          <option key={i} value={i + 1}>{name}</option>
-                        ))}
-                      </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Año</Label>
-                    <div className="relative">
-                      <select
-                        value={historyYear}
-                        onChange={(e) => setHistoryYear(e.target.value)}
-                        className="h-9 w-[100px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        <option value="">Todos</option>
-                        {[2024, 2025, 2026, 2027].map(y => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Estado</Label>
-                    <div className="relative">
-                      <select
-                        value={historyStatus}
-                        onChange={(e) => setHistoryStatus(e.target.value)}
-                        className="h-9 w-[140px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        <option value="">Todos</option>
-                        <option value="draft">Borrador</option>
-                        <option value="generated">Generada</option>
-                        <option value="sent">Enviada</option>
-                        <option value="paid">Pagada</option>
-                      </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5 flex-1 min-w-[200px]">
-                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Buscar empleado</Label>
-                    <div className="relative">
-                      <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Nombre o DNI..."
-                        value={historyEmployee}
-                        onChange={(e) => setHistoryEmployee(e.target.value)}
-                        className="pl-9 h-9"
-                      />
-                    </div>
-                  </div>
-
-                  <Button onClick={loadHistory} disabled={historyLoading} className="bg-[#1B2A41] hover:bg-[#1B2A41]/90">
-                    {historyLoading ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <MagnifyingGlassIcon className="w-4 h-4" />}
-                    Buscar
-                  </Button>
+                    <span className="text-sm font-medium hidden sm:inline">{s.label}</span>
+                    <Icon className="w-4 h-4 sm:hidden" />
+                  </button>
+                  {idx < steps.length - 1 && <div className={cn('h-px flex-1 mx-1', done ? 'bg-emerald-400/60' : 'bg-white/10')} />}
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* ── Export error banner ── */}
-            {exportError && (
-              <Card className="mb-6 border-l-4 border-l-red-500">
-                <CardContent className="pt-5 pb-4">
-                  <div className="flex items-start gap-3">
-                    <ExclamationCircleIcon className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
-                    <div className="flex-1 text-sm text-red-700">{exportError}</div>
-                    <Button variant="ghost" size="sm" onClick={() => setExportError(null)}>
-                      Cerrar
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* ── Export Actions ── */}
-            {historico.length > 0 && (
-              <Card className="mb-6 bg-gradient-to-r from-slate-50 to-slate-100/50 border-slate-200">
-                <CardContent className="pt-6">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex-1 min-w-[200px]">
-                      <h3 className="text-sm font-semibold text-slate-700 mb-1">Exportar y Generar Ficheros</h3>
-                      <p className="text-xs text-muted-foreground">
-                        Selecciona nóminas del listado para descargarlas en ZIP, o genera ficheros SEPA y RED
-                      </p>
-                    </div>
-                    
-                    <Button
-                      onClick={downloadPDFs}
-                      disabled={downloadingPDFs || selectedHistoryIds.size === 0}
-                      variant="outline"
-                      className="bg-white hover:bg-slate-50"
-                    >
-                      {downloadingPDFs ? (
-                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
-                      ) : (
-                        <ArchiveBoxIcon className="w-4 h-4 mr-2" />
-                      )}
-                      Descargar seleccionadas ({selectedHistoryIds.size})
-                    </Button>
-
-                    <Button
-                      onClick={generateSEPA}
-                      disabled={generatingSEPA}
-                      variant="outline"
-                      className="bg-white hover:bg-slate-50"
-                    >
-                      {generatingSEPA ? (
-                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
-                      ) : (
-                        <CodeBracketIcon className="w-4 h-4 mr-2" />
-                      )}
-                      Generar SEPA
-                    </Button>
-
-                    <Button
-                      onClick={generateRED}
-                      disabled={generatingRED}
-                      variant="outline"
-                      className="bg-white hover:bg-slate-50"
-                    >
-                      {generatingRED ? (
-                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
-                      ) : (
-                        <CircleStackIcon className="w-4 h-4 mr-2" />
-                      )}
-                      Generar RED
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* ── History Table ── */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Nóminas Generadas</CardTitle>
-                  <Badge variant="secondary" className="text-xs">{historyTotal} resultado(s)</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                {historyLoading ? (
-                  <div className="flex items-center justify-center py-16">
-                    <ArrowPathIcon className="w-6 h-6 animate-spin text-[#C6A664]" />
-                  </div>
-                ) : historico.length > 0 ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50/80">
-                        <TableHead className="w-[44px] px-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={allHistorySelected}
-                            ref={(el) => {
-                              if (el) el.indeterminate = someHistorySelected && !allHistorySelected
-                            }}
-                            onChange={toggleHistorySelectAll}
-                            className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
-                          />
-                        </TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wider">Empleado</TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wider">Período</TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-right">Bruto</TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-right">Neto</TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-right">Coste Empresa</TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-center">Estado</TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-center">Acciones</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {historico.map((nomina) => {
-                        const statusCfg = STATUS_CONFIG[nomina.status] || STATUS_CONFIG.draft
-                        const periodDate = new Date(nomina.period_start + 'T00:00:00')
-                        const periodMonth = periodDate.getMonth()
-                        const periodYear = periodDate.getFullYear()
-
-                        return (
-                          <TableRow key={nomina.id}>
-                            <TableCell className="px-3 py-3 text-center">
-                              <input
-                                type="checkbox"
-                                checked={selectedHistoryIds.has(nomina.id)}
-                                onChange={() => toggleHistorySelect(nomina.id)}
-                                className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
-                              />
-                            </TableCell>
-                            <TableCell className="py-3">
-                              <div>
-                                <p className="text-sm font-medium">{nomina.employee?.name || nomina.dni || '—'}</p>
-                                <p className="text-xs text-muted-foreground">{nomina.dni}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell className="py-3">
-                              <div className="flex items-center gap-1.5">
-                                <CalendarIcon className="w-3.5 h-3.5 text-muted-foreground" />
-                                <span className="text-sm">
-                                  {MONTH_NAMES[periodMonth]} {periodYear}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="py-3 text-right">
-                              <span className="text-sm tabular-nums font-medium">{formatCurrency(nomina.gross_salary)}</span>
-                            </TableCell>
-                            <TableCell className="py-3 text-right">
-                              <span className="text-sm tabular-nums font-bold text-emerald-700">{formatCurrency(nomina.net_pay)}</span>
-                            </TableCell>
-                            <TableCell className="py-3 text-right">
-                              <span className="text-sm tabular-nums">{formatCurrency(nomina.cost_empresa)}</span>
-                            </TableCell>
-                            <TableCell className="py-3 text-center">
-                              <Badge className={cn('text-[11px]', statusCfg.className)}>
-                                {statusCfg.label}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="py-3 text-center">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setDetailNomina(nomina)}
-                                className="text-[#1B2A41] hover:text-[#C6A664]"
-                              >
-                                <EyeIcon className="w-4 h-4" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-16">
-                    <DocumentTextIcon className="w-12 h-12 text-slate-300 mb-4" />
-                    <h3 className="text-lg font-semibold mb-1">Sin resultados</h3>
-                    <p className="text-sm text-muted-foreground">
-                      No se encontraron nóminas con los filtros seleccionados.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* DIALOG: Vista Previa de Nómina (pre-generación)               */}
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      <Dialog open={!!previewEmployee} onOpenChange={(open) => !open && setPreviewEmployee(null)}>
-        <DialogContent className="max-w-4xl p-0 gap-0 max-h-[85vh] flex flex-col overflow-hidden">
-          {previewEmployee?.payslipResult && (() => {
-            const r = previewEmployee.payslipResult
-            const a = r.accruals
-            const wd = r.workerDeductions
-            const cd = r.companyDeductions
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* ─── PASO 1: PERIODO ─── */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarDaysIcon className="w-5 h-5 text-[#C6A664]" /> ¿Qué periodo vas a liquidar?
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
+                  <div>
+                    <Label>Mes</Label>
+                    <select
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                      className="mt-1 w-full border rounded-md px-3 py-2 text-sm"
+                    >
+                      {MONTH_NAMES.map((m, i) => (
+                        <option key={i} value={i + 1}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Año</Label>
+                    <Input
+                      type="number"
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(Number(e.target.value))}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 flex items-start gap-2">
+                  <ExclamationTriangleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <span>Solo se pueden generar nóminas de meses ya cerrados (no del mes en curso ni futuros).</span>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    onClick={() => { setStep(2); loadEmployees() }}
+                    className="bg-[#1B2A41] hover:bg-[#1B2A41]/90 gap-2"
+                  >
+                    Continuar <ArrowRightIcon className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-            // La prorrata mensual de pagas extra se carga dentro de `otherSalaryAccruals`
-            // para que contribuya a totalAccruals (ver `calculateRow`). Por eso mostramos
-            // esa cifra en "Prorrata pagas extra" y no repetimos la línea.
-            //
-            // La antigüedad la cargamos en `fixedComplements` para que entre en el cálculo,
-            // pero la mostramos como línea separada y restamos del bloque "Complementos
-            // salariales" para no contarla dos veces visualmente.
-            const seniorityAmount = moneyValue(previewEmployee.seniorityAmount)
-            const autoSalaryConcepts = previewEmployee.automaticAgreementConcepts.filter((concept) => concept.type === 'salary')
-            const autoNonSalaryConcepts = previewEmployee.automaticAgreementConcepts.filter((concept) => concept.type === 'non_salary')
-            const autoSalaryAmount = autoSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
-            const autoNonSalaryAmount = autoNonSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
-            const manualComplements = Math.max(0, moneyValue(a.fixedComplements) - seniorityAmount - autoSalaryAmount)
-            const salaryLines: Array<{ concept: string; amount: number; meta?: string }> = [
-              { concept: 'Salario Base', amount: moneyValue(a.baseSalary) },
-              {
-                concept: 'Antigüedad',
-                amount: seniorityAmount,
-                meta:
-                  previewEmployee.seniorityPercent > 0
-                    ? `${previewEmployee.seniorityPercent.toFixed(2)}% · ${previewEmployee.yearsOfService} años`
-                    : undefined,
-              },
-              { concept: 'Horas extraordinarias', amount: moneyValue(a.overtimeNormal) },
-              { concept: 'Gratificaciones extraordinarias', amount: moneyValue(a.bonusPayment) },
-              { concept: 'Salario en especie', amount: 0 },
-              { concept: 'Complementos salariales', amount: manualComplements },
-              ...autoSalaryConcepts.map((concept) => ({ ...concept, amount: moneyValue(concept.amount) })),
-              { concept: 'Prorrata pagas extra', amount: moneyValue(a.otherSalaryAccruals) },
-              { concept: 'Comisiones / Incentivos', amount: moneyValue(a.commissions) + moneyValue(a.incentives) },
-            ]
-            const nonSalaryLines: Array<{ concept: string; amount: number }> = [
-              { concept: 'Indemnizaciones o suplidos', amount: 0 },
-              {
-                concept: 'Prestaciones e ind. de la Seg. Soc.',
-                amount: moneyValue(a.itCompanyBenefit) + moneyValue(a.itSSBenefit),
-              },
-              { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
-              { concept: 'Complemento IT convenio', amount: moneyValue(a.itAgreementComplement) },
-              ...autoNonSalaryConcepts.map((concept) => ({ ...concept, amount: moneyValue(concept.amount) })),
-              {
-                concept: 'Otras percepciones no salariales',
-                amount: Math.max(0, moneyValue(a.nonSalaryComplements) + moneyValue(a.otherNonSalaryAccruals) - autoNonSalaryAmount),
-              },
-            ]
-            const previewConfig = getPreviewPayrollConfig(selectedMonth, selectedYear, periodSmi)
-            const previewContractType = mapContractType(previewEmployee.contractType)
-            const workerCcRate = previewConfig.workerRates.contingenciasComunes + previewConfig.workerRates.mei
-            const workerUnemploymentRate = isIndefiniteContract(previewContractType)
-              ? previewConfig.workerRates.desempleoIndefinido
-              : previewConfig.workerRates.desempleoTemporal
-            const companyCcRate = previewConfig.companyRates.contingenciasComunes + previewConfig.companyRates.mei
-            const companyUnemploymentRate = isIndefiniteContract(previewContractType)
-              ? previewConfig.companyRates.desempleoIndefinido
-              : previewConfig.companyRates.desempleoTemporal
-            const contributionBase = r.bases.baseIRPF
-            const deductionLines = [
-              { concept: 'Contingencias Comunes', base: contributionBase, rate: workerCcRate, amount: wd.contingenciasComunes },
-              { concept: 'Desempleo', base: contributionBase, rate: workerUnemploymentRate, amount: wd.desempleo },
-              { concept: 'Formación Profesional', base: contributionBase, rate: previewConfig.workerRates.formacionProfesional, amount: wd.formacionProfesional },
-              { concept: `IRPF`, base: contributionBase, rate: previewEmployee.irpfPercentage, amount: wd.irpf },
-              { concept: 'Anticipos', base: 0, rate: 0, amount: wd.advances },
-              { concept: 'Otras deducciones', base: 0, rate: 0, amount: wd.otherDeductions },
-            ]
-            const companyContributionLines = [
-              { concept: 'Contingencias comunes', rate: companyCcRate, amount: cd.contingenciasComunes },
-              { concept: 'AT/EP empresa', rate: previewConfig.companyRates.atEp, amount: cd.atEp },
-              { concept: 'Desempleo empresa', rate: companyUnemploymentRate, amount: cd.desempleo },
-              { concept: 'FOGASA', rate: previewConfig.companyRates.fogasa, amount: cd.fogasa },
-              { concept: 'FP empresa', rate: previewConfig.companyRates.formacionProfesional, amount: cd.formacionProfesional },
-            ]
-
-            const fmt = (v: number) =>
-              v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            const fmtRate = (v: number) => v.toFixed(2).replace('.', ',')
-
-            return (
-              <>
-                {/* ─── Header fijo ─── */}
-                <DialogHeader className="px-5 py-3 border-b shrink-0 bg-white">
-                  <DialogTitle className="flex items-center gap-2 text-base">
-                    <EyeIcon className="w-4 h-4 text-[#C6A664]" />
-                    Vista previa de nómina
-                  </DialogTitle>
-                  <DialogDescription className="text-xs">
-                    {previewEmployee.name} · {MONTH_NAMES[selectedMonth - 1]} {selectedYear} ·
-                    Grupo {previewEmployee.cotizationGroup} ·
-                    Jornada {previewEmployee.workdayPercentage}% ·
-                    IRPF {previewEmployee.irpfPercentage}%
-                  </DialogDescription>
-                </DialogHeader>
-
-                {/* ─── Cuerpo con scroll interno ─── */}
-                <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2.5 bg-slate-50/40">
-
-                  {/* ── I. DEVENGOS ── */}
-                  <section className="bg-white border rounded-md overflow-hidden shadow-sm">
-                    <header className="bg-[#1B2A41] text-white px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase">
-                      I. Devengos
-                    </header>
-
-                    <div className="grid grid-cols-2 divide-x text-[11px]">
-                      {/* Percepciones salariales */}
-                      <div>
-                        <div className="bg-slate-100 px-2 py-[3px] text-[9.5px] font-semibold flex justify-between">
-                          <span>1. Percepciones salariales</span>
-                          <span className="text-slate-500 font-normal">Importe €</span>
+        {/* ─── PASO 2: PREPARACIÓN ─── */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center gap-2"><ShieldCheckIcon className="w-5 h-5 text-[#C6A664]" /> Checklist de preparación</span>
+                  <Button variant="outline" size="sm" onClick={loadEmployees} disabled={loadingEmployees} className="gap-2">
+                    <ArrowPathIcon className={cn('w-4 h-4', loadingEmployees && 'animate-spin')} /> Recargar
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loadError && (
+                  <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">{loadError}</div>
+                )}
+                {loadingEmployees ? (
+                  <div className="py-12 text-center text-slate-500">
+                    <ArrowPathIcon className="w-8 h-8 animate-spin mx-auto mb-3" /> Cargando empleados, convenio y variables…
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {checklist.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between rounded-lg border p-3 bg-white">
+                        <div className="flex items-center gap-3">
+                          {c.ok ? (
+                            <CheckCircleIcon className="w-6 h-6 text-emerald-500" />
+                          ) : (
+                            <ExclamationTriangleIcon className="w-6 h-6 text-amber-500" />
+                          )}
+                          <span className="font-medium text-slate-800">{c.label}</span>
                         </div>
-                        {salaryLines.map((line, i) => (
-                          <div
-                            key={i}
-                            className={cn(
-                              'flex items-center px-2 gap-1.5 h-[22px] border-b last:border-0',
-                              line.amount === 0 && 'text-slate-400'
-                            )}
-                          >
-                            <span className="text-[9px] text-slate-400 tabular-nums w-6 shrink-0">
-                              {String(i + 1).padStart(3, '0')}
-                            </span>
-                            <span className="flex-1 truncate flex items-baseline gap-1.5">
-                              {line.concept}
-                              {line.meta && (
-                                <span className="text-[9px] text-slate-500 font-normal">
-                                  ({line.meta})
-                                </span>
-                              )}
-                            </span>
-                            <span className="tabular-nums shrink-0 font-medium">{fmt(line.amount)}</span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Percepciones no salariales */}
-                      <div>
-                        <div className="bg-slate-100 px-2 py-[3px] text-[9.5px] font-semibold flex justify-between">
-                          <span>2. Percepciones no salariales</span>
-                          <span className="text-slate-500 font-normal">Importe €</span>
-                        </div>
-                        {nonSalaryLines.map((line, i) => (
-                          <div
-                            key={i}
-                            className={cn(
-                              'flex items-center px-2 gap-1.5 h-[22px] border-b last:border-0',
-                              line.amount === 0 && 'text-slate-400'
-                            )}
-                          >
-                            <span className="text-[9px] text-slate-400 tabular-nums w-6 shrink-0">
-                              {String(101 + i).padStart(3, '0')}
-                            </span>
-                            <span className="flex-1 truncate">{line.concept}</span>
-                            <span className="tabular-nums shrink-0 font-medium">{fmt(line.amount)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <footer className="bg-[#1B2A41] text-white flex justify-between items-center px-2.5 py-1 text-[11px] font-semibold">
-                      <span className="tracking-wider">A. TOTAL DEVENGADO</span>
-                      <span className="tabular-nums text-[12px]">{fmt(a.totalAccruals)} €</span>
-                    </footer>
-                  </section>
-
-                  {/* ── II. DEDUCCIONES ── */}
-                  <section className="bg-white border rounded-md overflow-hidden shadow-sm">
-                    <header className="bg-[#1B2A41] text-white px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase">
-                      II. Deducciones
-                    </header>
-                    <div className="grid grid-cols-[auto_1fr_90px_60px_90px] gap-x-3 px-2 py-[3px] bg-slate-100 text-[9.5px] font-semibold">
-                      <span className="w-6">Cód.</span>
-                      <span>Concepto</span>
-                      <span className="text-right text-slate-500 font-normal">Base €</span>
-                      <span className="text-right text-slate-500 font-normal">Tipo %</span>
-                      <span className="text-right text-slate-500 font-normal">Importe €</span>
-                    </div>
-                    {deductionLines.map((d, i) => (
-                      <div
-                        key={i}
-                        className={cn(
-                          'grid grid-cols-[auto_1fr_90px_60px_90px] gap-x-3 px-2 h-[22px] items-center text-[11px] border-b last:border-0',
-                          d.amount === 0 && 'text-slate-400'
-                        )}
-                      >
-                        <span className="text-[9px] text-slate-400 tabular-nums w-6">
-                          {String(i + 1).padStart(3, '0')}
-                        </span>
-                        <span className="truncate">{d.concept}</span>
-                        <span className="text-right tabular-nums text-slate-500">
-                          {d.base > 0 ? fmt(d.base) : ''}
-                        </span>
-                        <span className="text-right tabular-nums text-slate-500">
-                          {d.rate > 0 ? d.rate.toFixed(2).replace('.', ',') : ''}
-                        </span>
-                        <span className="text-right tabular-nums font-medium">{fmt(d.amount)}</span>
+                        <Badge variant="outline" className={cn(c.ok ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-amber-700 border-amber-200 bg-amber-50')}>
+                          {c.detail}
+                        </Badge>
                       </div>
                     ))}
-                    <footer className="bg-[#1B2A41] text-white flex justify-between items-center px-2.5 py-1 text-[11px] font-semibold">
-                      <span className="tracking-wider">B. TOTAL A DEDUCIR</span>
-                      <span className="tabular-nums text-[12px]">{fmt(wd.totalDeductions)} €</span>
-                    </footer>
-                  </section>
-
-                  {/* ── Bases / Aportación empresa (2 columnas compactas) ── */}
-                  <section className="grid grid-cols-2 gap-2.5">
-                    <div className="bg-white border rounded-md p-2.5 shadow-sm">
-                      <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                        Bases de cotización
-                      </div>
-                      <div className="text-[11px] space-y-0.5">
-                        <div className="flex justify-between"><span>Base CC</span><span className="tabular-nums">{fmt(r.bases.baseCC)} €</span></div>
-                        <div className="flex justify-between"><span>Base CP</span><span className="tabular-nums">{fmt(r.bases.baseCP)} €</span></div>
-                        <div className="flex justify-between"><span>Base IRPF</span><span className="tabular-nums">{fmt(r.bases.baseIRPF)} €</span></div>
-                      </div>
-                    </div>
-                    <div className="bg-white border rounded-md p-2.5 shadow-sm">
-                      <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                        Aportación empresa
-                      </div>
-                      <div className="text-[11px] space-y-0.5">
-                        {companyContributionLines.map((line) => (
-                          <div key={line.concept} className="flex justify-between gap-2">
-                            <span className="truncate">{line.concept} ({fmtRate(line.rate)}%)</span>
-                            <span className="tabular-nums">{fmt(line.amount)} €</span>
-                          </div>
-                        ))}
-                        <div className="flex justify-between font-semibold border-t pt-0.5 mt-0.5">
-                          <span>Total coste empresa</span>
-                          <span className="tabular-nums">{fmt(r.totalCostCompany)} €</span>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                </div>
-
-                {/* ─── Footer sticky con líquido ─── */}
-                <div className="shrink-0 border-t bg-gradient-to-r from-[#1B2A41] to-[#2a3f5f] text-white px-5 py-2.5 flex items-center justify-between">
-                  <span className="text-[11px] uppercase tracking-[0.12em] font-semibold opacity-90">
-                    Líquido total a percibir (A – B)
-                  </span>
-                  <span className="tabular-nums text-xl font-bold text-[#C6A664]">
-                    {fmt(r.netSalary)} €
-                  </span>
-                </div>
-              </>
-            )
-          })()}
-        </DialogContent>
-      </Dialog>
-
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* DIALOG: Detalle de Nómina                                      */}
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      <Dialog open={!!detailNomina} onOpenChange={(open) => !open && setDetailNomina(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          {detailNomina && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <DocumentTextIcon className="w-5 h-5 text-[#C6A664]" />
-                  Detalle de Nómina
-                </DialogTitle>
-                <DialogDescription>
-                  {detailNomina.employee?.name || detailNomina.dni} —{' '}
-                  {(() => {
-                    const d = new Date(detailNomina.period_start + 'T00:00:00')
-                    return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`
-                  })()}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-6 mt-4">
-                {/* Employee Info */}
-                <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Empleado</p>
-                    <p className="text-sm font-medium">{detailNomina.employee?.name || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">DNI</p>
-                    <p className="text-sm font-medium">{detailNomina.dni || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">N.S.S.</p>
-                    <p className="text-sm font-medium">{detailNomina.employee?.social_security_number || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Estado</p>
-                    <Badge className={cn('text-[11px]', (STATUS_CONFIG[detailNomina.status] || STATUS_CONFIG.draft).className)}>
-                      {(STATUS_CONFIG[detailNomina.status] || STATUS_CONFIG.draft).label}
-                    </Badge>
-                  </div>
-                </div>
-
-                {/* Perceptions */}
-                {detailNomina.perceptions && detailNomina.perceptions.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold mb-2 text-[#1B2A41]">Devengos</h4>
-                    <div className="border rounded-lg overflow-hidden">
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {detailNomina.perceptions.map((p, i) => (
-                            <tr key={i} className="border-b last:border-0">
-                              <td className="px-3 py-2">{p.concept}</td>
-                              <td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(p.amount)}</td>
-                            </tr>
-                          ))}
-                          <tr className="bg-slate-50 font-semibold">
-                            <td className="px-3 py-2">Total Devengos</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(detailNomina.gross_salary)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
                   </div>
                 )}
-
-                {/* Deductions */}
-                {detailNomina.deductions && detailNomina.deductions.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold mb-2 text-[#1B2A41]">Deducciones del Trabajador</h4>
-                    <div className="border rounded-lg overflow-hidden">
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {detailNomina.deductions.map((d, i) => (
-                            <tr key={i} className="border-b last:border-0">
-                              <td className="px-3 py-2">
-                                {d.concept}
-                                {d.rate !== undefined && (
-                                  <span className="text-xs text-muted-foreground ml-1">({d.rate}%)</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums font-medium text-red-600">
-                                -{formatCurrency(d.amount)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {/* Company Contributions */}
-                {detailNomina.contributions && detailNomina.contributions.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold mb-2 text-[#1B2A41]">Aportaciones de la Empresa</h4>
-                    <div className="border rounded-lg overflow-hidden">
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {detailNomina.contributions.map((c, i) => (
-                            <tr key={i} className="border-b last:border-0">
-                              <td className="px-3 py-2">
-                                {c.concept}
-                                {c.rate !== undefined && (
-                                  <span className="text-xs text-muted-foreground ml-1">({c.rate}%)</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(c.amount)}</td>
-                            </tr>
-                          ))}
-                          <tr className="bg-slate-50 font-semibold">
-                            <td className="px-3 py-2">Total Empresa</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(detailNomina.total_contributions)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {/* Summary */}
-                <div className="grid grid-cols-3 gap-4 p-4 bg-[#1B2A41] rounded-lg text-white">
-                  <div className="text-center">
-                    <p className="text-xs text-slate-300">Salario Bruto</p>
-                    <p className="text-lg font-bold tabular-nums">{formatCurrency(detailNomina.gross_salary)}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-[#C6A664]">Líquido a Percibir</p>
-                    <p className="text-lg font-bold tabular-nums text-[#C6A664]">{formatCurrency(detailNomina.net_pay)}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-slate-300">Coste Empresa</p>
-                    <p className="text-lg font-bold tabular-nums">{formatCurrency(detailNomina.cost_empresa)}</p>
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter className="mt-4">
-                <Button variant="outline" onClick={() => setDetailNomina(null)}>
-                  Cerrar
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Contratos en la misma página (crear manual / subir PDF con IA) */}
-      <Dialog
-        open={contractModalOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            setContractModalOpen(false)
-            setContractModalEmployee(null)
-            loadEmployees()
-          }
-        }}
-      >
-        <DialogContent className="max-w-[95vw] w-full h-[90vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 pt-4 pb-2 shrink-0">
-            <DialogTitle className="text-base">
-              {contractModalMode === 'upload_pdf'
-                ? 'Subir contrato en PDF con IA'
-                : 'Crear contrato manualmente'}
-              {contractModalEmployee && (
-                <span className="font-normal text-muted-foreground">
-                  {' — '}
-                  {contractModalEmployee.first_name} {contractModalEmployee.last_name}
-                </span>
-              )}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 relative px-6 pb-6">
-            {contractIframeUrl && (
-              <iframe
-                title="Contratos"
-                src={contractIframeUrl}
-                className="absolute inset-0 w-full h-full rounded-lg border border-slate-200"
-              />
-            )}
+              </CardContent>
+            </Card>
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setStep(1)} className="gap-2"><ArrowLeftIcon className="w-4 h-4" /> Atrás</Button>
+              <Button
+                onClick={() => setStep(3)}
+                disabled={blockers.length > 0 || employees.length === 0}
+                className="bg-[#1B2A41] hover:bg-[#1B2A41]/90 gap-2"
+              >
+                Revisar empleados <ArrowRightIcon className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+
+        {/* ─── PASO 3: REVISIÓN ─── */}
+        {step === 3 && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <SummaryCard icon={UserGroupIcon} label="Seleccionados" value={`${summary.count}`} />
+              <SummaryCard icon={CurrencyEuroIcon} label="Total bruto" value={formatCurrency(summary.totalGross)} />
+              <SummaryCard icon={BanknotesIcon} label="Total líquido" value={formatCurrency(summary.totalNet)} />
+              <SummaryCard icon={ReceiptPercentIcon} label="Total IRPF" value={formatCurrency(summary.totalIrpf)} />
+            </div>
+
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2"><UserGroupIcon className="w-5 h-5 text-[#C6A664]" /> Revisión por empleado</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                {employees.map((emp) => (
+                  <EmployeeReviewRow
+                    key={emp.id}
+                    emp={emp}
+                    expanded={expandedId === emp.id}
+                    onToggle={() => setExpandedId(expandedId === emp.id ? null : emp.id)}
+                    onUpdate={updateRow}
+                    calendarDays={getDaysInMonth(selectedMonth, selectedYear)}
+                  />
+                ))}
+                {employees.length === 0 && (
+                  <div className="py-8 text-center text-slate-500 text-sm">No hay empleados cargados.</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setStep(2)} className="gap-2"><ArrowLeftIcon className="w-4 h-4" /> Atrás</Button>
+              <Button onClick={() => setStep(4)} className="bg-[#1B2A41] hover:bg-[#1B2A41]/90 gap-2">
+                Generar nóminas <ArrowRightIcon className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── PASO 4: GENERAR ─── */}
+        {step === 4 && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2"><DocumentTextIcon className="w-5 h-5 text-[#C6A664]" /> Resumen y generación</CardTitle></CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <SummaryCard icon={UserGroupIcon} label="Nóminas" value={`${summary.count}`} />
+                  <SummaryCard icon={CurrencyEuroIcon} label="Coste empresa" value={formatCurrency(summary.totalCost)} />
+                  <SummaryCard icon={BanknotesIcon} label="Total líquido" value={formatCurrency(summary.totalNet)} />
+                  <SummaryCard icon={ReceiptPercentIcon} label="Total IRPF" value={formatCurrency(summary.totalIrpf)} />
+                  <SummaryCard icon={ScaleIcon} label="Total SS trabajador" value={formatCurrency(summary.totalSS)} />
+                  <SummaryCard icon={BuildingOffice2Icon} label="Bruto" value={formatCurrency(summary.totalGross)} />
+                </div>
+
+                {generating && (
+                  <div className="space-y-2">
+                    <Progress value={progress} />
+                    <p className="text-sm text-slate-500 text-center">Generando… {progress}%</p>
+                  </div>
+                )}
+
+                {!generationResults && !generating && (
+                  <Button onClick={generatePayslips} disabled={summary.count === 0} className="w-full bg-[#C6A664] text-[#1B2A41] hover:bg-[#C6A664]/90 font-semibold gap-2">
+                    <DocumentTextIcon className="w-5 h-5" /> Generar {summary.count} nómina(s)
+                  </Button>
+                )}
+
+                {generationResults && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border p-3 bg-emerald-50 border-emerald-200 text-emerald-800 text-sm flex items-center gap-2">
+                      <CheckCircleIcon className="w-5 h-5" />
+                      {generationResults.filter((r) => r.success).length} generada(s) correctamente
+                      {generationResults.some((r) => !r.success) && `, ${generationResults.filter((r) => !r.success).length} con error`}
+                    </div>
+                    {generationResults.filter((r) => !r.success).map((r) => (
+                      <div key={r.employeeId} className="text-sm text-red-700 flex items-center gap-2">
+                        <XCircleIcon className="w-4 h-4" /> {r.employeeName}: {r.error}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {generationResults && generationResults.some((r) => r.success) && (
+              <Card>
+                <CardHeader><CardTitle className="text-base">Exportar y presentar</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  {exportError && <div className="rounded-lg bg-red-50 border border-red-200 p-2 text-sm text-red-700">{exportError}</div>}
+                  {exportInfo && <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2 text-sm text-emerald-700">{exportInfo}</div>}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <ExportButton label="PDFs (ZIP)" busy={exportBusy === 'pdf'} onClick={() => runExport('pdf')} />
+                    <ExportButton label="Transferencia SEPA" busy={exportBusy === 'sepa'} onClick={() => runExport('sepa')} />
+                    <ExportButton label="Fichero RED/SS" busy={exportBusy === 'red'} onClick={() => runExport('red')} />
+                    <ExportButton label="Modelo 111" busy={exportBusy === 'm111'} onClick={() => runExport('m111')} />
+                    <ExportButton label="Modelo 190" busy={exportBusy === 'm190'} onClick={() => runExport('m190')} />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setStep(3)} className="gap-2"><ArrowLeftIcon className="w-4 h-4" /> Atrás</Button>
+              {generationResults && (
+                <Button variant="outline" onClick={() => { setGenerationResults(null); setStep(1) }}>Nueva liquidación</Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
-// ─── Page Wrapper with Suspense ─────────────────────────────────────────
+// ─── Subcomponentes ──────────────────────────────────────────────────────────
 
-function LoadingFallback() {
+function SummaryCard({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-3">
-        <ArrowPathIcon className="w-8 h-8 animate-spin text-[#C6A664]" />
-        <p className="text-sm text-muted-foreground">Cargando...</p>
+    <div className="rounded-xl border bg-white p-4">
+      <div className="flex items-center gap-2 text-slate-500 text-xs mb-1"><Icon className="w-4 h-4" /> {label}</div>
+      <div className="text-lg font-semibold text-[#1B2A41]">{value}</div>
+    </div>
+  )
+}
+
+function ExportButton({ label, busy, onClick }: { label: string; busy: boolean; onClick: () => void }) {
+  return (
+    <Button variant="outline" onClick={onClick} disabled={busy} className="justify-start gap-2 h-auto py-3">
+      {busy ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <DocumentTextIcon className="w-4 h-4 text-[#C6A664]" />}
+      <span className="text-sm">{label}</span>
+    </Button>
+  )
+}
+
+function NumField({ label, value, onChange, step = 1, suffix }: { label: string; value: number; onChange: (v: number) => void; step?: number; suffix?: string }) {
+  return (
+    <div>
+      <Label className="text-xs text-slate-500">{label}</Label>
+      <div className="relative">
+        <Input type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="mt-1 h-9" />
+        {suffix && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">{suffix}</span>}
       </div>
+    </div>
+  )
+}
+
+function EmployeeReviewRow({
+  emp, expanded, onToggle, onUpdate, calendarDays,
+}: {
+  emp: EmployeeRow
+  expanded: boolean
+  onToggle: () => void
+  onUpdate: (id: string, patch: Partial<EmployeeRow>) => void
+  calendarDays: number
+}) {
+  const p = emp.payslipResult
+  return (
+    <div className={cn('rounded-xl border bg-white overflow-hidden', emp.calcError && 'border-red-200')}>
+      <div className="flex items-center gap-3 p-3">
+        <input
+          type="checkbox"
+          checked={emp.selected}
+          onChange={(e) => onUpdate(emp.id, { selected: e.target.checked })}
+          className="w-4 h-4 accent-[#C6A664]"
+        />
+        <button onClick={onToggle} className="flex-1 flex items-center justify-between text-left">
+          <div>
+            <div className="font-medium text-slate-800 flex items-center gap-2">
+              {emp.name || 'Sin nombre'}
+              {!emp.hasActiveContract && <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 text-[10px]">Sin contrato</Badge>}
+              {emp.generated && <Badge variant="outline" className="text-emerald-700 border-emerald-200 bg-emerald-50 text-[10px]">Generada</Badge>}
+            </div>
+            <div className="text-xs text-slate-400">{emp.nif} · Grupo {emp.cotizationGroup} · IRPF {emp.irpfPercentage}%</div>
+          </div>
+          <div className="flex items-center gap-4">
+            {emp.calcError ? (
+              <span className="text-xs text-red-600">{emp.calcError}</span>
+            ) : (
+              <div className="text-right">
+                <div className="text-xs text-slate-400">Líquido</div>
+                <div className="font-semibold text-[#1B2A41]">{formatCurrency(emp.netSalary)}</div>
+              </div>
+            )}
+            <ChevronDownIcon className={cn('w-5 h-5 text-slate-400 transition-transform', expanded && 'rotate-180')} />
+          </div>
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="border-t bg-slate-50/50 p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Variables editables */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-semibold text-slate-700">Variables del mes</h4>
+            <div className="grid grid-cols-3 gap-3">
+              <NumField label="Días trabajados" value={emp.workedDays} onChange={(v) => onUpdate(emp.id, { workedDays: v })} />
+              <NumField label="Vacaciones" value={emp.vacationDays} onChange={(v) => onUpdate(emp.id, { vacationDays: v })} />
+              <NumField label="Horas extra" value={emp.overtimeHours} onChange={(v) => onUpdate(emp.id, { overtimeHours: v })} />
+              <NumField label="Comisiones" value={emp.commissions} onChange={(v) => onUpdate(emp.id, { commissions: v })} suffix="€" />
+              <NumField label="Anticipos" value={emp.advances} onChange={(v) => onUpdate(emp.id, { advances: v })} suffix="€" />
+              <NumField label="IRPF %" value={emp.irpfPercentage} step={0.01} onChange={(v) => onUpdate(emp.id, { irpfPercentage: v })} suffix="%" />
+            </div>
+
+            <details className="rounded-lg border bg-white">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-600">Conceptos avanzados (especie, embargo, ERTE)</summary>
+              <div className="p-3 space-y-4 border-t">
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField label="Salario en especie" value={emp.inKind.amount} onChange={(v) => onUpdate(emp.id, { inKind: { ...emp.inKind, amount: v } })} suffix="€" />
+                  <NumField label="Bonificación cuota empresa" value={emp.bonifications} onChange={(v) => onUpdate(emp.id, { bonifications: v })} suffix="€" />
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <input type="checkbox" checked={emp.garnishment.active} onChange={(e) => onUpdate(emp.id, { garnishment: { ...emp.garnishment, active: e.target.checked } })} className="accent-[#C6A664]" />
+                    Embargo judicial (Art. 607 LEC)
+                  </label>
+                  {emp.garnishment.active && (
+                    <div className="grid grid-cols-3 gap-3">
+                      <NumField label="Reducción cargas %" value={emp.garnishment.familyReductionPercent} onChange={(v) => onUpdate(emp.id, { garnishment: { ...emp.garnishment, familyReductionPercent: v } })} suffix="%" />
+                      <NumField label="Pensión alimentos" value={emp.garnishment.pensionAlimentos} onChange={(v) => onUpdate(emp.id, { garnishment: { ...emp.garnishment, pensionAlimentos: v } })} suffix="€" />
+                      <NumField label="Importe fijo" value={emp.garnishment.fixedAmount ?? 0} onChange={(v) => onUpdate(emp.id, { garnishment: { ...emp.garnishment, fixedAmount: v || undefined } })} suffix="€" />
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={!!emp.erte}
+                      onChange={(e) => onUpdate(emp.id, { erte: e.target.checked ? { type: 'SUSPENSION', affectedDays: 0, reductionPercent: 0, exemptionPercent: 0 } : null })}
+                      className="accent-[#C6A664]"
+                    />
+                    ERTE en el mes
+                  </label>
+                  {emp.erte && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs text-slate-500">Tipo</Label>
+                        <select
+                          value={emp.erte.type}
+                          onChange={(e) => onUpdate(emp.id, { erte: { ...emp.erte!, type: e.target.value as 'SUSPENSION' | 'REDUCCION' } })}
+                          className="mt-1 w-full border rounded-md px-2 py-2 text-sm h-9"
+                        >
+                          <option value="SUSPENSION">Suspensión</option>
+                          <option value="REDUCCION">Reducción jornada</option>
+                        </select>
+                      </div>
+                      {emp.erte.type === 'SUSPENSION' ? (
+                        <NumField label="Días afectados" value={emp.erte.affectedDays} onChange={(v) => onUpdate(emp.id, { erte: { ...emp.erte!, affectedDays: v } })} />
+                      ) : (
+                        <NumField label="Reducción %" value={emp.erte.reductionPercent} onChange={(v) => onUpdate(emp.id, { erte: { ...emp.erte!, reductionPercent: v } })} suffix="%" />
+                      )}
+                      <NumField label="Exoneración cuota %" value={emp.erte.exemptionPercent} onChange={(v) => onUpdate(emp.id, { erte: { ...emp.erte!, exemptionPercent: v } })} suffix="%" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
+          </div>
+
+          {/* Desglose en vivo */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-slate-700">Desglose en vivo</h4>
+            {p ? (
+              <div className="rounded-lg border bg-white divide-y text-sm">
+                <BreakdownLine label="Total devengado" value={p.accruals.totalAccruals} strong />
+                <BreakdownLine label="Salario base" value={p.accruals.baseSalary} sub />
+                {p.accruals.fixedComplements > 0 && <BreakdownLine label="Complementos" value={p.accruals.fixedComplements} sub />}
+                {p.accruals.inKind > 0 && <BreakdownLine label="Salario en especie" value={p.accruals.inKind} sub />}
+                {p.accruals.overtimeNormal > 0 && <BreakdownLine label="Horas extra" value={p.accruals.overtimeNormal} sub />}
+                <BreakdownLine label="SS trabajador" value={-p.workerDeductions.totalSS} />
+                {p.workerDeductions.solidaridad > 0 && <BreakdownLine label="· Solidaridad" value={-p.workerDeductions.solidaridad} sub />}
+                <BreakdownLine label="IRPF" value={-p.workerDeductions.irpf} />
+                {p.workerDeductions.garnishment > 0 && <BreakdownLine label="Embargo" value={-p.workerDeductions.garnishment} />}
+                {p.workerDeductions.inKindValue > 0 && <BreakdownLine label="Valor especie" value={-p.workerDeductions.inKindValue} sub />}
+                <BreakdownLine label="Líquido a percibir" value={p.netSalary} strong />
+                <BreakdownLine label="Coste empresa" value={p.totalCostCompany} muted />
+              </div>
+            ) : (
+              <div className="text-sm text-red-600">{emp.calcError}</div>
+            )}
+            {p && p.warnings.length > 0 && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs text-amber-800 space-y-1">
+                {p.warnings.slice(0, 4).map((w, i) => (
+                  <div key={i} className="flex items-start gap-1"><ExclamationTriangleIcon className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" /> {w}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BreakdownLine({ label, value, strong, sub, muted }: { label: string; value: number; strong?: boolean; sub?: boolean; muted?: boolean }) {
+  return (
+    <div className={cn('flex items-center justify-between px-3 py-2', sub && 'pl-6 text-slate-500', muted && 'text-slate-400')}>
+      <span className={cn(strong && 'font-semibold text-[#1B2A41]')}>{label}</span>
+      <span className={cn(strong && 'font-semibold', value < 0 ? 'text-red-600' : 'text-slate-700')}>{formatCurrency(value)}</span>
     </div>
   )
 }
 
 export default function GeneracionPage() {
   return (
-    <Suspense fallback={<LoadingFallback />}>
-      <GeneracionContent />
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-400">Cargando asistente…</div>}>
+      <WizardInner />
     </Suspense>
   )
 }

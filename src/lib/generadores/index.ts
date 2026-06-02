@@ -34,3 +34,23 @@ export type {
   REDCompanyInfo,
   REDEmployeeRecord,
 } from './generadorRED';
+
+// ---------------------------------------------------------------------------
+// Modelo 111 — Retenciones IRPF (trabajo) trimestral/mensual
+// ---------------------------------------------------------------------------
+export { generateModelo111 } from './generador111';
+export type {
+  Modelo111Input,
+  Modelo111Result,
+  Modelo111Perceptor,
+} from './generador111';
+
+// ---------------------------------------------------------------------------
+// Modelo 190 — Resumen anual de retenciones IRPF
+// ---------------------------------------------------------------------------
+export { generateModelo190 } from './generador190';
+export type {
+  Modelo190Input,
+  Modelo190Result,
+  Modelo190Perceptor,
+} from './generador190';

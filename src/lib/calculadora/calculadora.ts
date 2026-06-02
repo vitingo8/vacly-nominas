@@ -42,6 +42,15 @@ import { calculateWorkerCotizations, calculateCompanyCotizations } from './cotiz
 import { calculateIRPF, validateIRPFPercentage } from './irpf';
 import { calculateOvertime } from './horas-extra';
 import { calculateIT, calculateDailySalary } from './incapacidad-temporal';
+import { calculateSolidarity } from './solidaridad';
+import { calculateInKind } from './especie';
+import { calculateGarnishment } from './embargos';
+import { calculateErte } from './erte';
+import type {
+  GarnishmentDetail,
+  SolidarityDetail,
+  ErteDetail,
+} from './tipos';
 
 // ---------------------------------------------------------------------------
 // Configuración por defecto 2025
@@ -260,7 +269,29 @@ export function calculatePayslip(
     salaryDeductionForIT = itResult.salaryDeductionForIT;
   }
 
-  // ─── PASO 5: Cálculo de devengos ───
+  // ─── PASO 5a: Ajustes de salario por ERTE y permisos no retribuidos ───
+  const monthlySalaryBaseForReduction = round2(
+    employee.baseSalaryMonthly + employee.fixedComplements,
+  );
+  const erteComp = calculateErte(variables.erte, monthlySalaryBaseForReduction, variables.calendarDaysInMonth);
+  let erteDetail: ErteDetail | undefined = erteComp ? { ...erteComp.detail } : undefined;
+
+  const unpaidLeaveDays = Math.max(0, variables.unpaidLeaveDays ?? 0);
+  const unpaidLeaveReduction = unpaidLeaveDays > 0
+    ? round2((monthlySalaryBaseForReduction * unpaidLeaveDays) / variables.calendarDaysInMonth)
+    : 0;
+  if (unpaidLeaveReduction > 0) {
+    allWarnings.push(
+      `${unpaidLeaveDays} día(s) de permiso no retribuido: se descuentan ${unpaidLeaveReduction.toFixed(2)}€.`,
+    );
+  }
+
+  const extraSalaryReduction = round2((erteComp?.salaryReduction ?? 0) + unpaidLeaveReduction);
+
+  // ─── PASO 5b: Salario en especie ───
+  const inKind = calculateInKind(variables.inKind, employee.irpfPercentage);
+
+  // ─── PASO 5c: Cálculo de devengos ───
   const proratedBonuses = calculateProratedBonuses(employee);
   const accruals = calculateAccruals(
     employee,
@@ -270,7 +301,9 @@ export function calculatePayslip(
     itCompanyBenefit,
     itSSBenefit,
     variables.temporaryDisability?.agreementComplementAmount ?? 0,
-    salaryDeductionForIT
+    salaryDeductionForIT,
+    extraSalaryReduction,
+    inKind.amount,
   );
 
   // Las deducciones porcentuales se liquidan sobre el mismo devengado
@@ -291,9 +324,22 @@ export function calculatePayslip(
     config
   );
 
+  // ─── PASO 6b: Cotización adicional de solidaridad (exceso de base máxima) ───
+  const solidarity: SolidarityDetail | null = calculateSolidarity(cotizationBase, config);
+  const workerSolidarity = solidarity?.worker ?? 0;
+  const companySolidarity = solidarity?.company ?? 0;
+  if (solidarity) {
+    allWarnings.push(
+      `Base de cotización (${cotizationBase.toFixed(2)}€) supera la base máxima: ` +
+      `se aplica cotización adicional de solidaridad (trab. ${workerSolidarity.toFixed(2)}€ / emp. ${companySolidarity.toFixed(2)}€).`,
+    );
+  }
+
   // ─── PASO 7: Retención IRPF ───
-  // La base IRPF se calcula sobre los devengos salariales totales
-  const irpfAmount = calculateIRPF(accruals.totalSalaryAccruals, employee.irpfPercentage);
+  // El IRPF dinerario se calcula sobre los devengos salariales en metálico
+  // (excluida la valoración en especie, que genera ingreso a cuenta aparte).
+  const cashSalaryAccruals = round2(accruals.totalSalaryAccruals - inKind.amount);
+  const irpfAmount = calculateIRPF(cashSalaryAccruals, employee.irpfPercentage);
 
   // ─── PASO 8: Cotizaciones de la empresa ───
   const companyCotizations: CompanyCotizationResult = calculateCompanyCotizations(
@@ -302,7 +348,35 @@ export function calculatePayslip(
     config
   );
 
-  // ─── PASO 9: Ensamblar deducciones del trabajador ───
+  // Exoneración de cuota empresarial por ERTE.
+  const erteCompanyExemption = erteComp
+    ? round2(companyCotizations.totalCompanySS * erteComp.companyExemptionFactor)
+    : 0;
+  if (erteDetail) erteDetail.companyExemption = erteCompanyExemption;
+
+  // ─── PASO 9: Ensamblar deducciones del trabajador (sin embargo aún) ───
+  const workerDeductionsBeforeGarnishment = round2(
+    workerCotizations.totalSS +
+    workerSolidarity +
+    irpfAmount +
+    inKind.deductedValue +
+    inKind.ingresoACuentaRepercutido +
+    variables.advances +
+    variables.otherDeductions
+  );
+  const netBeforeGarnishment = round2(accruals.totalAccruals - workerDeductionsBeforeGarnishment);
+
+  // ─── PASO 9b: Embargo (Art. 607 LEC) sobre el líquido ───
+  const garnishmentDetail: GarnishmentDetail | null = variables.garnishment
+    ? calculateGarnishment(netBeforeGarnishment, config.smiMonthly, variables.garnishment)
+    : null;
+  const garnishmentAmount = garnishmentDetail?.total ?? 0;
+  if (garnishmentDetail && garnishmentAmount > 0) {
+    allWarnings.push(
+      `Embargo aplicado: ${garnishmentAmount.toFixed(2)}€ (inembargable ${config.smiMonthly.toFixed(2)}€).`,
+    );
+  }
+
   const workerDeductions: WorkerDeductions = {
     contingenciasComunes: workerCotizations.contingenciasComunes,
     desempleo: workerCotizations.desempleo,
@@ -310,19 +384,27 @@ export function calculatePayslip(
     mei: workerCotizations.mei,
     horasExtrasNormales: workerCotizations.horasExtrasNormales,
     horasExtrasFuerzaMayor: workerCotizations.horasExtrasFuerzaMayor,
-    totalSS: workerCotizations.totalSS,
+    solidaridad: workerSolidarity,
+    totalSS: round2(workerCotizations.totalSS + workerSolidarity),
     irpf: irpfAmount,
+    inKindValue: inKind.deductedValue,
+    inKindIngresoACuenta: inKind.ingresoACuentaRepercutido,
     advances: round2(variables.advances),
+    garnishment: garnishmentAmount,
     otherDeductions: round2(variables.otherDeductions),
-    totalDeductions: round2(
-      workerCotizations.totalSS +
-      irpfAmount +
-      variables.advances +
-      variables.otherDeductions
-    ),
+    totalDeductions: round2(workerDeductionsBeforeGarnishment + garnishmentAmount),
   };
 
   // ─── PASO 10: Ensamblar aportaciones de la empresa ───
+  const companyBonifications = round2(employee.companyBonifications ?? 0);
+  const companyTotalGross = round2(
+    companyCotizations.totalCompanySS +
+    companySolidarity +
+    inKind.ingresoACuentaEmpresa
+  );
+  const companyTotalNet = round2(
+    companyTotalGross - companyBonifications - erteCompanyExemption,
+  );
   const companyDeductions: CompanyDeductions = {
     contingenciasComunes: companyCotizations.contingenciasComunes,
     atEp: companyCotizations.atEp,
@@ -332,7 +414,10 @@ export function calculatePayslip(
     mei: companyCotizations.mei,
     horasExtrasNormales: companyCotizations.horasExtrasNormales,
     horasExtrasFuerzaMayor: companyCotizations.horasExtrasFuerzaMayor,
-    totalCompanySS: companyCotizations.totalCompanySS,
+    solidaridad: companySolidarity,
+    inKindIngresoACuenta: inKind.ingresoACuentaEmpresa,
+    bonifications: companyBonifications,
+    totalCompanySS: Math.max(0, companyTotalNet),
   };
 
   // ─── PASO 11: Bases de cotización para el resultado ───
@@ -349,10 +434,11 @@ export function calculatePayslip(
   // Líquido = Total devengos - Total deducciones trabajador
   const netSalary = round2(accruals.totalAccruals - workerDeductions.totalDeductions);
 
-  // Coste empresa = Devengos salariales brutos + cotizaciones empresa
-  // (Los devengos no salariales NO generan coste de cotización)
+  // Coste empresa = Devengos salariales brutos + cotizaciones empresa (neto de
+  // bonificaciones y exoneraciones). La retribución en especie ya está en los
+  // devengos; el ingreso a cuenta a cargo de la empresa es coste adicional.
   const totalCostCompany = round2(
-    accruals.totalAccruals + companyDeductions.totalCompanySS
+    accruals.totalAccruals - inKind.amount + companyDeductions.totalCompanySS,
   );
 
   // ─── Ensamblar resultado final ───
@@ -371,6 +457,15 @@ export function calculatePayslip(
   // Incluir detalle de IT si aplica
   if (itResult) {
     result.itDetail = itResult.detail;
+  }
+  if (garnishmentDetail && garnishmentAmount > 0) {
+    result.garnishmentDetail = garnishmentDetail;
+  }
+  if (solidarity) {
+    result.solidarityDetail = solidarity;
+  }
+  if (erteDetail) {
+    result.erteDetail = erteDetail;
   }
 
   return result;
@@ -409,12 +504,14 @@ function calculateAccruals(
   itCompanyBenefit: number,
   itSSBenefit: number,
   itAgreementComplement: number,
-  salaryDeductionForIT: number
+  salaryDeductionForIT: number,
+  extraSalaryReduction: number = 0,
+  inKindAmount: number = 0
 ): PayslipAccruals {
-  // Salario base ajustado por IT:
-  // Si hay días de baja, se descuenta la parte proporcional del salario base
-  // (se sustituye por la prestación de IT)
-  const baseSalary = round2(employee.baseSalaryMonthly - salaryDeductionForIT);
+  // Salario base ajustado por IT, ERTE y permisos no retribuidos:
+  // Se descuenta la parte proporcional del salario base (sustituida por la
+  // prestación de IT, la prestación por desempleo del ERTE, o sin retribución).
+  const baseSalary = round2(employee.baseSalaryMonthly - salaryDeductionForIT - extraSalaryReduction);
 
   // Complementos salariales fijos (se pagan íntegros aunque haya IT)
   // Nota: algunos convenios descuentan complementos en IT, pero por defecto
@@ -440,6 +537,9 @@ function calculateAccruals(
   const otherSalaryAccruals = round2(variables.otherSalaryAccruals);
   const otherNonSalaryAccruals = round2(variables.otherNonSalaryAccruals);
 
+  // Salario en especie (cotiza y tributa; se descuenta su valor en deducciones)
+  const inKind = round2(Math.max(0, inKindAmount));
+
   // ─── Totales ───
 
   // Total devengos salariales (base para cotización e IRPF)
@@ -453,7 +553,8 @@ function calculateAccruals(
     bonusPayment +
     itCompanyBenefit +
     itAgreementComplement +
-    otherSalaryAccruals
+    otherSalaryAccruals +
+    inKind
   );
 
   // Total devengos = salariales + no salariales + IT SS
@@ -479,6 +580,7 @@ function calculateAccruals(
     itAgreementComplement: round2(itAgreementComplement),
     otherSalaryAccruals,
     otherNonSalaryAccruals,
+    inKind,
     totalAccruals,
     totalSalaryAccruals,
   };

@@ -34,6 +34,18 @@ export {
   TipoContrato,
   TipoJornada,
   TipoContingenciaIT,
+  TipoErte,
+} from './tipos';
+
+export type {
+  InKindInput,
+  GarnishmentInput,
+  ErteInput,
+  SolidarityConfig,
+  SolidarityBracket,
+  GarnishmentDetail,
+  SolidarityDetail,
+  ErteDetail,
 } from './tipos';
 
 // ---------------------------------------------------------------------------
@@ -96,6 +108,49 @@ export {
   calculateIT,
   calculateDailySalary,
 } from './incapacidad-temporal';
+
+// ---------------------------------------------------------------------------
+// Cotización adicional de solidaridad
+// ---------------------------------------------------------------------------
+export {
+  calculateSolidarity,
+  getDefaultSolidarityConfig,
+} from './solidaridad';
+
+// ---------------------------------------------------------------------------
+// Salario en especie
+// ---------------------------------------------------------------------------
+export { calculateInKind } from './especie';
+export type { InKindResult } from './especie';
+
+// ---------------------------------------------------------------------------
+// Embargos
+// ---------------------------------------------------------------------------
+export { calculateGarnishment } from './embargos';
+
+// ---------------------------------------------------------------------------
+// ERTE
+// ---------------------------------------------------------------------------
+export { calculateErte } from './erte';
+export type { ErteComputation } from './erte';
+
+// ---------------------------------------------------------------------------
+// Vacaciones
+// ---------------------------------------------------------------------------
+export {
+  computeAccruedVacationDays,
+  computeVacationSettlementAmount,
+  dailySalaryForVacation,
+} from './vacaciones';
+
+// ---------------------------------------------------------------------------
+// Finiquito / indemnizaciones
+// ---------------------------------------------------------------------------
+export {
+  calculateSettlement,
+  CausaCese,
+} from './finiquito';
+export type { SettlementInput, SettlementResult } from './finiquito';
 
 // ---------------------------------------------------------------------------
 // Validadores
