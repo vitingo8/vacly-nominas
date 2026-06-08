@@ -522,7 +522,6 @@ async function processIndividualDocumentByPdf(documentId: string, filename: stri
       cost_empresa: costEmpresa,
       signed: false,
       document_name: filename,
-      status: 'uploaded',
     }
 
     let nominaRecord: any = null
@@ -1280,7 +1279,6 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                         cost_empresa: costEmpresa,
                         signed: false,
                         document_name: pagePdfName,
-                        status: 'uploaded',
                       }
 
                       // Save to nominas table
