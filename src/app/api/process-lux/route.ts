@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
 import { getSupabaseClient } from '@/lib/supabase'
+import { assertUploadQuota } from '@/lib/upload-quota'
 import { parsePDF } from '@/lib/pdf-utils'
 import { extractBasicNominaInfo, generateSplitFileName, generateTextFileName, correctNameFormat, generateGlobalFileName } from '@/lib/pdf-naming'
 import Anthropic from '@anthropic-ai/sdk'
@@ -23,6 +24,7 @@ interface SplitDocument {
   pdfUrl: string
   textUrl: string
   claudeProcessed: boolean
+  savedToDb?: boolean
   nominaData?: any
 }
 
@@ -30,6 +32,32 @@ interface GlobalFileInfo {
   companyName: string
   period: string
   totalPages: number
+}
+
+type EmployeeLookup = { id: string; image_url: string | null }
+
+/**
+ * Resuelve el empleado por DNI/NIF dentro de la empresa.
+ * La tabla `nominas` exige `employee_id` NOT NULL, así que sin match no se puede persistir.
+ */
+async function lookupEmployeeByDni(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  companyId: string | null,
+  dni: string | null | undefined,
+): Promise<EmployeeLookup | null> {
+  if (!companyId || !dni) return null
+  const dniLimpio = String(dni).trim().toUpperCase()
+  const { data: employee, error } = await supabase
+    .from('employees')
+    .select('id, nif, image_url, company_id')
+    .eq('nif', dniLimpio)
+    .eq('company_id', companyId)
+    .maybeSingle()
+  if (error) {
+    console.error('[PROCESS_LUX] Error buscando empleado por DNI:', error)
+    return null
+  }
+  return employee?.id ? { id: employee.id, image_url: employee.image_url || null } : null
 }
 
 /**
@@ -458,28 +486,25 @@ async function processIndividualDocumentByPdf(documentId: string, filename: stri
            fullNominaData.employee?.social_security || null,
     }
 
-    // Buscar avatar del empleado por DNI + company_id
-    let employeeAvatar: string | null = null
-    const dni = normalizedEmployee.dni
-    if (dni && companyId) {
-      try {
-        const dniLimpio = String(dni).trim().toUpperCase()
-        const { data: employee } = await supabase
-          .from('employees')
-          .select('nif, image_url, company_id')
-          .eq('nif', dniLimpio)
-          .eq('company_id', companyId)
-          .maybeSingle()
-        employeeAvatar = employee?.image_url || null
-      } catch (avatarError) {
-        console.error('[PROCESS_LUX] Error buscando avatar (reproceso):', avatarError)
-      }
+    const employeeMatch = await lookupEmployeeByDni(supabase, companyId, normalizedEmployee.dni)
+    const resolvedEmployeeId = employeeId ?? employeeMatch?.id ?? null
+    const employeeAvatar = employeeMatch?.image_url ?? null
+
+    if (!resolvedEmployeeId) {
+      logWithTime(`ERROR: employee_id no resuelto (DNI: ${normalizedEmployee.dni ?? 'sin DNI'})`, startTime)
+      return NextResponse.json({
+        success: false,
+        error: 'No se pudo guardar la nómina: el empleado no está registrado en la empresa.',
+        details: normalizedEmployee.dni
+          ? `No hay ningún empleado con NIF ${normalizedEmployee.dni} en esta empresa. Créalo primero en Empleados.`
+          : 'Claude no extrajo el DNI/NIF del documento.',
+      }, { status: 422 })
     }
 
     // Guardar en nominas: actualizar si ya existe por document_name, si no insertar
     const nominaPayload = {
       company_id: companyId,
-      employee_id: employeeId ?? null,
+      employee_id: resolvedEmployeeId,
       period_start: fullNominaData.period_start || '2024-01-01',
       period_end: fullNominaData.period_end || '2024-01-31',
       employee: normalizedEmployee,
@@ -497,6 +522,7 @@ async function processIndividualDocumentByPdf(documentId: string, filename: stri
       cost_empresa: costEmpresa,
       signed: false,
       document_name: filename,
+      status: 'uploaded',
     }
 
     let nominaRecord: any = null
@@ -944,6 +970,15 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
             
             console.log('📄 PDF has', pageCount, 'pages')
 
+            try {
+              await assertUploadQuota(supabase, companyId, pageCount)
+            } catch (quotaError) {
+              const message = quotaError instanceof Error ? quotaError.message : 'Límite de subida alcanzado'
+              logWithTime(`ERROR cuota de subida: ${message}`, pdfLoadStart)
+              sendError(message)
+              return
+            }
+
             sendProgress(20, `Documento dividido: ${pageCount} páginas. Procesando en paralelo...`, 0, pageCount)
 
             const documents: SplitDocument[] = []
@@ -1175,6 +1210,7 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                   // PASO 4: Guardar directamente en las tablas correctas si tenemos datos completos
                   let dbSaved = false
                   let nominaRecord = null
+                  let employeeAvatar: string | null = null
 
                   if (Object.keys(fullNominaData).length > 0) {
                     const dbSaveStart = logWithTime(`Guardando página ${pageNum} en base de datos`)
@@ -1204,12 +1240,29 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                       const costEmpresa = grossSalary + totalContributions
                       
                       console.log(`💰 Calculated for ${correctedBasicInfo.employeeName}: Gross(${grossSalary}) + Contributions(${totalContributions}) = Cost Empresa(${costEmpresa})`)
-                      
+
+                      const employeeMatch = await lookupEmployeeByDni(
+                        supabase,
+                        companyId,
+                        normalizedEmployee.dni,
+                      )
+                      const resolvedEmployeeId = effectiveEmployeeId ?? employeeMatch?.id ?? null
+                      employeeAvatar = employeeMatch?.image_url ?? null
+
+                      if (!resolvedEmployeeId) {
+                        logWithTime(
+                          `ERROR: employee_id no resuelto página ${pageNum} (DNI: ${normalizedEmployee.dni ?? 'sin DNI'})`,
+                          dbSaveStart,
+                        )
+                        console.error(
+                          `❌ No se guardó la nómina de la página ${pageNum}: empleado no encontrado en la empresa (DNI: ${normalizedEmployee.dni ?? 'sin DNI'})`,
+                        )
+                      } else {
                       // Prepare data for nominas table (VERIFICADO CON MCP SUPABASE + NORMALIZADO)
                       const nominaData = {
                         id: nominaId,
                         company_id: companyId,
-                        employee_id: effectiveEmployeeId ?? null,
+                        employee_id: resolvedEmployeeId,
                         period_start: fullNominaData.period_start || '2024-01-01',
                         period_end: fullNominaData.period_end || '2024-01-31',
                         employee: normalizedEmployee,
@@ -1227,6 +1280,7 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                         cost_empresa: costEmpresa,
                         signed: false,
                         document_name: pagePdfName,
+                        status: 'uploaded',
                       }
 
                       // Save to nominas table
@@ -1241,15 +1295,16 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                         console.error(`❌ Error saving to nominas table page ${pageNum}:`, insertError)
                       } else {
                         nominaRecord = insertedData[0]
+                        dbSaved = true
                         logWithTime(`Insertado en nominas página ${pageNum}`, nominaInsertStart)
                         console.log(`✅ Page ${pageNum} saved to nominas table`)
 
                         try {
-if (companyId && effectiveEmployeeId) {
-                              const { data: employeeRow } = await supabase
+                          if (companyId && resolvedEmployeeId) {
+                            const { data: employeeRow } = await supabase
                               .from('employees')
                               .select('user_id')
-                              .eq('id', effectiveEmployeeId)
+                              .eq('id', resolvedEmployeeId)
                               .maybeSingle()
 
                             if (employeeRow?.user_id) {
@@ -1282,7 +1337,7 @@ if (companyId && effectiveEmployeeId) {
                         original_filename: pagePdfName,
                         document_type_id: documentTypeId,
                         company_id: companyId,
-                        employee_id: effectiveEmployeeId ?? null,
+                        employee_id: resolvedEmployeeId,
                         extracted_text: textContent,
                         processed_data: { ...fullNominaData, page_number: pageNum },
                         processing_status: 'completed',
@@ -1309,15 +1364,13 @@ if (companyId && effectiveEmployeeId) {
                         .select()
 
                       if (!processedDocError) {
-                        dbSaved = true
                         logWithTime(`Upsert en processed_documents página ${pageNum} OK`, processedDocStart)
-                        logWithTime(`✅ Página ${pageNum} guardada completamente en DB`, dbSaveStart)
                         console.log(`✅ Page ${pageNum} saved to processed_documents successfully`)
-                        console.log(`✨ LUX processing complete for page ${pageNum} - All data stored successfully`)
                       } else {
                         logWithTime(`ERROR upsert processed_documents página ${pageNum}`, processedDocStart)
                         console.error(`❌ Error saving page ${pageNum} to processed_documents:`, processedDocError)
                       }
+                      } // resolvedEmployeeId
 
                     } catch (dbError) {
                       console.error(`❌ Database error for page ${pageNum}:`, dbError)
@@ -1353,31 +1406,8 @@ if (companyId && effectiveEmployeeId) {
                     }
                   }
 
-                  // Buscar avatar del empleado si tenemos datos completos
-                  let employeeAvatar = null
-                  if (Object.keys(fullNominaData).length > 0) {
-                    const dni = fullNominaData.employee?.dni
-                    if (dni && companyId) {
-                      try {
-                        const dniLimpio = dni.trim().toUpperCase()
-                        const { data: employee } = await supabase
-                          .from('employees')
-                          .select('nif, image_url, company_id')
-                          .eq('nif', dniLimpio)
-                          .eq('company_id', companyId)
-                          .maybeSingle()
-                        
-                        employeeAvatar = employee?.image_url || null
-                        if (employeeAvatar) {
-                          console.log(`✅ Avatar encontrado para página ${pageNum} (DNI: ${dniLimpio}):`, employeeAvatar)
-                        }
-                      } catch (avatarError) {
-                        console.error(`❌ Error buscando avatar para página ${pageNum}:`, avatarError)
-                      }
-                    }
-                  }
-
                   // Add to documents array with proper structure
+                  const hasExtractedData = Object.keys(fullNominaData).length > 0
                   documents.push({
                     id: pageId,
                     filename: pagePdfName,
@@ -1385,7 +1415,8 @@ if (companyId && effectiveEmployeeId) {
                     pdfUrl: pdfUrlData.publicUrl,
                     textUrl: textUrlData.publicUrl,
                     textContent,
-                    claudeProcessed: Object.keys(fullNominaData).length > 0,
+                    claudeProcessed: hasExtractedData,
+                    savedToDb: dbSaved,
                     nominaData: Object.keys(fullNominaData).length > 0 ? {
                       id: nominaRecord?.id || pageId,
                       nominaId: nominaRecord?.id || pageId,

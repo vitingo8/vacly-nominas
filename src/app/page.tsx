@@ -6,30 +6,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { NominaCard, NominaStats } from '@/components/ui/nomina-card'
+import { NominaViewerDialog } from '@/components/nomina-viewer-dialog'
+import type { UploadQuota } from '@/lib/upload-quota'
 import {
-  ArrowDownTrayIcon,
   ArrowPathIcon,
-  ArrowTrendingUpIcon,
   ArrowUpTrayIcon,
   BoltIcon,
-  BuildingOffice2Icon,
-  CalendarIcon,
   CpuChipIcon,
-  CreditCardIcon,
-  CurrencyDollarIcon,
   DocumentTextIcon,
-  EyeIcon,
   ListBulletIcon,
   MagnifyingGlassIcon,
   Squares2X2Icon,
   TableCellsIcon,
-  TrashIcon,
-  UserIcon,
-  ArrowUturnLeftIcon,
 } from '@heroicons/react/24/outline'
 
 interface NominaData {
@@ -84,6 +73,7 @@ interface SplitDocument {
   pdfUrl: string
   textUrl: string
   claudeProcessed?: boolean
+  savedToDb?: boolean
   nominaData?: NominaData
 }
 
@@ -105,13 +95,9 @@ export default function VaclyNominas() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'processed' | 'pending'>('all')
   
-  // Historial de nóminas procesadas
-  const [historialNominas, setHistorialNominas] = useState<any[]>([])
-  const [isLoadingHistorial, setIsLoadingHistorial] = useState(false)
-  const [historialPage, setHistorialPage] = useState(0)
-  const [historialTotal, setHistorialTotal] = useState(0)
   const [companyId, setCompanyId] = useState<string | null>(null)
-  const HISTORIAL_LIMIT = 10
+  const [uploadQuota, setUploadQuota] = useState<UploadQuota | null>(null)
+  const [isLoadingQuota, setIsLoadingQuota] = useState(false)
 
   // Leer company_id desde parámetros de URL al montar
   useEffect(() => {
@@ -123,59 +109,25 @@ export default function VaclyNominas() {
     }
   }, [])
 
-  // Cargar historial de nóminas
-  const loadHistorial = async (page = 0) => {
-    setIsLoadingHistorial(true)
+  const loadUploadQuota = async () => {
+    if (!companyId) return
+    setIsLoadingQuota(true)
     try {
-      if (!companyId) {
-        console.warn('[FRONTEND NÓMINAS] ⚠️ No company_id disponible')
-        return
-      }
-      
-      console.log(`[FRONTEND] 🔄 Cargando historial página ${page} para company_id: ${companyId}`)
-      const response = await fetch(`/api/nominas?limit=${HISTORIAL_LIMIT}&offset=${page * HISTORIAL_LIMIT}&company_id=${companyId}`)
+      const response = await fetch(`/api/upload-quota?company_id=${companyId}`)
       const data = await response.json()
-      console.log(`[FRONTEND] Historial recibido:`, {
-        success: data.success,
-        total: data.total,
-        count: data.data?.length,
-        nominas: data.data?.map((n: any) => ({
-          id: n.id,
-          dni: n.dni || n.employee?.dni,
-          employee_avatar: n.employee_avatar,
-          tieneAvatar: !!n.employee_avatar
-        }))
-      })
       if (data.success) {
-        setHistorialNominas(data.data || [])
-        setHistorialTotal(data.total || 0)
-        setHistorialPage(page)
+        setUploadQuota(data.quota)
       }
     } catch (error) {
-      console.error('[FRONTEND] ❌ Error cargando historial:', error)
+      console.error('[FRONTEND] Error cargando cuota de subida:', error)
     } finally {
-      setIsLoadingHistorial(false)
+      setIsLoadingQuota(false)
     }
   }
 
-  // Eliminar nómina del historial
-  const deleteNomina = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar esta nómina del historial?')) return
-    try {
-      const response = await fetch(`/api/nominas?id=${id}`, { method: 'DELETE' })
-      const data = await response.json()
-      if (data.success) {
-        loadHistorial(historialPage)
-      }
-    } catch (error) {
-      console.error('Error eliminando nómina:', error)
-    }
-  }
-
-  // Cargar historial al montar y cuando cambia companyId
   useEffect(() => {
     if (companyId) {
-      loadHistorial()
+      loadUploadQuota()
     }
   }, [companyId])
 
@@ -206,6 +158,22 @@ export default function VaclyNominas() {
     if (!companyId) {
       setProgressMessage('Error: abre la app con ?company_id=... en la URL para procesar nóminas de una empresa.')
       return
+    }
+
+    try {
+      const { PDFDocument } = await import('pdf-lib')
+      const pdfDoc = await PDFDocument.load(await file.arrayBuffer())
+      const pageCount = pdfDoc.getPageCount()
+
+      if (uploadQuota && pageCount > uploadQuota.remainingPages) {
+        setProgressMessage(
+          `Límite alcanzado: este PDF tiene ${pageCount} página(s) y solo quedan ${uploadQuota.remainingPages} ` +
+          `de ${uploadQuota.maxPages} (${uploadQuota.employeeCount} empleados × ${uploadQuota.pagesPerEmployee} tandas).`,
+        )
+        return
+      }
+    } catch (pageCountError) {
+      console.warn('[FRONTEND] No se pudo contar páginas del PDF antes de subir:', pageCountError)
     }
 
     const uploadStartTime = performance.now()
@@ -299,17 +267,24 @@ export default function VaclyNominas() {
                 } else if (data.type === 'complete') {
                   const processDuration = performance.now() - processStart
                   const totalDuration = performance.now() - uploadStartTime
+                  const notSavedCount = (data.documents as SplitDocument[]).filter(
+                    (doc) => doc.claudeProcessed && doc.savedToDb === false
+                  ).length
                   console.log(`[FRONTEND] ✅ Procesamiento completado:`)
                   console.log(`   - Tiempo procesamiento: ${(processDuration / 1000).toFixed(2)}s`)
                   console.log(`   - Tiempo total (upload + proceso): ${(totalDuration / 1000).toFixed(2)}s`)
                   console.log(`   - Documentos creados: ${data.documents.length}`)
+                  console.log(`   - No guardados en BD: ${notSavedCount}`)
                   console.log(`   - Tiempo promedio por documento: ${(processDuration / data.documents.length).toFixed(0)}ms`)
                   
                   setSplitDocuments(data.documents)
                   setUploadProgress(100)
-                  setProgressMessage(`¡Procesamiento completado! ${data.documents.length} documentos creados`)
-                  // Actualizar historial después de procesar
-                  loadHistorial(0)
+                  setProgressMessage(
+                    notSavedCount > 0
+                      ? `Procesadas ${data.documents.length} páginas. ${notSavedCount} no se guardaron: el empleado no existe en la empresa (revisa el DNI en Empleados).`
+                      : `¡Procesamiento completado! ${data.documents.length} documentos guardados`
+                  )
+                  loadUploadQuota()
                 } else if (data.type === 'error') {
                   const errorDuration = performance.now() - processStart
                   console.error(`[FRONTEND] ❌ ERROR después de ${(errorDuration / 1000).toFixed(2)}s:`, data.error)
@@ -466,81 +441,6 @@ export default function VaclyNominas() {
     setIsViewerOpen(true)
   }
 
-  // Función para abrir visor desde historial de nóminas
-  const openViewerFromHistorial = async (nomina: any) => {
-    try {
-      // Buscar el documento procesado relacionado con esta nómina
-      const { getSupabaseClient } = await import('@/lib/supabase')
-      const supabase = getSupabaseClient()
-      
-      // Buscar en processed_documents usando el document_name de la nómina
-      let pdfUrl = ''
-      let textUrl = ''
-      
-      if (nomina.document_name) {
-        try {
-          // Intentar obtener signed URL para producción
-          const { data: signedPdfData } = await supabase
-            .storage
-            .from('Nominas')
-            .createSignedUrl(nomina.document_name, 3600)
-          
-          if (signedPdfData) {
-            pdfUrl = signedPdfData.signedUrl
-          } else {
-            // Fallback a public URL
-            const { data: publicPdfData } = supabase
-              .storage
-              .from('Nominas')
-              .getPublicUrl(nomina.document_name)
-            pdfUrl = publicPdfData.publicUrl
-          }
-        } catch (urlError) {
-          console.error('[FRONTEND] Error obteniendo URL del PDF:', urlError)
-          const { data: publicPdfData } = supabase
-            .storage
-            .from('Nominas')
-            .getPublicUrl(nomina.document_name)
-          pdfUrl = publicPdfData.publicUrl
-        }
-      }
-
-      // Crear un SplitDocument desde la nómina del historial
-      const document: SplitDocument = {
-        id: nomina.id,
-        filename: nomina.document_name || `nomina_${nomina.id}.pdf`,
-        pageNumber: 1,
-        textContent: '',
-        pdfUrl: pdfUrl,
-        textUrl: textUrl,
-        claudeProcessed: true,
-        nominaData: {
-          id: nomina.id,
-          nominaId: nomina.id,
-          period_start: nomina.period_start,
-          period_end: nomina.period_end,
-          employee: nomina.employee,
-          company: nomina.company,
-          perceptions: nomina.perceptions,
-          deductions: nomina.deductions,
-          contributions: nomina.contributions,
-          base_ss: nomina.base_ss,
-          net_pay: nomina.net_pay,
-          gross_salary: nomina.gross_salary,
-          iban: nomina.iban,
-          swift_bic: nomina.swift_bic,
-          cost_empresa: nomina.cost_empresa,
-          signed: nomina.signed,
-          employee_avatar: nomina.employee_avatar
-        }
-      }
-      openViewer(document)
-    } catch (error) {
-      console.error('[FRONTEND] Error abriendo visor desde historial:', error)
-      alert('Error al abrir el documento. Por favor, intenta de nuevo.')
-    }
-  }
-
   const processedCount = splitDocuments.filter(doc => doc.claudeProcessed).length
   const pendingCount = splitDocuments.length - processedCount
 
@@ -568,6 +468,18 @@ export default function VaclyNominas() {
                 <p className="text-slate-600 text-sm">
                   Arrastra un archivo PDF o haz clic para seleccionar. Procesamos automáticamente cada página en paralelo.
                 </p>
+                {uploadQuota && (
+                  <p className={`text-sm mt-2 ${uploadQuota.remainingPages === 0 ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
+                    Cuota: {uploadQuota.usedPages} / {uploadQuota.maxPages} páginas usadas
+                    ({uploadQuota.employeeCount} empleados × {uploadQuota.pagesPerEmployee} tandas).
+                    {uploadQuota.remainingPages > 0
+                      ? ` Quedan ${uploadQuota.remainingPages} disponibles.`
+                      : ' Límite alcanzado.'}
+                  </p>
+                )}
+                {isLoadingQuota && (
+                  <p className="text-xs text-slate-400 mt-1">Calculando cuota disponible...</p>
+                )}
               </div>
               
               <div>
@@ -582,7 +494,7 @@ export default function VaclyNominas() {
                   type="file"
                   accept="application/pdf"
                   onChange={handleFileUpload}
-                  disabled={isUploading}
+                  disabled={isUploading || uploadQuota?.remainingPages === 0}
                   className="hidden"
                 />
               </div>
@@ -774,464 +686,11 @@ export default function VaclyNominas() {
           </div>
         )}
 
-        {/* Historial de Nóminas Procesadas */}
-        <div className="mt-12 pt-8 border-t border-slate-200">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
-                <ArrowUturnLeftIcon className="w-8 h-8 text-[#C6A664]" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-slate-800">Historial de Nóminas</h2>
-                <p className="text-sm text-slate-500">{historialTotal} nóminas procesadas en total</p>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => loadHistorial(historialPage)}
-              disabled={isLoadingHistorial}
-              className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10"
-            >
-              {isLoadingHistorial ? (
-                <ArrowPathIcon className="w-4 h-4 animate-spin" />
-              ) : (
-                <ArrowPathIcon className="w-4 h-4" />
-              )}
-              <span className="ml-2">Actualizar</span>
-            </Button>
-          </div>
-
-          {isLoadingHistorial && historialNominas.length === 0 ? (
-            <div className="flex items-center justify-center py-12">
-              <ArrowPathIcon className="w-8 h-8 animate-spin text-[#C6A664]" />
-            </div>
-          ) : historialNominas.length === 0 ? (
-            <div className="text-center py-16 bg-slate-50 rounded-xl">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5 flex items-center justify-center mx-auto mb-4">
-                <ArrowUturnLeftIcon className="w-10 h-10 text-[#C6A664]/50" />
-              </div>
-              <h3 className="text-lg font-semibold text-slate-600 mb-1">Sin historial</h3>
-              <p className="text-slate-500 text-sm">No hay nóminas procesadas todavía</p>
-            </div>
-          ) : (
-            <>
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-slate-50">
-                      <TableHead className="font-semibold text-slate-700">Empleado</TableHead>
-                      <TableHead className="font-semibold text-slate-700">Empresa</TableHead>
-                      <TableHead className="font-semibold text-slate-700 text-center">Período</TableHead>
-                      <TableHead className="font-semibold text-slate-700 text-center">Bruto</TableHead>
-                      <TableHead className="font-semibold text-slate-700 text-center">Neto</TableHead>
-                      <TableHead className="font-semibold text-slate-700 text-center">Coste Emp.</TableHead>
-                      <TableHead className="font-semibold text-slate-700 text-center">Fecha</TableHead>
-                      <TableHead className="font-semibold text-slate-700 text-center w-20">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {historialNominas.map((nomina) => (
-                      <TableRow key={nomina.id} className="hover:bg-slate-50/50">
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {nomina.employee_avatar ? (
-                              <img 
-                                src={nomina.employee_avatar} 
-                                alt={nomina.employee?.name || 'Avatar'}
-                                className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-slate-200"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                                <UserIcon className="w-4 h-4 text-white" />
-                              </div>
-                            )}
-                            <div>
-                              <p className="font-medium text-slate-800 text-sm">
-                                {nomina.employee?.name || 'Sin nombre'}
-                              </p>
-                              <p className="text-xs text-slate-500">{nomina.dni || nomina.employee?.dni || '—'}</p>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-sm text-slate-700">{nomina.company?.name || '—'}</p>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-sm text-slate-600">
-                            <CalendarIcon className="w-3.5 h-3.5" />
-                            {nomina.period_start ? new Date(nomina.period_start).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' }) : '—'}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="font-mono text-sm font-semibold text-[#1B2A41]">
-                            {formatCurrency(nomina.gross_salary)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="font-mono text-sm font-semibold text-emerald-600">
-                            {formatCurrency(nomina.net_pay)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="font-mono text-sm font-semibold text-[#C6A664]">
-                            {formatCurrency(nomina.cost_empresa)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="text-xs text-slate-500">
-                            {nomina.created_at ? new Date(nomina.created_at).toLocaleDateString('es-ES') : '—'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openViewerFromHistorial(nomina)}
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-primary hover:bg-primary/10"
-                              title="Ver detalles"
-                            >
-                              <EyeIcon className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => deleteNomina(nomina.id)}
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                              title="Eliminar"
-                            >
-                              <TrashIcon className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Paginación */}
-              {historialTotal > HISTORIAL_LIMIT && (
-                <div className="flex items-center justify-between mt-4">
-                  <p className="text-sm text-slate-500">
-                    Mostrando {historialPage * HISTORIAL_LIMIT + 1}-{Math.min((historialPage + 1) * HISTORIAL_LIMIT, historialTotal)} de {historialTotal}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => loadHistorial(historialPage - 1)}
-                      disabled={historialPage === 0 || isLoadingHistorial}
-                      className="border-slate-200"
-                    >
-                      Anterior
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => loadHistorial(historialPage + 1)}
-                      disabled={(historialPage + 1) * HISTORIAL_LIMIT >= historialTotal || isLoadingHistorial}
-                      className="border-slate-200"
-                    >
-                      Siguiente
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Detail Viewer Dialog */}
-        <Dialog open={isViewerOpen} onOpenChange={setIsViewerOpen}>
-          <DialogContent className="max-w-6xl h-[90vh] p-0 gap-0 overflow-hidden">
-            <DialogHeader className="px-6 py-4 border-b bg-slate-50">
-              <DialogTitle className="text-xl font-bold text-slate-800 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-                  <DocumentTextIcon className="w-5 h-5 text-white" />
-                </div>
-                {viewerDocument?.nominaData?.employee?.name || `Página ${viewerDocument?.pageNumber}`}
-              </DialogTitle>
-              <DialogDescription>
-                {viewerDocument?.nominaData?.company?.name} • {viewerDocument?.filename}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="flex-1 overflow-auto p-6">
-              {viewerDocument?.claudeProcessed && viewerDocument?.nominaData ? (
-                <Tabs defaultValue="resumen" className="w-full">
-                  <TabsList className="grid w-full grid-cols-4 mb-6">
-                    <TabsTrigger value="resumen">Resumen</TabsTrigger>
-                    <TabsTrigger value="percepciones">Percepciones</TabsTrigger>
-                    <TabsTrigger value="deducciones">Deducciones</TabsTrigger>
-                    <TabsTrigger value="documento">Documento</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="resumen" className="space-y-6">
-                    {/* KPIs */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <Card className="border-0 shadow-lg bg-gradient-to-br from-[#C6A664]/10 to-[#B8964A]/10">
-                        <CardContent className="p-5">
-                          <div className="flex items-center gap-2 mb-2">
-                            <CurrencyDollarIcon className="w-5 h-5 text-[#C6A664]" />
-                            <span className="text-sm font-medium text-[#1B2A41]">Salario Bruto</span>
-                          </div>
-                          <p className="text-3xl font-bold text-[#1B2A41]">
-                            {formatCurrency(viewerDocument.nominaData.gross_salary)}
-                          </p>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-0 shadow-lg bg-gradient-to-br from-emerald-50 to-green-50">
-                        <CardContent className="p-5">
-                          <div className="flex items-center gap-2 mb-2">
-                            <CreditCardIcon className="w-5 h-5 text-emerald-600" />
-                            <span className="text-sm font-medium text-emerald-700">Salario Neto</span>
-                          </div>
-                          <p className="text-3xl font-bold text-emerald-900">
-                            {formatCurrency(viewerDocument.nominaData.net_pay)}
-                          </p>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-0 shadow-lg bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5">
-                        <CardContent className="p-5">
-                          <div className="flex items-center gap-2 mb-2">
-                            <BuildingOffice2Icon className="w-5 h-5 text-[#C6A664]" />
-                            <span className="text-sm font-medium text-[#1B2A41]">Coste Empresa</span>
-                          </div>
-                          <p className="text-3xl font-bold text-[#1B2A41]">
-                            {formatCurrency(viewerDocument.nominaData.cost_empresa)}
-                          </p>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-0 shadow-lg bg-gradient-to-br from-slate-50 to-gray-50">
-                        <CardContent className="p-5">
-                          <div className="flex items-center gap-2 mb-2">
-                            <ArrowTrendingUpIcon className="w-5 h-5 text-slate-600" />
-                            <span className="text-sm font-medium text-slate-700">Base SS</span>
-                          </div>
-                          <p className="text-3xl font-bold text-slate-900">
-                            {formatCurrency(viewerDocument.nominaData.base_ss)}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    {/* Employee & Company Info */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <Card className="border-0 shadow-lg">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-base flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-[#C6A664]/10 flex items-center justify-center">
-                              <BuildingOffice2Icon className="w-4 h-4 text-[#C6A664]" />
-                            </div>
-                            Datos del Empleado
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          {[
-                            { label: 'Nombre', value: viewerDocument.nominaData.employee?.name },
-                            { label: 'DNI', value: viewerDocument.nominaData.employee?.dni },
-                            { label: 'NSS', value: viewerDocument.nominaData.employee?.nss },
-                            { label: 'Categoría', value: viewerDocument.nominaData.employee?.category },
-                          ].map(({ label, value }) => (
-                            <div key={label} className="flex justify-between items-center py-2 border-b border-slate-100 last:border-0">
-                              <span className="text-sm text-slate-600">{label}</span>
-                              <span className="text-sm font-medium text-slate-900">{value || '—'}</span>
-                            </div>
-                          ))}
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-0 shadow-lg">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-base flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
-                              <BuildingOffice2Icon className="w-4 h-4 text-emerald-600" />
-                            </div>
-                            Datos de la Empresa
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          {[
-                            { label: 'Empresa', value: viewerDocument.nominaData.company?.name },
-                            { label: 'CIF', value: viewerDocument.nominaData.company?.cif },
-                            { label: 'Período', value: `${viewerDocument.nominaData.period_start} - ${viewerDocument.nominaData.period_end}` },
-                            { label: 'IBAN', value: viewerDocument.nominaData.iban },
-                          ].map(({ label, value }) => (
-                            <div key={label} className="flex justify-between items-center py-2 border-b border-slate-100 last:border-0">
-                              <span className="text-sm text-slate-600">{label}</span>
-                              <span className="text-sm font-medium text-slate-900 text-right max-w-[200px] truncate">{value || '—'}</span>
-                            </div>
-                          ))}
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="percepciones">
-                    <Card className="border-0 shadow-lg">
-                      <CardHeader>
-                        <CardTitle>Percepciones ({viewerDocument.nominaData.perceptions?.length || 0})</CardTitle>
-                        <CardDescription>Detalle de todos los ingresos y complementos</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        {viewerDocument.nominaData.perceptions && viewerDocument.nominaData.perceptions.length > 0 ? (
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Concepto</TableHead>
-                                <TableHead>Código</TableHead>
-                                <TableHead className="text-right">Importe</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {viewerDocument.nominaData.perceptions.map((p, i) => (
-                                <TableRow key={i}>
-                                  <TableCell className="font-medium">{p.concept || 'N/A'}</TableCell>
-                                  <TableCell>{p.code || '—'}</TableCell>
-                                  <TableCell className="text-right font-mono text-emerald-600">
-                                    {formatCurrency(p.amount)}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                              <TableRow className="bg-emerald-50">
-                                <TableCell colSpan={2} className="font-bold">Total Percepciones</TableCell>
-                                <TableCell className="text-right font-bold font-mono text-emerald-700">
-                                  {formatCurrency(viewerDocument.nominaData.perceptions.reduce((s, p) => s + (p.amount || 0), 0))}
-                                </TableCell>
-                              </TableRow>
-                            </TableBody>
-                          </Table>
-                        ) : (
-                          <p className="text-center text-slate-500 py-8">No hay percepciones registradas</p>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  <TabsContent value="deducciones">
-                    <Card className="border-0 shadow-lg">
-                      <CardHeader>
-                        <CardTitle>Deducciones ({viewerDocument.nominaData.deductions?.length || 0})</CardTitle>
-                        <CardDescription>Retenciones y descuentos aplicados</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        {viewerDocument.nominaData.deductions && viewerDocument.nominaData.deductions.length > 0 ? (
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Concepto</TableHead>
-                                <TableHead>Código</TableHead>
-                                <TableHead className="text-right">Importe</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {viewerDocument.nominaData.deductions.map((d, i) => (
-                                <TableRow key={i}>
-                                  <TableCell className="font-medium">{d.concept || 'N/A'}</TableCell>
-                                  <TableCell>{d.code || '—'}</TableCell>
-                                  <TableCell className="text-right font-mono text-rose-600">
-                                    -{formatCurrency(d.amount)}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                              <TableRow className="bg-rose-50">
-                                <TableCell colSpan={2} className="font-bold">Total Deducciones</TableCell>
-                                <TableCell className="text-right font-bold font-mono text-rose-700">
-                                  -{formatCurrency(viewerDocument.nominaData.deductions.reduce((s, d) => s + (d.amount || 0), 0))}
-                                </TableCell>
-                              </TableRow>
-                            </TableBody>
-                          </Table>
-                        ) : (
-                          <p className="text-center text-slate-500 py-8">No hay deducciones registradas</p>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  <TabsContent value="documento">
-                    <div className="h-[60vh] flex flex-col">
-                      <div className="flex-1 rounded-xl border-2 border-slate-200 overflow-hidden bg-slate-50">
-                        <iframe
-                          src={`${viewerDocument.pdfUrl}#toolbar=1&navpanes=1&scrollbar=1`}
-                          className="w-full h-full"
-                          title="PDF Viewer"
-                          allowFullScreen
-                          style={{ border: 'none' }}
-                        />
-                      </div>
-                      <div className="mt-3 flex items-center justify-between">
-                        <p className="text-sm text-slate-600">
-                          Si el PDF no se muestra correctamente, puedes abrirlo en una nueva pestaña o descargarlo
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <a
-                            href={viewerDocument.pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
-                          >
-                            <EyeIcon className="w-4 h-4 inline mr-2" />
-                            Abrir en nueva pestaña
-                          </a>
-                          <a
-                            href={viewerDocument.pdfUrl}
-                            download
-                            className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium"
-                          >
-                            <ArrowDownTrayIcon className="w-4 h-4 inline mr-2" />
-                            Descargar PDF
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              ) : (
-                <div className="h-[60vh] flex flex-col">
-                  <div className="flex-1 rounded-xl border-2 border-slate-200 overflow-hidden bg-slate-50">
-                    <iframe
-                      src={`${viewerDocument?.pdfUrl}#toolbar=1&navpanes=1&scrollbar=1`}
-                      className="w-full h-full"
-                      title="PDF Viewer"
-                      allowFullScreen
-                      style={{ border: 'none' }}
-                    />
-                  </div>
-                  <div className="mt-3 flex items-center justify-between">
-                    <p className="text-sm text-slate-600">
-                      Si el PDF no se muestra correctamente, puedes abrirlo en una nueva pestaña o descargarlo
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={viewerDocument?.pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
-                      >
-                        <EyeIcon className="w-4 h-4 inline mr-2" />
-                        Abrir en nueva pestaña
-                      </a>
-                      <a
-                        href={viewerDocument?.pdfUrl}
-                        download
-                        className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium"
-                      >
-                        <ArrowDownTrayIcon className="w-4 h-4 inline mr-2" />
-                        Descargar PDF
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <NominaViewerDialog
+          open={isViewerOpen}
+          onOpenChange={setIsViewerOpen}
+          document={viewerDocument}
+        />
       </div>
     </div>
   )
