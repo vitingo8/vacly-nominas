@@ -350,9 +350,15 @@ export async function POST(request: NextRequest) {
       hasUrl: !!body.url
     })
 
-    // Handle two cases: full processing (filename + url) or individual document processing (textContent + documentId)
-    if (body.textContent && body.documentId) {
-      console.log('✅ Procesando documento individual con Claude')
+    // Handle cases:
+    // 1) Reproceso individual a partir del PDF (documentId + filename, sin url) -> recomendado
+    // 2) Reproceso individual a partir de texto (textContent + documentId) -> legacy
+    // 3) Procesamiento completo (filename + url)
+    if (body.documentId && body.filename && !body.url) {
+      console.log('✅ Reprocesando documento individual a partir del PDF')
+      return await processIndividualDocumentByPdf(body.documentId, body.filename, body.companyId ?? null)
+    } else if (body.textContent && body.documentId) {
+      console.log('✅ Procesando documento individual con Claude (texto)')
       // Individual document processing with Claude
       return await processIndividualDocument(body.textContent, body.documentId)
     } else if (body.filename && body.url) {
@@ -382,6 +388,187 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       error: 'Processing failed',
       details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
+  }
+}
+
+/**
+ * Reprocesa un documento individual descargando su PDF del bucket `Nominas`
+ * y enviándolo a Claude (no depende del texto extraído, que ya no se genera).
+ * Persiste el resultado en `nominas` y `processed_documents`.
+ */
+async function processIndividualDocumentByPdf(documentId: string, filename: string, companyIdFromBody: string | null) {
+  const startTime = logWithTime(`🧠 Reprocesando documento por PDF: ${documentId} (${filename})`)
+
+  try {
+    const supabase = getSupabaseClient()
+
+    // Resolver company_id y employee_id desde processed_documents si es posible
+    let companyId: string | null = companyIdFromBody
+    let employeeId: string | null = null
+    try {
+      const { data: docRow } = await supabase
+        .from('processed_documents')
+        .select('company_id, employee_id')
+        .eq('id', documentId)
+        .maybeSingle()
+      if (docRow) {
+        companyId = companyId || docRow.company_id || null
+        employeeId = docRow.employee_id || null
+      }
+    } catch (e) {
+      console.warn('[PROCESS_LUX] No se pudo leer processed_documents:', e)
+    }
+
+    // Descargar el PDF de la página desde el bucket Nominas
+    const { data: fileData, error: dlError } = await supabase.storage.from('Nominas').download(filename)
+    if (dlError || !fileData) {
+      logWithTime(`ERROR descargando PDF para reproceso`, startTime)
+      return NextResponse.json({
+        success: false,
+        error: 'No se pudo descargar el PDF del documento.',
+        details: dlError?.message,
+      }, { status: 400 })
+    }
+
+    const pdfBytes = new Uint8Array(await fileData.arrayBuffer())
+
+    // Extraer datos con Claude (extracción completa, igual que el flujo de subida)
+    const { fullNominaData } = await processPageWithFullData(pdfBytes, 1)
+
+    if (!fullNominaData || Object.keys(fullNominaData).length === 0) {
+      logWithTime(`ERROR: Claude no devolvió datos`, startTime)
+      return NextResponse.json({
+        success: false,
+        error: 'No se pudieron extraer los datos de la nómina. Inténtalo de nuevo.',
+      }, { status: 422 })
+    }
+
+    // Cálculos derivados
+    const grossSalary = fullNominaData.gross_salary ||
+      fullNominaData.perceptions?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0
+    const totalContributions = fullNominaData.contributions?.reduce((sum: number, c: any) =>
+      sum + (c.employer_contribution || c.amount || 0), 0) || 0
+    const costEmpresa = grossSalary + totalContributions
+
+    const normalizedEmployee = {
+      ...fullNominaData.employee,
+      nss: fullNominaData.employee?.nss ||
+           fullNominaData.employee?.social_security_number ||
+           fullNominaData.employee?.social_security || null,
+    }
+
+    // Buscar avatar del empleado por DNI + company_id
+    let employeeAvatar: string | null = null
+    const dni = normalizedEmployee.dni
+    if (dni && companyId) {
+      try {
+        const dniLimpio = String(dni).trim().toUpperCase()
+        const { data: employee } = await supabase
+          .from('employees')
+          .select('nif, image_url, company_id')
+          .eq('nif', dniLimpio)
+          .eq('company_id', companyId)
+          .maybeSingle()
+        employeeAvatar = employee?.image_url || null
+      } catch (avatarError) {
+        console.error('[PROCESS_LUX] Error buscando avatar (reproceso):', avatarError)
+      }
+    }
+
+    // Guardar en nominas: actualizar si ya existe por document_name, si no insertar
+    const nominaPayload = {
+      company_id: companyId,
+      employee_id: employeeId ?? null,
+      period_start: fullNominaData.period_start || '2024-01-01',
+      period_end: fullNominaData.period_end || '2024-01-31',
+      employee: normalizedEmployee,
+      company: fullNominaData.company || {},
+      perceptions: fullNominaData.perceptions || [],
+      deductions: fullNominaData.deductions || [],
+      contributions: fullNominaData.contributions || [],
+      base_ss: fullNominaData.base_ss || 0,
+      net_pay: fullNominaData.net_pay || 0,
+      gross_salary: grossSalary,
+      total_contributions: totalContributions,
+      dni: normalizedEmployee.dni || null,
+      iban: fullNominaData.bank?.iban || fullNominaData.iban || null,
+      swift_bic: fullNominaData.bank?.swift_bic || fullNominaData.swift_bic || null,
+      cost_empresa: costEmpresa,
+      signed: false,
+      document_name: filename,
+    }
+
+    let nominaRecord: any = null
+    try {
+      const { data: existing } = await supabase
+        .from('nominas')
+        .select('id')
+        .eq('document_name', filename)
+        .maybeSingle()
+
+      if (existing?.id) {
+        const { data: updated, error: updErr } = await supabase
+          .from('nominas')
+          .update(nominaPayload)
+          .eq('id', existing.id)
+          .select()
+        if (updErr) console.error('[PROCESS_LUX] Error actualizando nomina:', updErr)
+        else nominaRecord = updated?.[0] || null
+      } else {
+        const { data: inserted, error: insErr } = await supabase
+          .from('nominas')
+          .insert([{ id: uuidv4(), ...nominaPayload }])
+          .select()
+        if (insErr) console.error('[PROCESS_LUX] Error insertando nomina:', insErr)
+        else nominaRecord = inserted?.[0] || null
+      }
+    } catch (dbError) {
+      console.error('[PROCESS_LUX] Error guardando nomina (reproceso):', dbError)
+    }
+
+    // Actualizar processed_documents a completed con los datos extraídos
+    try {
+      await supabase
+        .from('processed_documents')
+        .update({
+          processed_data: { ...fullNominaData, page_number: 1 },
+          processing_status: 'completed',
+        })
+        .eq('id', documentId)
+    } catch (pdErr) {
+      console.error('[PROCESS_LUX] Error actualizando processed_documents (reproceso):', pdErr)
+    }
+
+    logWithTime(`✅ Documento reprocesado por PDF`, startTime)
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        processedData: {
+          ...fullNominaData,
+          employee: normalizedEmployee,
+          gross_salary: grossSalary,
+          total_contributions: totalContributions,
+          cost_empresa: costEmpresa,
+          iban: nominaPayload.iban || '',
+          swift_bic: nominaPayload.swift_bic || '',
+          id: nominaRecord?.id,
+          nominaId: nominaRecord?.id,
+          employee_avatar: employeeAvatar,
+          signed: false,
+        },
+        documentId,
+        mode: 'lux-pdf',
+      },
+    })
+
+  } catch (error) {
+    logWithTime(`❌ ERROR reprocesando documento por PDF`, startTime)
+    console.error('Error en processIndividualDocumentByPdf:', error)
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido al reprocesar el documento.',
     }, { status: 500 })
   }
 }

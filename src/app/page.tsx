@@ -341,16 +341,16 @@ export default function VaclyNominas() {
 
     try {
       if (!document.id) throw new Error('Documento sin ID válido')
-
-      let textContent = document.textContent
-      if (!textContent) {
-        throw new Error('No hay contenido de texto disponible. Por favor, vuelve a subir el PDF completo.')
+      if (!document.filename) {
+        throw new Error('No se encontró el PDF del documento. Vuelve a subir el PDF completo.')
       }
 
+      // Reprocesamos a partir del PDF almacenado (Claude lee el PDF directamente),
+      // ya no se depende del texto extraído.
       const response = await fetch('/api/process-lux', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentId: document.id, textContent }),
+        body: JSON.stringify({ documentId: document.id, filename: document.filename, companyId }),
       })
 
       if (!response.ok) {
