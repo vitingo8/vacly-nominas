@@ -74,6 +74,9 @@ interface SplitDocument {
   textUrl: string
   claudeProcessed?: boolean
   savedToDb?: boolean
+  skipReason?: 'duplicate' | 'wrong_company' | 'employee_not_found'
+  skipMessage?: string
+  otherCompany?: { company_id: string; name: string; cif: string }
   nominaData?: NominaData
 }
 
@@ -267,22 +270,35 @@ export default function VaclyNominas() {
                 } else if (data.type === 'complete') {
                   const processDuration = performance.now() - processStart
                   const totalDuration = performance.now() - uploadStartTime
-                  const notSavedCount = (data.documents as SplitDocument[]).filter(
-                    (doc) => doc.claudeProcessed && doc.savedToDb === false
+                  const docs = data.documents as SplitDocument[]
+                  const savedCount = docs.filter((doc) => doc.savedToDb).length
+                  const duplicateCount = docs.filter((doc) => doc.skipReason === 'duplicate').length
+                  const wrongCompanyCount = docs.filter((doc) => doc.skipReason === 'wrong_company').length
+                  const notFoundCount = docs.filter(
+                    (doc) => doc.skipReason === 'employee_not_found' || (doc.claudeProcessed && doc.savedToDb === false && !doc.skipReason)
                   ).length
+                  const blockedCount = duplicateCount + wrongCompanyCount + notFoundCount
                   console.log(`[FRONTEND] ✅ Procesamiento completado:`)
                   console.log(`   - Tiempo procesamiento: ${(processDuration / 1000).toFixed(2)}s`)
                   console.log(`   - Tiempo total (upload + proceso): ${(totalDuration / 1000).toFixed(2)}s`)
-                  console.log(`   - Documentos creados: ${data.documents.length}`)
-                  console.log(`   - No guardados en BD: ${notSavedCount}`)
-                  console.log(`   - Tiempo promedio por documento: ${(processDuration / data.documents.length).toFixed(0)}ms`)
+                  console.log(`   - Documentos creados: ${docs.length}`)
+                  console.log(`   - Guardados en BD: ${savedCount}`)
+                  console.log(`   - Bloqueados: ${blockedCount}`)
+                  console.log(`   - Tiempo promedio por documento: ${(processDuration / docs.length).toFixed(0)}ms`)
                   
-                  setSplitDocuments(data.documents)
+                  setSplitDocuments(docs)
                   setUploadProgress(100)
+
+                  const parts: string[] = []
+                  if (savedCount > 0) parts.push(`${savedCount} guardadas`)
+                  if (duplicateCount > 0) parts.push(`${duplicateCount} duplicadas (ya existían)`)
+                  if (wrongCompanyCount > 0) parts.push(`${wrongCompanyCount} de otra empresa`)
+                  if (notFoundCount > 0) parts.push(`${notFoundCount} sin empleado en la empresa`)
+
                   setProgressMessage(
-                    notSavedCount > 0
-                      ? `Procesadas ${data.documents.length} páginas. ${notSavedCount} no se guardaron: el empleado no existe en la empresa (revisa el DNI en Empleados).`
-                      : `¡Procesamiento completado! ${data.documents.length} documentos guardados`
+                    blockedCount > 0
+                      ? `Procesadas ${docs.length} páginas: ${parts.join(', ')}.`
+                      : `¡Procesamiento completado! ${docs.length} documentos guardados`
                   )
                   loadUploadQuota()
                 } else if (data.type === 'error') {

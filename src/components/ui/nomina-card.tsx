@@ -13,6 +13,7 @@ import {
   ClockIcon,
   CpuChipIcon,
   CreditCardIcon,
+  ExclamationTriangleIcon,
   EyeIcon,
   UserIcon,
 } from '@heroicons/react/24/outline'
@@ -69,6 +70,10 @@ interface SplitDocument {
   pdfUrl: string
   textUrl: string
   claudeProcessed?: boolean
+  savedToDb?: boolean
+  skipReason?: 'duplicate' | 'wrong_company' | 'employee_not_found'
+  skipMessage?: string
+  otherCompany?: { company_id: string; name: string; cif: string }
   nominaData?: NominaData
 }
 
@@ -93,7 +98,22 @@ export function NominaCard({
   onView,
   onDownload
 }: NominaCardProps) {
-  const { nominaData, claudeProcessed, pageNumber, filename } = document
+  const { nominaData, claudeProcessed, pageNumber, filename, savedToDb, skipReason, skipMessage, otherCompany } = document
+  
+  const isBlocked = claudeProcessed && savedToDb === false && !!skipReason
+
+  const getSkipLabel = () => {
+    switch (skipReason) {
+      case 'duplicate':
+        return 'Duplicada'
+      case 'wrong_company':
+        return 'Otra empresa'
+      case 'employee_not_found':
+        return 'Sin empleado'
+      default:
+        return 'No guardada'
+    }
+  }
   
   const formatCurrency = (amount: number | undefined) => {
     if (amount === undefined || amount === null) return '—'
@@ -188,8 +208,11 @@ export function NominaCard({
         onClick={onSelect}
         className={cn(
           "flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-all",
-          "bg-white border-2 hover:border-emerald-300 hover:shadow-md",
-          isSelected ? "border-emerald-500 bg-emerald-50/50" : "border-slate-200"
+          "bg-white border-2 hover:shadow-md",
+          isBlocked
+            ? "border-amber-300 hover:border-amber-400 bg-amber-50/30"
+            : "hover:border-emerald-300",
+          isSelected && !isBlocked ? "border-emerald-500 bg-emerald-50/50" : isSelected ? "border-amber-500" : "border-slate-200"
         )}
       >
         {employeeAvatar ? (
@@ -209,8 +232,16 @@ export function NominaCard({
             <p className="text-sm font-bold text-slate-800 truncate">
               {nominaData.employee?.name || 'Empleado'}
             </p>
-            <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1 flex-shrink-0">
-              <CheckCircleIcon className="w-3 h-3" />
+            <span className={cn(
+              "px-1.5 py-0.5 text-xs font-semibold rounded-full flex items-center gap-1 flex-shrink-0",
+              isBlocked ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"
+            )}>
+              {isBlocked ? (
+                <ExclamationTriangleIcon className="w-3 h-3" />
+              ) : (
+                <CheckCircleIcon className="w-3 h-3" />
+              )}
+              {isBlocked ? getSkipLabel() : ''}
             </span>
           </div>
           <div className="flex items-center gap-3 text-xs text-slate-500">
@@ -218,6 +249,9 @@ export function NominaCard({
             <span>•</span>
             <span>{formatPeriod(nominaData.period_start)}</span>
           </div>
+          {isBlocked && skipMessage && (
+            <p className="text-xs text-amber-800 mt-1 truncate" title={skipMessage}>{skipMessage}</p>
+          )}
         </div>
 
         <div className="flex items-center gap-4 flex-shrink-0">
@@ -329,7 +363,7 @@ export function NominaCard({
     )
   }
 
-  // Card procesada con KPIs
+  // Card procesada con KPIs (o bloqueada por seguridad)
   return (
     <div
       onClick={onSelect}
@@ -337,13 +371,18 @@ export function NominaCard({
         "group relative overflow-hidden rounded-2xl cursor-pointer transition-all duration-300",
         "bg-white border-2",
         "hover:shadow-2xl hover:scale-[1.02]",
-        isSelected 
-          ? "border-emerald-500 shadow-xl ring-2 ring-emerald-200" 
-          : "border-slate-200 hover:border-emerald-300"
+        isBlocked
+          ? "border-amber-300 hover:border-amber-400"
+          : isSelected
+            ? "border-emerald-500 shadow-xl ring-2 ring-emerald-200"
+            : "border-slate-200 hover:border-emerald-300"
       )}
     >
       {/* Gradient accent top */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
+      <div className={cn(
+        "absolute top-0 left-0 right-0 h-1 bg-gradient-to-r",
+        isBlocked ? "from-amber-400 via-orange-400 to-rose-400" : "from-emerald-500 via-teal-500 to-cyan-500"
+      )} />
       
       {/* Header con empleado */}
       <div className="p-4 pb-2">
@@ -380,12 +419,31 @@ export function NominaCard({
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1">
-              <CheckCircleIcon className="w-3 h-3" />
-              OK
-            </span>
+            {isBlocked ? (
+              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800 flex items-center gap-1">
+                <ExclamationTriangleIcon className="w-3 h-3" />
+                {getSkipLabel()}
+              </span>
+            ) : (
+              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1">
+                <CheckCircleIcon className="w-3 h-3" />
+                OK
+              </span>
+            )}
           </div>
         </div>
+
+        {isBlocked && skipMessage && (
+          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <p>{skipMessage}</p>
+            {skipReason === 'wrong_company' && otherCompany && (
+              <p className="mt-1 font-medium">
+                Empresa detectada: {otherCompany.name}
+                {otherCompany.cif ? ` (CIF: ${otherCompany.cif})` : ''}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Company & Period */}
         <div className="flex items-center gap-3 mb-3 text-xs">
@@ -496,7 +554,7 @@ interface NominaStatsProps {
 }
 
 export function NominaStats({ documents }: NominaStatsProps) {
-  const processedDocs = documents.filter(d => d.claudeProcessed && d.nominaData)
+  const processedDocs = documents.filter(d => d.claudeProcessed && d.nominaData && d.savedToDb !== false)
   
   const stats = React.useMemo(() => {
     if (processedDocs.length === 0) return null

@@ -12,6 +12,13 @@ import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
 import { getSupabaseClient } from '@/lib/supabase'
 import { assertUploadQuota } from '@/lib/upload-quota'
+import {
+  getTenantCompany,
+  validateNominaUpload,
+  type OtherCompanyInfo,
+  type UploadSkipReason,
+  type TenantCompanyInfo,
+} from '@/lib/upload-security'
 import { parsePDF } from '@/lib/pdf-utils'
 import { extractBasicNominaInfo, generateSplitFileName, generateTextFileName, correctNameFormat, generateGlobalFileName } from '@/lib/pdf-naming'
 import Anthropic from '@anthropic-ai/sdk'
@@ -25,6 +32,9 @@ interface SplitDocument {
   textUrl: string
   claudeProcessed: boolean
   savedToDb?: boolean
+  skipReason?: UploadSkipReason
+  skipMessage?: string
+  otherCompany?: OtherCompanyInfo
   nominaData?: any
 }
 
@@ -498,6 +508,39 @@ async function processIndividualDocumentByPdf(documentId: string, filename: stri
         details: normalizedEmployee.dni
           ? `No hay ningún empleado con NIF ${normalizedEmployee.dni} en esta empresa. Créalo primero en Empleados.`
           : 'Claude no extrajo el DNI/NIF del documento.',
+        skipReason: 'employee_not_found',
+      }, { status: 422 })
+    }
+
+    const tenantCompany = companyId ? await getTenantCompany(supabase, companyId) : null
+
+    const { data: existingNomina } = await supabase
+      .from('nominas')
+      .select('id')
+      .eq('document_name', filename)
+      .maybeSingle()
+
+    const securityCheck = await validateNominaUpload(supabase, {
+      companyId: companyId!,
+      employeeId: resolvedEmployeeId,
+      periodStart: fullNominaData.period_start || '2024-01-01',
+      periodEnd: fullNominaData.period_end || '2024-01-31',
+      extractedCompany: fullNominaData.company || {},
+      documentName: filename,
+      tenantCompany,
+      excludeNominaId: existingNomina?.id,
+    })
+
+    if (!securityCheck.allowed) {
+      logWithTime(`BLOQUEADO reproceso: ${securityCheck.reason} — ${securityCheck.message}`, startTime)
+      return NextResponse.json({
+        success: false,
+        error: securityCheck.message,
+        skipReason: securityCheck.reason,
+        otherCompany: securityCheck.otherCompany,
+        expectedCompany: securityCheck.expectedCompany,
+        extractedCompany: securityCheck.extractedCompany,
+        existingNominaId: securityCheck.existingNominaId,
       }, { status: 422 })
     }
 
@@ -526,17 +569,11 @@ async function processIndividualDocumentByPdf(documentId: string, filename: stri
 
     let nominaRecord: any = null
     try {
-      const { data: existing } = await supabase
-        .from('nominas')
-        .select('id')
-        .eq('document_name', filename)
-        .maybeSingle()
-
-      if (existing?.id) {
+      if (existingNomina?.id) {
         const { data: updated, error: updErr } = await supabase
           .from('nominas')
           .update(nominaPayload)
-          .eq('id', existing.id)
+          .eq('id', existingNomina.id)
           .select()
         if (updErr) console.error('[PROCESS_LUX] Error actualizando nomina:', updErr)
         else nominaRecord = updated?.[0] || null
@@ -981,6 +1018,9 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
             sendProgress(20, `Documento dividido: ${pageCount} páginas. Procesando en paralelo...`, 0, pageCount)
 
             const documents: SplitDocument[] = []
+            const tenantCompany: TenantCompanyInfo | null = companyId
+              ? await getTenantCompany(supabase, companyId)
+              : null
             // Procesamiento secuencial con rate limiting - PRIORIDAD: CALIDAD sobre VELOCIDAD
             // Claude tiene límites de 50 RPM para Haiku, procesamos de 2 en 2 con delays
             const MAX_PARALLEL = Math.min(2, pageCount) // Máximo 2 en paralelo para evitar rate limiting
@@ -1210,6 +1250,9 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                   let dbSaved = false
                   let nominaRecord = null
                   let employeeAvatar: string | null = null
+                  let skipReason: UploadSkipReason | undefined
+                  let skipMessage: string | undefined
+                  let otherCompany: OtherCompanyInfo | undefined
 
                   if (Object.keys(fullNominaData).length > 0) {
                     const dbSaveStart = logWithTime(`Guardando página ${pageNum} en base de datos`)
@@ -1256,14 +1299,41 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                         console.error(
                           `❌ No se guardó la nómina de la página ${pageNum}: empleado no encontrado en la empresa (DNI: ${normalizedEmployee.dni ?? 'sin DNI'})`,
                         )
+                        skipReason = 'employee_not_found'
+                        skipMessage = normalizedEmployee.dni
+                          ? `Empleado con NIF ${normalizedEmployee.dni} no registrado en esta empresa.`
+                          : 'No se pudo identificar al empleado en el documento.'
+                      } else {
+                      const periodStart = fullNominaData.period_start || '2024-01-01'
+                      const periodEnd = fullNominaData.period_end || '2024-01-31'
+
+                      const securityCheck = await validateNominaUpload(supabase, {
+                        companyId: companyId!,
+                        employeeId: resolvedEmployeeId,
+                        periodStart,
+                        periodEnd,
+                        extractedCompany: fullNominaData.company || {},
+                        documentName: pagePdfName,
+                        tenantCompany,
+                      })
+
+                      if (!securityCheck.allowed) {
+                        logWithTime(
+                          `BLOQUEADO página ${pageNum}: ${securityCheck.reason} — ${securityCheck.message}`,
+                          dbSaveStart,
+                        )
+                        console.warn(`⚠️ Página ${pageNum} no guardada: ${securityCheck.message}`)
+                        skipReason = securityCheck.reason
+                        skipMessage = securityCheck.message
+                        otherCompany = securityCheck.otherCompany
                       } else {
                       // Prepare data for nominas table (VERIFICADO CON MCP SUPABASE + NORMALIZADO)
                       const nominaData = {
                         id: nominaId,
                         company_id: companyId,
                         employee_id: resolvedEmployeeId,
-                        period_start: fullNominaData.period_start || '2024-01-01',
-                        period_end: fullNominaData.period_end || '2024-01-31',
+                        period_start: periodStart,
+                        period_end: periodEnd,
                         employee: normalizedEmployee,
                         company: fullNominaData.company || {},
                         perceptions: fullNominaData.perceptions || [],
@@ -1368,6 +1438,7 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                         logWithTime(`ERROR upsert processed_documents página ${pageNum}`, processedDocStart)
                         console.error(`❌ Error saving page ${pageNum} to processed_documents:`, processedDocError)
                       }
+                      } // securityCheck allowed
                       } // resolvedEmployeeId
 
                     } catch (dbError) {
@@ -1415,6 +1486,9 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                     textContent,
                     claudeProcessed: hasExtractedData,
                     savedToDb: dbSaved,
+                    skipReason,
+                    skipMessage,
+                    otherCompany,
                     nominaData: Object.keys(fullNominaData).length > 0 ? {
                       id: nominaRecord?.id || pageId,
                       nominaId: nominaRecord?.id || pageId,
