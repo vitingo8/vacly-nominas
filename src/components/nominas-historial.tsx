@@ -6,6 +6,8 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { NominaDetailPanel } from '@/components/nomina-detail-panel'
+import { NominaEstadoBadge } from '@/components/nomina-estado-badge'
+import { NominasSelectionBanner, type SelectionTotals } from '@/components/nominas-selection-banner'
 import type { NominaViewerData } from '@/components/nomina-viewer-dialog'
 import {
   ArrowDownTrayIcon,
@@ -126,29 +128,13 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   const loadEmployees = useCallback(async () => {
     if (!companyId) return
     try {
-      const { createClient } = await import('@supabase/supabase-js')
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-      )
-      const { data } = await supabase
-        .from('employees')
-        .select('id, first_name, last_name, nif')
-        .eq('company_id', companyId)
-        .eq('status', 'Activo')
-        .order('first_name')
-
-      if (data) {
-        setEmployees(
-          data.map((emp) => ({
-            id: emp.id,
-            name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Sin nombre',
-            nif: emp.nif || undefined,
-          })),
-        )
+      const response = await fetch(`/api/nominas/employees?company_id=${encodeURIComponent(companyId)}`)
+      const data = await response.json()
+      if (data.success && Array.isArray(data.data)) {
+        setEmployees(data.data)
       }
-    } catch {
-      /* silenciar */
+    } catch (error) {
+      console.error('[HISTORIAL] Error cargando empleados:', error)
     }
   }, [companyId])
 
@@ -309,11 +295,46 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
 
   const hasActiveFilters = filterEmployee || filterDni.trim() || selectedPeriods.size > 0
 
+  const selectionTotals = useMemo((): SelectionTotals => {
+    const selected = historialNominas.filter((n) => selectedIds.has(n.id))
+    return {
+      count: selected.length,
+      gross: selected.reduce((sum, n) => sum + (n.gross_salary || 0), 0),
+      net: selected.reduce((sum, n) => sum + (n.net_pay || 0), 0),
+      cost: selected.reduce((sum, n) => sum + (n.cost_empresa || 0), 0),
+      signed: selected.filter((n) => n.signed).length,
+      sent: selected.filter((n) => !n.signed).length,
+    }
+  }, [historialNominas, selectedIds])
+
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const deleteSelected = async () => {
+    if (selectedIds.size === 0) return
+    if (!confirm(`¿Eliminar ${selectedIds.size} nómina(s) del historial?`)) return
+
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/nominas?id=${id}`, { method: 'DELETE' }).then((r) => r.json()),
+        ),
+      )
+      setExpandedId(null)
+      clearSelection()
+      loadHistorial(historialPage)
+    } catch (error) {
+      console.error('[HISTORIAL] Error eliminando selección:', error)
+      alert('No se pudieron eliminar todas las nóminas seleccionadas.')
+    }
+  }
+
+  const showSelectionBanner = selectedIds.size > 1
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
       <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-4">
+        <div className="mb-6">
+          <div className="flex items-center gap-4 mb-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
               <ArrowUturnLeftIcon className="w-8 h-8 text-[#C6A664]" />
             </div>
@@ -325,30 +346,83 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExport}
-              disabled={isExporting || !companyId || historialTotal === 0}
-              className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10"
-            >
-              <ArrowDownTrayIcon className={`w-4 h-4 ${isExporting ? 'animate-pulse' : ''}`} />
-              <span className="ml-2">
-                {isExporting ? 'Exportando…' : selectedIds.size > 0 ? 'Exportar selección' : 'Exportar filtrado'}
-              </span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => loadHistorial(historialPage)}
-              disabled={isLoadingHistorial || !companyId}
-              className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10"
-            >
-              <ArrowPathIcon className={`w-4 h-4 ${isLoadingHistorial ? 'animate-spin' : ''}`} />
-              <span className="ml-2">Actualizar</span>
-            </Button>
-          </div>
+
+          {companyId && (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={filterEmployee}
+                onChange={(e) => setFilterEmployee(e.target.value)}
+                className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664] min-w-[180px] max-w-[240px]"
+              >
+                <option value="">Todos los empleados</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name}{emp.nif ? ` (${emp.nif})` : ''}
+                  </option>
+                ))}
+              </select>
+
+              <div className="relative">
+                <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  value={filterDni}
+                  onChange={(e) => setFilterDni(e.target.value)}
+                  placeholder="Buscar por DNI o nombre"
+                  className="h-9 pl-8 w-[200px] sm:w-[220px] text-sm"
+                />
+              </div>
+
+              <Button
+                variant={showPeriodPicker ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setShowPeriodPicker((v) => !v)}
+                className={cn(
+                  'gap-1.5 text-xs h-9',
+                  showPeriodPicker && 'bg-[#1B2A41] hover:bg-[#152036]',
+                )}
+              >
+                <CalendarDaysIcon className="w-4 h-4" />
+                Período
+                {selectedPeriods.size > 0 && (
+                  <span className="ml-1 rounded-full bg-white/20 px-1.5 text-[10px]">
+                    {selectedPeriods.size}
+                  </span>
+                )}
+              </Button>
+
+              {hasActiveFilters && (
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-xs h-9">
+                  <XMarkIcon className="w-3.5 h-3.5" />
+                  Limpiar filtros
+                </Button>
+              )}
+
+              <div className="flex items-center gap-2 ml-auto">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={isExporting || historialTotal === 0}
+                  className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10 h-9"
+                >
+                  <ArrowDownTrayIcon className={`w-4 h-4 ${isExporting ? 'animate-pulse' : ''}`} />
+                  <span className="ml-2">
+                    {isExporting ? 'Exportando…' : selectedIds.size > 0 ? 'Exportar selección' : 'Exportar filtrado'}
+                  </span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadHistorial(historialPage)}
+                  disabled={isLoadingHistorial}
+                  className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10 h-9"
+                >
+                  <ArrowPathIcon className={`w-4 h-4 ${isLoadingHistorial ? 'animate-spin' : ''}`} />
+                  <span className="ml-2">Actualizar</span>
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         {!companyId ? (
@@ -357,60 +431,8 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           </div>
         ) : (
           <>
-            {/* Filtros */}
-            <div className="mb-4 space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <select
-                  value={filterEmployee}
-                  onChange={(e) => setFilterEmployee(e.target.value)}
-                  className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664] min-w-[180px]"
-                >
-                  <option value="">Todos los empleados</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.name}{emp.nif ? ` (${emp.nif})` : ''}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="relative">
-                  <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    value={filterDni}
-                    onChange={(e) => setFilterDni(e.target.value)}
-                    placeholder="Buscar por DNI o nombre"
-                    className="h-9 pl-8 w-[220px] text-sm"
-                  />
-                </div>
-
-                <Button
-                  variant={showPeriodPicker ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setShowPeriodPicker((v) => !v)}
-                  className={cn(
-                    'gap-1.5 text-xs',
-                    showPeriodPicker && 'bg-[#1B2A41] hover:bg-[#152036]',
-                  )}
-                >
-                  <CalendarDaysIcon className="w-4 h-4" />
-                  Período
-                  {selectedPeriods.size > 0 && (
-                    <span className="ml-1 rounded-full bg-white/20 px-1.5 text-[10px]">
-                      {selectedPeriods.size}
-                    </span>
-                  )}
-                </Button>
-
-                {hasActiveFilters && (
-                  <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-xs">
-                    <XMarkIcon className="w-3.5 h-3.5" />
-                    Limpiar filtros
-                  </Button>
-                )}
-              </div>
-
-              {showPeriodPicker && (
-                <Card className="p-4 border-slate-200">
+            {showPeriodPicker && (
+              <Card className="p-4 border-slate-200 mb-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2">
                       <CalendarDaysIcon className="w-5 h-5 text-[#C6A664]" />
@@ -471,8 +493,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                     </p>
                   )}
                 </Card>
-              )}
-            </div>
+            )}
 
             {isLoadingHistorial && historialNominas.length === 0 ? (
               <div className="flex items-center justify-center py-12">
@@ -509,6 +530,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                         <TableHead className="font-semibold text-slate-700 text-center">Bruto</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-center">Neto</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-center">Coste Emp.</TableHead>
+                        <TableHead className="font-semibold text-slate-700 text-center">Estado</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-center">Fecha</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-center w-16" />
                       </TableRow>
@@ -590,6 +612,9 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                                 </span>
                               </TableCell>
                               <TableCell className="text-center">
+                                <NominaEstadoBadge signed={nomina.signed} />
+                              </TableCell>
+                              <TableCell className="text-center">
                                 <span className="text-xs text-slate-500">
                                   {nomina.created_at
                                     ? new Date(nomina.created_at).toLocaleDateString('es-ES')
@@ -610,7 +635,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                             </TableRow>
                             {isExpanded && (
                               <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
-                                <TableCell colSpan={9} className="p-0 border-t border-slate-200">
+                                <TableCell colSpan={10} className="p-0 border-t border-slate-200">
                                   <NominaDetailPanel
                                     nominaData={buildNominaViewerData(nomina)}
                                     nominaId={nomina.id}
@@ -627,6 +652,15 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                     </TableBody>
                   </Table>
                 </div>
+
+                <NominasSelectionBanner
+                  visible={showSelectionBanner}
+                  totals={selectionTotals}
+                  isExporting={isExporting}
+                  onExport={handleExport}
+                  onClear={clearSelection}
+                  onDelete={deleteSelected}
+                />
 
                 {historialTotal > HISTORIAL_LIMIT && (
                   <div className="flex items-center justify-between mt-4">
