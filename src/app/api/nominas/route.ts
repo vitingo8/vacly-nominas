@@ -1,137 +1,142 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 
+function applyNominaFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  params: {
+    employeeId?: string | null
+    dni?: string | null
+    search?: string | null
+    periods?: string[]
+    dateFrom?: string | null
+    dateTo?: string | null
+  },
+) {
+  let q = query
+
+  if (params.employeeId) {
+    q = q.eq('employee_id', params.employeeId)
+  }
+
+  const dniTerm = (params.dni || params.search || '').trim()
+  if (dniTerm) {
+    const pattern = `%${dniTerm}%`
+    q = q.or(`dni.ilike.${pattern},employee->>dni.ilike.${pattern},employee->>name.ilike.${pattern}`)
+  }
+
+  if (params.periods && params.periods.length > 0) {
+    const orConditions = params.periods.map((period) => {
+      const [year, month] = period.split('-')
+      const start = `${year}-${month}-01`
+      const lastDay = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate()
+      const end = `${year}-${month}-${String(lastDay).padStart(2, '0')}`
+      return `and(period_start.gte.${start},period_start.lte.${end})`
+    })
+    q = q.or(orConditions.join(','))
+  } else {
+    if (params.dateFrom) {
+      q = q.gte('period_start', params.dateFrom)
+    }
+    if (params.dateTo) {
+      q = q.lte('period_start', params.dateTo)
+    }
+  }
+
+  return q
+}
+
+async function enrichWithAvatars(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  nominas: Array<Record<string, unknown>>,
+) {
+  return Promise.all(
+    nominas.map(async (nomina) => {
+      const employee = nomina.employee as { dni?: string } | null | undefined
+      const dni = (nomina.dni as string) || employee?.dni
+      const companyId = nomina.company_id as string
+
+      if (!dni || !companyId) {
+        return { ...nomina, employee_avatar: null }
+      }
+
+      const dniLimpio = dni.trim().toUpperCase()
+      const { data: employeeRow } = await supabase
+        .from('employees')
+        .select('image_url')
+        .eq('nif', dniLimpio)
+        .eq('company_id', companyId)
+        .maybeSingle()
+
+      return {
+        ...nomina,
+        employee_avatar: employeeRow?.image_url || null,
+      }
+    }),
+  )
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = getSupabaseClient()
     const { searchParams } = new URL(request.url)
-    const limit = searchParams.get('limit') || '10'
-    const offset = searchParams.get('offset') || '0'
+    const limit = parseInt(searchParams.get('limit') || '25', 10)
+    const offset = parseInt(searchParams.get('offset') || '0', 10)
     const companyId = searchParams.get('company_id')
 
     if (!companyId) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'company_id es requerido',
-        success: false
+        success: false,
       }, { status: 400 })
     }
 
-    const { data: nominas, error, count } = await supabase
+    const periods = (searchParams.get('periods') || '')
+      .split(',')
+      .map((p) => p.trim())
+      .filter((p) => /^\d{4}-\d{2}$/.test(p))
+
+    const filters = {
+      employeeId: searchParams.get('employee_id'),
+      dni: searchParams.get('dni'),
+      search: searchParams.get('search'),
+      periods,
+      dateFrom: searchParams.get('date_from'),
+      dateTo: searchParams.get('date_to'),
+    }
+
+    let query = supabase
       .from('nominas')
       .select('*', { count: 'exact' })
       .eq('company_id', companyId)
-      .order('created_at', { ascending: false })
-      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1)
+
+    query = applyNominaFilters(query, filters)
+    query = query.order('period_start', { ascending: false }).order('created_at', { ascending: false })
+
+    const { data: nominas, error, count } = await query.range(offset, offset + limit - 1)
 
     if (error) {
       console.error('Supabase fetch error:', error)
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Failed to fetch nominas',
-        details: error.message
+        details: error.message,
       }, { status: 500 })
     }
 
-    // Buscar avatares de empleados por DNI en employees.nif
-    console.log(`[NOMINAS_API] Total nóminas a procesar: ${nominas?.length || 0}`)
-    const nominasConAvatar = await Promise.all(
-      (nominas || []).map(async (nomina, index) => {
-        const dni = nomina.dni || nomina.employee?.dni
-        const companyId = nomina.company_id
-        console.log(`[NOMINAS_API] Nómina ${index + 1}:`, {
-          id: nomina.id,
-          dni: dni,
-          company_id: companyId,
-          dniFromNomina: nomina.dni,
-          dniFromEmployee: nomina.employee?.dni,
-          employeeName: nomina.employee?.name
-        })
-        
-        if (dni && companyId) {
-          // Limpiar DNI: quitar espacios y convertir a mayúsculas
-          const dniLimpio = dni.trim().toUpperCase()
-          console.log(`[NOMINAS_API] 🔍 Buscando avatar para DNI: "${dni}" -> "${dniLimpio}" en company_id: "${companyId}"`)
-          
-          // Buscar empleado por nif (DNI) Y company_id para evitar duplicados
-          const { data: employee, error } = await supabase
-            .from('employees')
-            .select('nif, image_url, company_id')
-            .eq('nif', dniLimpio)
-            .eq('company_id', companyId)
-            .maybeSingle()
-          
-          console.log(`[NOMINAS_API] Resultado búsqueda empleado:`, {
-            dniOriginal: dni,
-            dniLimpio: dniLimpio,
-            companyId: companyId,
-            encontrado: !!employee,
-            employeeNif: employee?.nif,
-            employeeCompanyId: employee?.company_id,
-            imageUrl: employee?.image_url,
-            error: error?.message,
-            errorCode: error?.code,
-            errorDetails: error
-          })
-          
-          // Si no se encuentra, intentar buscar todos los empleados con ese DNI para debug
-          if (!employee && !error) {
-            const { data: allEmployees } = await supabase
-              .from('employees')
-              .select('nif, image_url, company_id')
-              .eq('nif', dniLimpio)
-            console.log(`[NOMINAS_API] 🔍 Búsqueda alternativa (sin company_id):`, allEmployees)
-          }
-          
-          if (error) {
-            console.error(`[NOMINAS_API] ❌ Error buscando empleado:`, error)
-          } else if (employee) {
-            console.log(`[NOMINAS_API] ✅ Empleado encontrado:`, {
-              nif: employee.nif,
-              image_url: employee.image_url,
-              tieneAvatar: !!employee.image_url
-            })
-          } else {
-            console.warn(`[NOMINAS_API] ⚠️ No se encontró empleado con nif: "${dniLimpio}"`)
-          }
-          
-          const avatarUrl = employee?.image_url || null
-          console.log(`[NOMINAS_API] Avatar URL asignado:`, avatarUrl)
-          
-          return {
-            ...nomina,
-            employee_avatar: avatarUrl
-          }
-        } else {
-          if (!dni) {
-            console.warn(`[NOMINAS_API] ⚠️ Nómina ${index + 1} sin DNI disponible`)
-          }
-          if (!companyId) {
-            console.warn(`[NOMINAS_API] ⚠️ Nómina ${index + 1} sin company_id disponible`)
-          }
-          return { ...nomina, employee_avatar: null }
-        }
-      })
-    )
-    
-    console.log(`[NOMINAS_API] Nóminas con avatar procesadas:`, nominasConAvatar.map(n => ({
-      id: n.id,
-      dni: n.dni || n.employee?.dni,
-      tieneAvatar: !!n.employee_avatar,
-      avatarUrl: n.employee_avatar
-    })))
+    const nominasConAvatar = await enrichWithAvatars(supabase, nominas || [])
 
     return NextResponse.json({
       success: true,
       data: nominasConAvatar,
       total: count,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit,
+      offset,
     })
-
   } catch (error) {
     console.error('Fetch error:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Failed to fetch nominas',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 })
   }
 }
@@ -153,22 +158,21 @@ export async function DELETE(request: NextRequest) {
 
     if (error) {
       console.error('Supabase delete error:', error)
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Failed to delete nomina',
-        details: error.message
+        details: error.message,
       }, { status: 500 })
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Nomina deleted successfully'
+      message: 'Nomina deleted successfully',
     })
-
   } catch (error) {
     console.error('Delete error:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Failed to delete nomina',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 })
   }
-} 
+}
