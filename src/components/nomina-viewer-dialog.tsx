@@ -108,7 +108,13 @@ export function NominaViewerDialog({
 
         <div className="flex-1 overflow-auto p-6">
           {hasProcessedData ? (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <Tabs
+              value={activeTab}
+              onValueChange={(value) =>
+                setActiveTab(value as 'resumen' | 'percepciones' | 'deducciones' | 'documento')
+              }
+              className="w-full"
+            >
               <TabsList className="grid w-full grid-cols-4 mb-6">
                 <TabsTrigger value="resumen">Resumen</TabsTrigger>
                 <TabsTrigger value="percepciones">Percepciones</TabsTrigger>

@@ -95,6 +95,15 @@ export function GastosVerView({ companyId }: GastosVerViewProps) {
     }
   }
 
+  const parseExpenseNotes = (expense: Expense) => {
+    if (!expense.notes) return null
+    try {
+      return JSON.parse(expense.notes)
+    } catch {
+      return { text: expense.notes }
+    }
+  }
+
   const loadEmployees = useCallback(async () => {
     if (!companyId) return
     try {
@@ -439,11 +448,23 @@ export function GastosVerView({ companyId }: GastosVerViewProps) {
       </div>
 
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalle del gasto</DialogTitle>
           </DialogHeader>
-          {selectedExpense && <DigitalTicket expense={selectedExpense} />}
+          {selectedExpense && (
+            <DigitalTicket
+              amount={selectedExpense.amount}
+              concept={selectedExpense.concept || selectedExpense.description || ''}
+              subcategory={selectedExpense.subcategory}
+              merchant={parseExpenseNotes(selectedExpense)?.merchant}
+              date={selectedExpense.date || selectedExpense.expense_date || ''}
+              confidence={parseExpenseNotes(selectedExpense)?.confidence}
+              visionAnalysis={parseExpenseNotes(selectedExpense)?.text}
+              paymentMethod={selectedExpense.method}
+              conceptos={selectedExpense.conceptos || undefined}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
