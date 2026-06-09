@@ -99,16 +99,23 @@ export default function VaclyNominas() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'processed' | 'pending'>('all')
   
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const [skipCompanyValidation, setSkipCompanyValidation] = useState(false)
   const [uploadQuota, setUploadQuota] = useState<UploadQuota | null>(null)
   const [isLoadingQuota, setIsLoadingQuota] = useState(false)
 
-  // Leer company_id desde parámetros de URL al montar
+  // Leer company_id y modo super-admin desde parámetros de URL al montar
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const paramCompanyId = params.get('company_id')
     if (paramCompanyId) {
       setCompanyId(paramCompanyId)
       console.log(`[FRONTEND NÓMINAS] 🔍 Company ID detectado: ${paramCompanyId}`)
+    }
+    const isSuperAdmin =
+      params.get('super_admin') === '1' || params.get('super_admin') === 'true'
+    setSkipCompanyValidation(isSuperAdmin)
+    if (isSuperAdmin) {
+      console.log('[FRONTEND NÓMINAS] Super-admin: validación CIF de empresa desactivada')
     }
   }, [])
 
@@ -219,6 +226,7 @@ export default function VaclyNominas() {
           url: uploadResult.url,
           companyId,
           employeeId: undefined, // opcional: asociar a empleado concreto
+          skipCompanyValidation,
         }),
       })
 
@@ -341,7 +349,12 @@ export default function VaclyNominas() {
       const response = await fetch('/api/process-lux', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentId: document.id, filename: document.filename, companyId }),
+        body: JSON.stringify({
+          documentId: document.id,
+          filename: document.filename,
+          companyId,
+          skipCompanyValidation,
+        }),
       })
 
       if (!response.ok) {

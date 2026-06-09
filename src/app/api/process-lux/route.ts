@@ -394,7 +394,12 @@ export async function POST(request: NextRequest) {
     // 3) Procesamiento completo (filename + url)
     if (body.documentId && body.filename && !body.url) {
       console.log('✅ Reprocesando documento individual a partir del PDF')
-      return await processIndividualDocumentByPdf(body.documentId, body.filename, body.companyId ?? null)
+      return await processIndividualDocumentByPdf(
+        body.documentId,
+        body.filename,
+        body.companyId ?? null,
+        body.skipCompanyValidation === true,
+      )
     } else if (body.textContent && body.documentId) {
       console.log('✅ Procesando documento individual con Claude (texto)')
       // Individual document processing with Claude
@@ -407,7 +412,13 @@ export async function POST(request: NextRequest) {
         }, { status: 400 })
       }
       console.log('✅ Procesando PDF completo con streaming')
-      return await processFullPDF(body.filename, body.url, body.companyId, body.employeeId ?? null)
+      return await processFullPDF(
+        body.filename,
+        body.url,
+        body.companyId,
+        body.employeeId ?? null,
+        body.skipCompanyValidation === true,
+      )
     } else {
       console.error('❌ Parámetros inválidos:', { body })
       return NextResponse.json({ 
@@ -435,7 +446,12 @@ export async function POST(request: NextRequest) {
  * y enviándolo a Claude (no depende del texto extraído, que ya no se genera).
  * Persiste el resultado en `nominas` y `processed_documents`.
  */
-async function processIndividualDocumentByPdf(documentId: string, filename: string, companyIdFromBody: string | null) {
+async function processIndividualDocumentByPdf(
+  documentId: string,
+  filename: string,
+  companyIdFromBody: string | null,
+  skipCompanyValidation = false,
+) {
   const startTime = logWithTime(`🧠 Reprocesando documento por PDF: ${documentId} (${filename})`)
 
   try {
@@ -529,6 +545,7 @@ async function processIndividualDocumentByPdf(documentId: string, filename: stri
       documentName: filename,
       tenantCompany,
       excludeNominaId: existingNomina?.id,
+      skipCompanyValidation,
     })
 
     if (!securityCheck.allowed) {
@@ -878,7 +895,13 @@ Responde ÚNICAMENTE con este JSON válido:
   }, { status: 500 })
 }
 
-async function processFullPDF(filename: string, url: string, companyId: string, employeeId: string | null) {
+async function processFullPDF(
+  filename: string,
+  url: string,
+  companyId: string,
+  employeeId: string | null,
+  skipCompanyValidation = false,
+) {
   const processStartTime = logWithTime(`🚀 INICIO procesamiento completo PDF: ${filename}`)
   console.log('📄 URL:', url, 'companyId:', companyId)
 
@@ -1315,6 +1338,7 @@ async function processFullPDF(filename: string, url: string, companyId: string, 
                         extractedCompany: fullNominaData.company || {},
                         documentName: pagePdfName,
                         tenantCompany,
+                        skipCompanyValidation,
                       })
 
                       if (!securityCheck.allowed) {

@@ -205,6 +205,8 @@ export async function validateNominaUpload(
     documentName?: string
     tenantCompany?: TenantCompanyInfo | null
     excludeNominaId?: string
+    /** Super-admin: omitir comprobación CIF/nombre de empresa (p. ej. pruebas). */
+    skipCompanyValidation?: boolean
   },
 ): Promise<UploadSecurityResult> {
   const {
@@ -216,13 +218,19 @@ export async function validateNominaUpload(
     documentName,
     tenantCompany: preloadedTenant,
     excludeNominaId,
+    skipCompanyValidation = false,
   } = params
 
   const tenantCompany = preloadedTenant ?? (await getTenantCompany(supabase, companyId))
   const extractedCif = normalizeCif(extractedCompany?.cif)
   const tenantCif = normalizeCif(tenantCompany?.cif)
 
-  if (extractedCif && tenantCif && extractedCif !== tenantCif) {
+  if (
+    !skipCompanyValidation &&
+    extractedCif &&
+    tenantCif &&
+    extractedCif !== tenantCif
+  ) {
     const otherCompany = await findCompanyByCif(supabase, extractedCif, companyId)
     const tenantLabel = tenantCompany?.name || 'empresa seleccionada'
     return {
@@ -243,6 +251,7 @@ export async function validateNominaUpload(
   }
 
   if (
+    !skipCompanyValidation &&
     extractedCompany?.name &&
     tenantCompany?.name &&
     !companyNamesMatch(extractedCompany.name, tenantCompany.name)
