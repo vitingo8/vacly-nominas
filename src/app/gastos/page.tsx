@@ -100,6 +100,7 @@ export default function GastosPage() {
   
   // Detectar modo desde query params (employee = trabajador, global = gestor)
   const [viewModeType, setViewModeType] = useState<'employee' | 'global'>('global')
+  const [pageView, setPageView] = useState<'full' | 'upload'>('full')
   const [autoEmployeeId, setAutoEmployeeId] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [employeeIdForCreation, setEmployeeIdForCreation] = useState<string | null>(null)
@@ -113,8 +114,10 @@ export default function GastosPage() {
     const mode = params.get('mode') || 'global'
     const employeeId = params.get('employee_id')
     const paramCompanyId = params.get('company_id')
+    const view = params.get('view')
     
     setViewModeType(mode === 'employee' ? 'employee' : 'global')
+    setPageView(view === 'upload' ? 'upload' : 'full')
     
     // Guardar company_id desde URL - es crítico para filtrado
     if (paramCompanyId) {
@@ -764,7 +767,8 @@ export default function GastosPage() {
           </div>
         )}
 
-        {/* Historial */}
+        {/* Historial — oculto en vista Subir Gastos (view=upload) */}
+        {pageView !== 'upload' && (
         <div className="mt-12">
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4">
@@ -984,6 +988,7 @@ export default function GastosPage() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Dialog de nuevo gasto manual */}

@@ -4,6 +4,11 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
+import {
+  parseExpenseSettingsFromCompany,
+  validateExpenseSubmission,
+  type EmployeeExpenseConfig,
+} from '@/lib/expense-validation'
 
 // GET - Obtener gastos
 export async function GET(request: NextRequest) {
@@ -19,6 +24,9 @@ export async function GET(request: NextRequest) {
       const department = searchParams.get('department')
       const year = searchParams.get('year')
       const month = searchParams.get('month')
+      const dateFrom = searchParams.get('date_from')
+      const dateTo = searchParams.get('date_to')
+      const category = searchParams.get('category')
 
     if (!companyId) {
       console.error(`[${timestamp}] [API EXPENSES] ❌ company_id no proporcionado`)
@@ -55,10 +63,21 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    if (year && month) {
+    if (dateFrom) {
+      query = query.gte('expense_date', dateFrom)
+    }
+    if (dateTo) {
+      query = query.lte('expense_date', dateTo)
+    }
+    if (year && month && !dateFrom && !dateTo) {
       const startDate = `${year}-${month.padStart(2, '0')}-01`
       const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0]
       query = query.gte('expense_date', startDate).lte('expense_date', endDate)
+    }
+    if (category) {
+      query = query.or(
+        `description.ilike.%"subcategory":"${category}"%,description.ilike.%"subcategory": "${category}"%`
+      )
     }
     
     const { data: expenses, error, count } = await query
@@ -264,6 +283,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         success: false,
         error: 'company_id, concept y amount son requeridos'
+      }, { status: 400 })
+    }
+
+    const { data: companyRow } = await supabase
+      .from('companies')
+      .select('expenses_categories')
+      .eq('company_id', company_id)
+      .maybeSingle()
+
+    const companySettings = parseExpenseSettingsFromCompany(companyRow?.expenses_categories)
+
+    let employeeConfig: EmployeeExpenseConfig | null = null
+    if (employee_id) {
+      const { data: employeeRow } = await supabase
+        .from('employees')
+        .select('expenses')
+        .eq('id', employee_id)
+        .eq('company_id', company_id)
+        .maybeSingle()
+
+      if (employeeRow?.expenses && typeof employeeRow.expenses === 'object') {
+        employeeConfig = employeeRow.expenses as EmployeeExpenseConfig
+      }
+    }
+
+    const validation = validateExpenseSubmission({
+      subcategory: subcategory || category || null,
+      amount: parseFloat(amount) || 0,
+      employeeConfig,
+      companySettings,
+      hasReceipt: Boolean(image),
+    })
+
+    if (!validation.ok) {
+      return NextResponse.json({
+        success: false,
+        error: validation.error,
       }, { status: 400 })
     }
 

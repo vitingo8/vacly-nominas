@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -71,11 +72,24 @@ interface NominaViewerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   document: NominaViewerDocument | null
+  defaultTab?: 'resumen' | 'percepciones' | 'deducciones' | 'documento'
 }
 
-export function NominaViewerDialog({ open, onOpenChange, document }: NominaViewerDialogProps) {
+export function NominaViewerDialog({
+  open,
+  onOpenChange,
+  document,
+  defaultTab = 'resumen',
+}: NominaViewerDialogProps) {
   const nominaData = document?.nominaData
   const hasProcessedData = document?.claudeProcessed && nominaData
+  const [activeTab, setActiveTab] = useState(defaultTab)
+
+  useEffect(() => {
+    if (open) {
+      setActiveTab(defaultTab)
+    }
+  }, [open, defaultTab, document?.nominaData?.id])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -94,7 +108,7 @@ export function NominaViewerDialog({ open, onOpenChange, document }: NominaViewe
 
         <div className="flex-1 overflow-auto p-6">
           {hasProcessedData ? (
-            <Tabs defaultValue="resumen" className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-4 mb-6">
                 <TabsTrigger value="resumen">Resumen</TabsTrigger>
                 <TabsTrigger value="percepciones">Percepciones</TabsTrigger>

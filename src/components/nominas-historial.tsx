@@ -11,7 +11,8 @@ import {
   ArrowPathIcon,
   ArrowUturnLeftIcon,
   CalendarIcon,
-  EyeIcon,
+  DocumentTextIcon,
+  TableCellsIcon,
   TrashIcon,
   UserIcon,
 } from '@heroicons/react/24/outline'
@@ -37,6 +38,8 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   const [historialTotal, setHistorialTotal] = useState(0)
   const [isViewerOpen, setIsViewerOpen] = useState(false)
   const [viewerDocument, setViewerDocument] = useState<NominaViewerDocument | null>(null)
+  const [viewerDefaultTab, setViewerDefaultTab] = useState<'resumen' | 'documento'>('resumen')
+  const [loadingPdfId, setLoadingPdfId] = useState<string | null>(null)
 
   const loadHistorial = async (page = 0) => {
     if (!companyId) return
@@ -77,60 +80,77 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
     }
   }
 
-  const openViewerFromHistorial = async (nomina: any) => {
-    try {
-      const { getSupabaseClient } = await import('@/lib/supabase')
-      const supabase = getSupabaseClient()
+  const buildViewerDocument = (nomina: any, pdfUrl = ''): NominaViewerDocument => ({
+    pdfUrl,
+    pageNumber: 1,
+    filename: nomina.document_name || `nomina_${nomina.id}.pdf`,
+    claudeProcessed: true,
+    nominaData: {
+      id: nomina.id,
+      nominaId: nomina.id,
+      period_start: nomina.period_start,
+      period_end: nomina.period_end,
+      employee: nomina.employee,
+      company: nomina.company,
+      perceptions: nomina.perceptions,
+      deductions: nomina.deductions,
+      contributions: nomina.contributions,
+      base_ss: nomina.base_ss,
+      net_pay: nomina.net_pay,
+      gross_salary: nomina.gross_salary,
+      iban: nomina.iban,
+      swift_bic: nomina.swift_bic,
+      cost_empresa: nomina.cost_empresa,
+      signed: nomina.signed,
+      employee_avatar: nomina.employee_avatar,
+    },
+  })
 
+  const fetchDocumentUrl = async (nominaId: string): Promise<string> => {
+    const response = await fetch(`/api/nominas/document-url?id=${nominaId}`)
+    const data = await response.json()
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'No se pudo obtener el documento')
+    }
+    return data.url as string
+  }
+
+  const openDigitalViewer = async (nomina: any) => {
+    try {
       let pdfUrl = ''
       if (nomina.document_name) {
         try {
-          const { data: signedPdfData } = await supabase
-            .storage
-            .from('Nominas')
-            .createSignedUrl(nomina.document_name, 3600)
-
-          if (signedPdfData?.signedUrl) {
-            pdfUrl = signedPdfData.signedUrl
-          } else {
-            const { data: publicPdfData } = supabase.storage.from('Nominas').getPublicUrl(nomina.document_name)
-            pdfUrl = publicPdfData.publicUrl
-          }
-        } catch {
-          const { data: publicPdfData } = supabase.storage.from('Nominas').getPublicUrl(nomina.document_name)
-          pdfUrl = publicPdfData.publicUrl
+          pdfUrl = await fetchDocumentUrl(nomina.id)
+        } catch (pdfError) {
+          console.warn('[HISTORIAL] PDF no disponible para vista digital:', pdfError)
         }
       }
 
-      setViewerDocument({
-        pdfUrl,
-        pageNumber: 1,
-        filename: nomina.document_name || `nomina_${nomina.id}.pdf`,
-        claudeProcessed: true,
-        nominaData: {
-          id: nomina.id,
-          nominaId: nomina.id,
-          period_start: nomina.period_start,
-          period_end: nomina.period_end,
-          employee: nomina.employee,
-          company: nomina.company,
-          perceptions: nomina.perceptions,
-          deductions: nomina.deductions,
-          contributions: nomina.contributions,
-          base_ss: nomina.base_ss,
-          net_pay: nomina.net_pay,
-          gross_salary: nomina.gross_salary,
-          iban: nomina.iban,
-          swift_bic: nomina.swift_bic,
-          cost_empresa: nomina.cost_empresa,
-          signed: nomina.signed,
-          employee_avatar: nomina.employee_avatar,
-        },
-      })
+      setViewerDefaultTab('resumen')
+      setViewerDocument(buildViewerDocument(nomina, pdfUrl))
       setIsViewerOpen(true)
     } catch (error) {
-      console.error('[HISTORIAL] Error abriendo visor:', error)
-      alert('Error al abrir el documento. Por favor, intenta de nuevo.')
+      console.error('[HISTORIAL] Error abriendo vista digital:', error)
+      alert('Error al abrir la nómina digital. Por favor, intenta de nuevo.')
+    }
+  }
+
+  const openPdfDocument = async (nomina: any) => {
+    setLoadingPdfId(nomina.id)
+    try {
+      const pdfUrl = await fetchDocumentUrl(nomina.id)
+      setViewerDefaultTab('documento')
+      setViewerDocument(buildViewerDocument(nomina, pdfUrl))
+      setIsViewerOpen(true)
+    } catch (error) {
+      console.error('[HISTORIAL] Error abriendo documento PDF:', error)
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Error al abrir el documento. Por favor, intenta de nuevo.',
+      )
+    } finally {
+      setLoadingPdfId(null)
     }
   }
 
@@ -188,7 +208,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                     <TableHead className="font-semibold text-slate-700 text-center">Neto</TableHead>
                     <TableHead className="font-semibold text-slate-700 text-center">Coste Emp.</TableHead>
                     <TableHead className="font-semibold text-slate-700 text-center">Fecha</TableHead>
-                    <TableHead className="font-semibold text-slate-700 text-center w-20">Acciones</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center w-28">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -256,11 +276,23 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => openViewerFromHistorial(nomina)}
-                            className="h-7 w-7 p-0 text-slate-400 hover:text-primary hover:bg-primary/10"
-                            title="Ver detalles"
+                            onClick={() => openDigitalViewer(nomina)}
+                            className="h-7 w-7 p-0 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                            title="Ver nómina digital"
                           >
-                            <EyeIcon className="w-3.5 h-3.5" />
+                            <TableCellsIcon className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openPdfDocument(nomina)}
+                            disabled={!nomina.document_name || loadingPdfId === nomina.id}
+                            className="h-7 w-7 p-0 text-slate-400 hover:text-primary hover:bg-primary/10 disabled:opacity-40"
+                            title="Ver documento PDF"
+                          >
+                            <DocumentTextIcon
+                              className={`w-3.5 h-3.5 ${loadingPdfId === nomina.id ? 'animate-pulse' : ''}`}
+                            />
                           </Button>
                           <Button
                             variant="ghost"
@@ -315,6 +347,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
         open={isViewerOpen}
         onOpenChange={setIsViewerOpen}
         document={viewerDocument}
+        defaultTab={viewerDefaultTab}
       />
     </div>
   )
