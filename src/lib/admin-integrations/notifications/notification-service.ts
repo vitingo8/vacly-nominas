@@ -8,7 +8,7 @@ import { createNotificationAdapters } from './adapters'
 import { storeNotificationDocument } from './notification-document-storage'
 import { accesoEnvio, pickAeatDisplaySubject } from './adapters/aeat/aeat-ws-envios'
 import { getAdminConfig } from '../config'
-import { parseIsoOrAeatDate } from './soap/xml'
+import { parseIsoOrAeatDate, normalizeNif } from './soap/xml'
 import type {
   FetchedNotification,
   NotificationSyncResult,
@@ -19,6 +19,7 @@ export interface AdminNotificationRow {
   id: string
   companyId: string
   companyName?: string | null
+  certificateId?: string | null
   provider: string
   externalId: string
   subject: string
@@ -83,6 +84,7 @@ function rowToNotification(row: Record<string, any>): AdminNotificationRow {
   return {
     id: row.id,
     companyId: row.company_id,
+    certificateId: row.certificate_id ?? null,
     provider: row.provider,
     externalId: row.external_id,
     subject: resolveNotificationSubject(row),
@@ -286,6 +288,36 @@ async function createAppNotificationForArrival(
   }
 }
 
+async function resolveCertificateOwnerCompanyId(
+  supabase: SupabaseClient,
+  certificateId: string,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('administrative_certificates')
+    .select('company_id')
+    .eq('id', certificateId)
+    .maybeSingle()
+
+  if (error || !(data as { company_id?: string } | null)?.company_id) {
+    throw new AdminIntegrationError('CERTIFICATE_NOT_FOUND', 'Certificado no encontrado')
+  }
+  return (data as { company_id: string }).company_id
+}
+
+async function markNotificationOpened(
+  supabase: SupabaseClient,
+  notificationId: string,
+  companyId: string,
+  readAt?: string | null,
+): Promise<void> {
+  if (readAt) return
+  await supabase
+    .from('admin_notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', notificationId)
+    .eq('company_id', companyId)
+}
+
 /**
  * Sincroniza notificaciones administrativas reales contra AEAT WS Envíos,
  * TGSS WSCN y DEHú/LEMA usando el certificado de la empresa.
@@ -299,17 +331,19 @@ export async function syncCompanyNotifications(
     throw new AdminIntegrationError('INTEGRATIONS_DISABLED', 'Sincronización de notificaciones desactivada')
   }
 
+  const ownerCompanyId = await resolveCertificateOwnerCompanyId(supabase, input.certificateId)
+
   const audit = new AuditService(supabase)
   const vault = createCertificateVault(supabase, audit)
   const decrypted = await vault.useCertificate(
-    input.companyId,
+    ownerCompanyId,
     input.certificateId,
     'notifications:sync',
     input.actorUserId,
   )
 
   const ctx = {
-    companyId: input.companyId,
+    companyId: ownerCompanyId,
     certificateId: input.certificateId,
     holderNif: decrypted.holderNif,
     pfx: decrypted.pfx,
@@ -330,12 +364,12 @@ export async function syncCompanyNotifications(
   let totalStored = 0
 
   for (const adapter of adapters) {
-    const runId = await startSyncRun(supabase, input.companyId, adapter.provider, input.certificateId)
+    const runId = await startSyncRun(supabase, ownerCompanyId, adapter.provider, input.certificateId)
     try {
       const fetchedItems = await adapter.syncNotifications(ctx)
       let stored = 0
       for (const item of fetchedItems) {
-        const inserted = await persistNotification(supabase, input.companyId, input.certificateId, item)
+        const inserted = await persistNotification(supabase, ownerCompanyId, input.certificateId, item)
         if (inserted) stored += 1
       }
 
@@ -371,10 +405,10 @@ export async function syncCompanyNotifications(
   const allFailed = runs.every((r) => r.status === 'failed')
 
   await audit.log({
-    companyId: input.companyId,
+    companyId: ownerCompanyId,
     eventType: 'notifications_synced',
     actorUserId: input.actorUserId,
-    metadata: { runs, fetched: totalFetched, stored: totalStored },
+    metadata: { runs, fetched: totalFetched, stored: totalStored, requestedBy: input.companyId },
   })
 
   if (allFailed) {
@@ -500,6 +534,7 @@ export async function listAgencyNotifications(
   }
 
   const nameById = new Map<string, string>()
+  const companyIdByCif = new Map<string, string>()
   for (const row of names || []) {
     const label =
       (row as any).company_short ||
@@ -507,6 +542,8 @@ export async function listAgencyNotifications(
       (row as any).cif ||
       String((row as any).company_id).slice(0, 8)
     nameById.set((row as any).company_id, label)
+    const cif = normalizeNif((row as any).cif)
+    if (cif) companyIdByCif.set(cif, (row as any).company_id)
   }
 
   const { data, error } = await supabase
@@ -550,10 +587,11 @@ export async function listAgencyNotifications(
   return (data || []).map((row) => {
     const n = rowToNotification(row)
     const certCompanyId = row.certificate_id ? certCompanyById.get(row.certificate_id) : null
-    // Cartera gestoría: mostrar la empresa titular del certificado, no donde se cargó la notificación.
-    n.companyName = certCompanyId
-      ? (nameById.get(certCompanyId) ?? null)
-      : (nameById.get(n.companyId) ?? null)
+    const metadata = (row.metadata || {}) as Record<string, unknown>
+    const titularNif = normalizeNif(String(metadata.nifTitular || metadata.nifDestinatario || ''))
+    const titularCompanyId = titularNif ? companyIdByCif.get(titularNif) : null
+    const displayCompanyId = certCompanyId || titularCompanyId || n.companyId
+    n.companyName = nameById.get(displayCompanyId) ?? null
     return n
   })
 }
@@ -604,10 +642,12 @@ export async function markNotificationRead(
       )
     }
 
+    const certOwnerCompanyId = await resolveCertificateOwnerCompanyId(supabase, certificateId)
+
     const audit = new AuditService(supabase)
     const vault = createCertificateVault(supabase, audit)
     const decrypted = await vault.useCertificate(
-      companyId,
+      certOwnerCompanyId,
       certificateId,
       'notifications:comparecer',
       input?.actorUserId,
@@ -615,7 +655,7 @@ export async function markNotificationRead(
 
     const acceso = await accesoEnvio(
       {
-        companyId,
+        companyId: certOwnerCompanyId,
         certificateId,
         holderNif: decrypted.holderNif,
         pfx: decrypted.pfx,
@@ -713,6 +753,7 @@ export async function loadNotificationDocumentBuffer(
     if (error || !data) {
       throw new AdminIntegrationError('STORAGE_ERROR', 'No se pudo descargar el documento', error)
     }
+    await markNotificationOpened(supabase, notificationId, companyId, row.read_at)
     return {
       buffer: Buffer.from(await data.arrayBuffer()),
       fileName: `notificacion-${row.external_id || notificationId}.pdf`,
@@ -736,13 +777,15 @@ export async function loadNotificationDocumentBuffer(
     throw new AdminIntegrationError('VALIDATION_ERROR', 'Se requiere certificado para descargar desde AEAT')
   }
 
+  const certOwnerCompanyId = await resolveCertificateOwnerCompanyId(supabase, certificateId)
+
   const metadata = (row.metadata || {}) as Record<string, unknown>
   const operacion: 'C' | 'D' = metadata.estado === 'A' || row.read_at ? 'D' : 'C'
 
   const audit = new AuditService(supabase)
   const vault = createCertificateVault(supabase, audit)
   const decrypted = await vault.useCertificate(
-    companyId,
+    certOwnerCompanyId,
     certificateId,
     'notifications:open',
     input?.actorUserId,
@@ -750,7 +793,7 @@ export async function loadNotificationDocumentBuffer(
 
   const acceso = await accesoEnvio(
     {
-      companyId,
+      companyId: certOwnerCompanyId,
       certificateId,
       holderNif: decrypted.holderNif,
       pfx: decrypted.pfx,

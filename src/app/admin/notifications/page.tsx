@@ -5,12 +5,14 @@ import { AdminShell, useCompanyId } from '@/components/admin/admin-shell'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+
+import { AEAT_LOGO_URL } from '@/lib/brand-assets'
 
 interface NotifRow {
   id: string
   companyId: string
   companyName?: string | null
+  certificateId?: string | null
   provider: string
   externalId: string
   subject: string
@@ -76,11 +78,15 @@ function computeCaducidad(n: NotifRow): string | null {
 }
 
 function isOpenedNotification(n: NotifRow): boolean {
-  return !!(n.readAt || n.hasDocument || n.aeatEstado === 'A')
+  return !!n.readAt
 }
 
 function isPendingNotification(n: NotifRow): boolean {
-  return !isOpenedNotification(n)
+  return !n.readAt
+}
+
+function needsComparecer(row: NotifRow): boolean {
+  return !row.readAt && row.aeatEstado !== 'A'
 }
 
 function filterNotifications(rows: NotifRow[], statusFilter: StatusFilter): NotifRow[] {
@@ -114,11 +120,8 @@ function buildMailtoLink(to: string, subject: string, body: string): string {
 
 export default function AdminNotificationsPage() {
   const companyId = useCompanyId()
-  const [mine, setMine] = useState<NotifRow[]>([])
   const [agency, setAgency] = useState<NotifRow[]>([])
   const [certs, setCerts] = useState<CertOption[]>([])
-  const [selectedCertIds, setSelectedCertIds] = useState<string[]>([])
-  const [certPickerOpen, setCertPickerOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState(false)
@@ -133,21 +136,10 @@ export default function AdminNotificationsPage() {
     fileName: string
   } | null>(null)
   const [confirmOpen, setConfirmOpen] = useState<{
-    id: string
-    subject: string
-    rowCompanyId?: string
-    omitCertOverride?: boolean
+    row: NotifRow
     needsComparecer: boolean
     action: ConfirmAction
   } | null>(null)
-
-  const loadMine = () => {
-    if (!companyId) return
-    fetch(`/api/admin/notifications?company_id=${encodeURIComponent(companyId)}`, { headers: adminHeaders() })
-      .then((r) => r.json())
-      .then((d) => d.success && setMine(d.notifications || []))
-      .catch(() => {})
-  }
 
   const loadAgency = () => {
     if (!companyId) return
@@ -158,8 +150,6 @@ export default function AdminNotificationsPage() {
       .then((d) => d.success && setAgency(d.notifications || []))
       .catch(() => {})
   }
-
-  const primaryCertId = selectedCertIds[0] || ''
 
   const loadCerts = () => {
     if (!companyId) return
@@ -178,18 +168,12 @@ export default function AdminNotificationsPage() {
             companyName: c.companyName ?? null,
           }))
           setCerts(options)
-          setSelectedCertIds((prev) => {
-            const valid = prev.filter((id) => options.some((c: CertOption) => c.id === id))
-            if (valid.length > 0) return valid
-            return options[0] ? [options[0].id] : []
-          })
         }
       })
       .catch(() => {})
   }
 
   useEffect(() => {
-    loadMine()
     loadAgency()
     loadCerts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -206,26 +190,26 @@ export default function AdminNotificationsPage() {
   }
 
   const fetchNotificationPdf = async (
-    id: string,
-    subject: string,
-    rowCompanyId?: string,
-    omitCertOverride?: boolean,
+    row: NotifRow,
     options?: { download?: boolean; confirm?: boolean },
   ): Promise<Blob | null> => {
-    const targetCompanyId = rowCompanyId || companyId
+    const targetCompanyId = row.companyId
     if (!targetCompanyId) return null
-    const needsConfirm = options?.confirm ?? !([...mine, ...agency].find((n) => n.id === id)?.hasDocument)
-    if (needsConfirm && !omitCertOverride && !primaryCertId) {
-      setError('Selecciona al menos un certificado para acceder al documento.')
+
+    const mustComparecer = needsComparecer(row)
+    const needsConfirm = options?.confirm ?? (mustComparecer || !row.hasDocument)
+
+    if (needsConfirm && !row.certificateId) {
+      setError('Esta notificación no tiene certificado asociado.')
       return null
     }
 
     const params = new URLSearchParams({ company_id: targetCompanyId })
     if (needsConfirm) params.set('confirm', '1')
     if (options?.download) params.set('download', '1')
-    if (!omitCertOverride && primaryCertId) params.set('certificate_id', primaryCertId)
+    if (row.certificateId) params.set('certificate_id', row.certificateId)
 
-    const res = await fetch(`/api/admin/notifications/${id}/document?${params}`, {
+    const res = await fetch(`/api/admin/notifications/${row.id}/document?${params}`, {
       headers: adminHeaders(),
     })
     const contentType = res.headers.get('content-type') || ''
@@ -255,8 +239,9 @@ export default function AdminNotificationsPage() {
   const sync = async () => {
     setMessage('')
     setError('')
-    if (!companyId || selectedCertIds.length === 0) {
-      setError('Selecciona al menos un certificado para sincronizar.')
+    const certificateIds = certs.map((c) => c.id)
+    if (!companyId || certificateIds.length === 0) {
+      setError('No hay certificados disponibles en la cartera.')
       return
     }
     setSyncing(true)
@@ -264,7 +249,7 @@ export default function AdminNotificationsPage() {
       const res = await fetch('/api/admin/notifications/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-        body: JSON.stringify({ company_id: companyId, certificate_ids: selectedCertIds }),
+        body: JSON.stringify({ company_id: companyId, certificate_ids: certificateIds }),
       })
       const data = await res.json()
       if (data.success) {
@@ -272,11 +257,10 @@ export default function AdminNotificationsPage() {
         const certErrors = certResults.filter((r) => r.error).length
         setMessage(
           `Sincronización completada: ${data.stored} nuevas de ${data.fetched} recibidas` +
-            (selectedCertIds.length > 1 ? ` (${selectedCertIds.length} certificados)` : '') +
+            (certificateIds.length > 1 ? ` (${certificateIds.length} certificados)` : '') +
             (certErrors > 0 ? ` · ${certErrors} certificado(s) con error` : '') +
             '.',
         )
-        loadMine()
         loadAgency()
       } else {
         setError(data.message || 'Error al sincronizar')
@@ -288,61 +272,33 @@ export default function AdminNotificationsPage() {
     }
   }
 
-  const toggleCert = (id: string) => {
-    setSelectedCertIds((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
-    )
-  }
-
-  const requestAction = (
-    action: ConfirmAction,
-    row: NotifRow,
-    rowCompanyId?: string,
-    omitCertOverride?: boolean,
-  ) => {
-    if (!row.hasDocument) {
-      setConfirmOpen({
-        id: row.id,
-        subject: row.subject,
-        rowCompanyId,
-        omitCertOverride,
-        needsComparecer: isPendingNotification(row),
-        action,
-      })
+  const requestAction = (action: ConfirmAction, row: NotifRow) => {
+    if (needsComparecer(row)) {
+      setConfirmOpen({ row, needsComparecer: true, action })
       return
     }
 
     if (action === 'open') {
-      void runOpen(row.id, row.subject, rowCompanyId, omitCertOverride, false)
+      void runOpen(row, false)
     } else if (action === 'download') {
-      void runDownload(row, rowCompanyId, omitCertOverride, false)
+      void runDownload(row, false)
     } else {
-      void runMailAnalysis(row, rowCompanyId, omitCertOverride, false)
+      void runMailAnalysis(row, false)
     }
   }
 
-  const runOpen = async (
-    id: string,
-    subject: string,
-    rowCompanyId?: string,
-    omitCertOverride?: boolean,
-    needsConfirm = true,
-  ) => {
-    setActingId(id)
+  const runOpen = async (row: NotifRow, withConfirm: boolean) => {
+    setActingId(row.id)
     setError('')
     try {
-      const blob = await fetchNotificationPdf(id, subject, rowCompanyId, omitCertOverride, {
-        confirm: needsConfirm,
-      })
+      const blob = await fetchNotificationPdf(row, { confirm: withConfirm })
       if (!blob) return
       const blobUrl = URL.createObjectURL(blob)
-      const row = [...mine, ...agency].find((n) => n.id === id)
       setViewer({
-        title: row?.subject || subject,
+        title: row.subject,
         blobUrl,
-        fileName: sanitizeFileName(row?.subject || subject),
+        fileName: sanitizeFileName(row.subject),
       })
-      loadMine()
       loadAgency()
     } catch {
       setError('Error de conexion al abrir la notificación')
@@ -351,22 +307,13 @@ export default function AdminNotificationsPage() {
     }
   }
 
-  const runDownload = async (
-    row: NotifRow,
-    rowCompanyId?: string,
-    omitCertOverride?: boolean,
-    needsConfirm = true,
-  ) => {
+  const runDownload = async (row: NotifRow, withConfirm: boolean) => {
     setActingId(row.id)
     setError('')
     try {
-      const blob = await fetchNotificationPdf(row.id, row.subject, rowCompanyId, omitCertOverride, {
-        download: true,
-        confirm: needsConfirm,
-      })
+      const blob = await fetchNotificationPdf(row, { download: true, confirm: withConfirm })
       if (!blob) return
       triggerPdfDownload(blob, sanitizeFileName(row.subject))
-      loadMine()
       loadAgency()
     } catch {
       setError('Error de conexion al descargar la notificación')
@@ -375,16 +322,10 @@ export default function AdminNotificationsPage() {
     }
   }
 
-  const runMailAnalysis = async (
-    row: NotifRow,
-    rowCompanyId?: string,
-    omitCertOverride?: boolean,
-    needsConfirm = true,
-  ) => {
-    const targetCompanyId = rowCompanyId || companyId
-    if (!targetCompanyId) return
-    if (needsConfirm && !omitCertOverride && !primaryCertId) {
-      setError('Selecciona un certificado para analizar la notificación.')
+  const runMailAnalysis = async (row: NotifRow, withConfirm: boolean) => {
+    if (!row.companyId) return
+    if (withConfirm && !row.certificateId) {
+      setError('Esta notificación no tiene certificado asociado.')
       return
     }
 
@@ -395,9 +336,9 @@ export default function AdminNotificationsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...adminHeaders() },
         body: JSON.stringify({
-          company_id: targetCompanyId,
-          confirm: needsConfirm ? 1 : 0,
-          ...(omitCertOverride ? {} : { certificate_id: primaryCertId }),
+          company_id: row.companyId,
+          confirm: withConfirm ? 1 : 0,
+          ...(row.certificateId ? { certificate_id: row.certificateId } : {}),
         }),
       })
       const data = await res.json()
@@ -406,9 +347,7 @@ export default function AdminNotificationsPage() {
         return
       }
 
-      const blob = await fetchNotificationPdf(row.id, row.subject, rowCompanyId, omitCertOverride, {
-        confirm: false,
-      })
+      const blob = await fetchNotificationPdf(row, { confirm: false })
       if (!blob) return
 
       const analysis = data.analysis as EmailAnalysis
@@ -421,7 +360,6 @@ export default function AdminNotificationsPage() {
         pdfBlob: blob,
         fileName: analysis.fileName || sanitizeFileName(row.subject),
       })
-      loadMine()
       loadAgency()
     } catch {
       setError('Error de conexion al preparar el correo')
@@ -432,17 +370,15 @@ export default function AdminNotificationsPage() {
 
   const executeConfirm = async () => {
     if (!confirmOpen) return
-    const { id, subject, rowCompanyId, omitCertOverride, action } = confirmOpen
+    const { row, action } = confirmOpen
     setConfirmOpen(null)
 
     if (action === 'open') {
-      await runOpen(id, subject, rowCompanyId, omitCertOverride, true)
+      await runOpen(row, true)
     } else if (action === 'download') {
-      const row = [...mine, ...agency].find((n) => n.id === id)
-      if (row) await runDownload(row, rowCompanyId, omitCertOverride, true)
+      await runDownload(row, true)
     } else {
-      const row = [...mine, ...agency].find((n) => n.id === id)
-      if (row) await runMailAnalysis(row, rowCompanyId, omitCertOverride, true)
+      await runMailAnalysis(row, true)
     }
   }
 
@@ -458,122 +394,56 @@ export default function AdminNotificationsPage() {
       <Card className="p-6 border-slate-200 w-full">
         <h2 className="font-semibold text-slate-800 mb-1">Sincronizar notificaciones</h2>
         <p className="text-xs text-slate-500 mb-4">
-          La sincronización solo consulta el listado en AEAT (sin abrir ni comparecer). El contenido se descarga
-          únicamente cuando tú pulsas Abrir y confirmas.
+          La sincronización consulta el listado en AEAT con todos los certificados de la cartera (sin abrir ni
+          comparecer). El contenido se descarga solo cuando pulsas Abrir y confirmas.
         </p>
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="relative min-w-[min(100%,420px)] flex-1 max-w-xl">
-            <button
-              type="button"
-              onClick={() => setCertPickerOpen((v) => !v)}
-              className="w-full min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-left flex items-center justify-between gap-2 hover:border-slate-400"
-            >
-              <span className="truncate text-slate-700">
-                {selectedCertIds.length === 0
-                  ? 'Selecciona certificados…'
-                  : `${selectedCertIds.length} certificado${selectedCertIds.length > 1 ? 's' : ''} seleccionado${selectedCertIds.length > 1 ? 's' : ''}`}
-              </span>
-              <span className="text-slate-400 text-xs shrink-0">{certPickerOpen ? '▲' : '▼'}</span>
-            </button>
-            {certPickerOpen && (
-              <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-slate-500">Certificados de la cartera</span>
-                  <button
-                    type="button"
-                    className="text-xs text-[#1B2A41] hover:underline"
-                    onClick={() =>
-                      setSelectedCertIds(
-                        selectedCertIds.length === certs.length ? [] : certs.map((c) => c.id),
-                      )
-                    }
-                  >
-                    {selectedCertIds.length === certs.length ? 'Ninguno' : 'Todos'}
-                  </button>
-                </div>
-                {certs.length === 0 && (
-                  <p className="p-3 text-sm text-slate-500">Sin certificados disponibles</p>
-                )}
-                {certs.map((c) => (
-                  <label
-                    key={c.id}
-                    className="flex items-start gap-3 px-3 py-2.5 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-0"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedCertIds.includes(c.id)}
-                      onChange={() => toggleCert(c.id)}
-                      className="mt-1 h-4 w-4 rounded border-slate-300"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-slate-800 truncate">{c.alias}</span>
-                      {c.companyName && (
-                        <span className="block text-xs text-slate-500 truncate">{c.companyName}</span>
-                      )}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             onClick={sync}
-            disabled={syncing || selectedCertIds.length === 0}
+            disabled={syncing || certs.length === 0}
             className="bg-[#1B2A41] text-white hover:bg-[#152036] shrink-0"
           >
             {syncing
               ? 'Sincronizando...'
-              : selectedCertIds.length > 1
-                ? `Sincronizar ${selectedCertIds.length} certificados`
+              : certs.length > 1
+                ? `Sincronizar ${certs.length} certificados`
                 : 'Sincronizar ahora'}
           </Button>
+          {certs.length > 0 && (
+            <span className="text-xs text-slate-500">
+              {certs.length} certificado{certs.length > 1 ? 's' : ''} de la cartera
+            </span>
+          )}
         </div>
         {message && <p className="text-sm text-emerald-700 mt-3">{message}</p>}
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
       </Card>
 
-      <Tabs defaultValue="mine" className="w-full">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <TabsList>
-            <TabsTrigger value="mine">Esta empresa</TabsTrigger>
-            <TabsTrigger value="agency">Cartera de la gestoria</TabsTrigger>
-          </TabsList>
-          <div className="flex items-center gap-2">
-            <label htmlFor="notif-status-filter" className="text-xs text-slate-500">
-              Mostrar
-            </label>
-            <select
-              id="notif-status-filter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-              className="h-9 rounded-md border border-slate-300 px-3 text-sm bg-white"
-            >
-              <option value="pending">Pendientes</option>
-              <option value="all">Todas</option>
-            </select>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 mt-6">
+        <h3 className="font-semibold text-slate-800">Cartera de la gestoría</h3>
+        <div className="flex items-center gap-2">
+          <label htmlFor="notif-status-filter" className="text-xs text-slate-500">
+            Mostrar
+          </label>
+          <select
+            id="notif-status-filter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="h-9 rounded-md border border-slate-300 px-3 text-sm bg-white"
+          >
+            <option value="pending">Pendientes</option>
+            <option value="all">Todas</option>
+          </select>
         </div>
-        <TabsContent value="mine">
-          <NotifTable
-            rows={filterNotifications(mine, statusFilter)}
-            totalCount={mine.length}
-            statusFilter={statusFilter}
-            onRequestAction={requestAction}
-            actingId={actingId}
-          />
-        </TabsContent>
-        <TabsContent value="agency">
-          <NotifTable
-            rows={filterNotifications(agency, statusFilter)}
-            totalCount={agency.length}
-            statusFilter={statusFilter}
-            onRequestAction={requestAction}
-            actingId={actingId}
-            showCompany
-            useRowCompanyId
-          />
-        </TabsContent>
-      </Tabs>
+      </div>
+
+      <NotifTable
+        rows={filterNotifications(agency, statusFilter)}
+        totalCount={agency.length}
+        statusFilter={statusFilter}
+        onRequestAction={requestAction}
+        actingId={actingId}
+      />
 
       {confirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -590,15 +460,15 @@ export default function AdminNotificationsPage() {
             <p className="text-sm text-slate-600 mb-4">
               {confirmOpen.needsComparecer
                 ? confirmOpen.action === 'mail'
-                  ? `Para redactar el correo al cliente hay que comparecer ante AEAT y descargar «${confirmOpen.subject}». Esta acción tiene efectos legales.`
+                  ? `Para redactar el correo al cliente hay que comparecer ante AEAT y descargar «${confirmOpen.row.subject}». Esta acción tiene efectos legales.`
                   : confirmOpen.action === 'download'
-                    ? `Al descargar «${confirmOpen.subject}» se comparecerá ante AEAT. Esta acción tiene efectos legales.`
-                    : `Al abrir «${confirmOpen.subject}» se comparecerá ante AEAT y se descargará el contenido. Esta acción tiene efectos legales.`
+                    ? `Al descargar «${confirmOpen.row.subject}» se comparecerá ante AEAT. Esta acción tiene efectos legales.`
+                    : `Al abrir «${confirmOpen.row.subject}» se comparecerá ante AEAT y se descargará el contenido. Esta acción tiene efectos legales.`
                 : confirmOpen.action === 'mail'
-                  ? `Se analizará «${confirmOpen.subject}» con IA y se propondrá un correo al cliente.`
+                  ? `Se analizará «${confirmOpen.row.subject}» con IA y se propondrá un correo al cliente.`
                   : confirmOpen.action === 'download'
-                    ? `¿Descargar el PDF de «${confirmOpen.subject}»?`
-                    : `¿Mostrar el contenido de «${confirmOpen.subject}» en pantalla?`}
+                    ? `¿Descargar el PDF de «${confirmOpen.row.subject}»?`
+                    : `¿Mostrar el contenido de «${confirmOpen.row.subject}» en pantalla?`}
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setConfirmOpen(null)}>
@@ -747,11 +617,11 @@ function AeatLogo() {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src="/brands/aeat.png"
+      src={AEAT_LOGO_URL}
       alt="AEAT"
       width={28}
       height={28}
-      className="rounded-sm shrink-0 h-7 w-7 object-contain"
+      className="rounded-sm shrink-0 h-7 w-7 object-contain bg-white"
       onError={() => setImgFailed(true)}
     />
   )
@@ -835,23 +705,14 @@ function NotifTable({
   statusFilter,
   onRequestAction,
   actingId,
-  showCompany = false,
-  useRowCompanyId = false,
 }: {
   rows: NotifRow[]
   totalCount: number
   statusFilter: StatusFilter
-  onRequestAction: (
-    action: ConfirmAction,
-    row: NotifRow,
-    rowCompanyId?: string,
-    omitCertOverride?: boolean,
-  ) => void
+  onRequestAction: (action: ConfirmAction, row: NotifRow) => void
   actingId: string | null
-  showCompany?: boolean
-  useRowCompanyId?: boolean
 }) {
-  const colCount = showCompany ? 9 : 8
+  const colCount = 9
   const emptyMessage =
     statusFilter === 'pending'
       ? totalCount === 0
@@ -879,73 +740,72 @@ function NotifTable({
         )}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[1280px]">
+        <table className="w-full text-sm">
           <thead className="bg-slate-50">
             <tr>
-              {showCompany && <th className="text-left p-3 font-medium text-slate-600">Empresa</th>}
-              <th className="text-left p-3 font-medium text-slate-600">Organismo</th>
-              <th className="text-left p-3 font-medium text-slate-600">Código</th>
-              <th className="text-left p-3 font-medium text-slate-600">Asunto</th>
-              <th className="text-left p-3 font-medium text-slate-600">Emisión</th>
-              <th className="text-left p-3 font-medium text-slate-600">Notificación</th>
-              <th className="text-left p-3 font-medium text-slate-600">Caducidad</th>
-              <th className="text-left p-3 font-medium text-slate-600">Estado</th>
-              <th className="text-right p-3 font-medium text-slate-600">Acciones</th>
+              <th className="text-left p-3 font-medium text-slate-600 min-w-[120px]">Empresa</th>
+              <th className="text-left p-3 font-medium text-slate-600 min-w-[100px]">Organismo</th>
+              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Código</th>
+              <th className="text-left p-3 font-medium text-slate-600 min-w-[180px]">Asunto</th>
+              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Emisión</th>
+              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Notificación</th>
+              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Caducidad</th>
+              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Estado</th>
+              <th className="text-right p-3 font-medium text-slate-600 whitespace-nowrap">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((n) => {
               const opened = isOpenedNotification(n)
               const busy = actingId === n.id
-              const actionCompanyId = useRowCompanyId ? n.companyId : undefined
               const caducidad = computeCaducidad(n)
               return (
                 <tr key={n.id} className={`border-t border-slate-100 ${!opened ? 'bg-amber-50/40' : ''}`}>
-                  {showCompany && (
-                    <td className="p-3 text-slate-700 font-medium">{n.companyName || 'Empresa'}</td>
-                  )}
-                  <td className="p-3">
+                  <td className="p-3 text-slate-700 font-medium align-top break-words max-w-[160px]">
+                    {n.companyName || 'Empresa'}
+                  </td>
+                  <td className="p-3 align-top break-words max-w-[140px]">
                     <ProviderBadge provider={n.provider} sender={n.sender} />
                   </td>
-                  <td className="p-3 font-mono text-xs text-slate-600 whitespace-nowrap">{n.externalId || '—'}</td>
-                  <td className="p-3 text-slate-700 max-w-[280px]">
-                    <span className="line-clamp-2">{n.subject}</span>
+                  <td className="p-3 font-mono text-xs text-slate-600 align-top whitespace-nowrap">{n.externalId || '—'}</td>
+                  <td className="p-3 text-slate-700 align-top break-words">
+                    <span className="whitespace-normal">{n.subject}</span>
                     {n.concept && n.concept !== n.subject && (
-                      <span className="block text-[11px] text-slate-400 line-clamp-1 mt-0.5">{n.concept}</span>
+                      <span className="block text-[11px] text-slate-400 mt-0.5 whitespace-normal break-words">{n.concept}</span>
                     )}
                   </td>
-                  <td className="p-3 text-slate-600 whitespace-nowrap">{fmtDate(n.receivedAt)}</td>
-                  <td className="p-3 text-slate-600 whitespace-nowrap">{fmtDate(n.readAt)}</td>
-                  <td className={`p-3 whitespace-nowrap ${deadlineClass(caducidad, opened)}`}>
+                  <td className="p-3 text-slate-600 align-top whitespace-nowrap">{fmtDate(n.receivedAt)}</td>
+                  <td className="p-3 text-slate-600 align-top whitespace-nowrap">{fmtDate(n.readAt)}</td>
+                  <td className={`p-3 align-top whitespace-nowrap ${deadlineClass(caducidad, opened)}`}>
                     {fmtDate(caducidad)}
                   </td>
-                  <td className="p-3">
+                  <td className="p-3 align-top">
                     {opened ? (
                       <Badge variant="outline">Abierto</Badge>
                     ) : (
                       <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">Pendiente</Badge>
                     )}
                   </td>
-                  <td className="p-3">
-                    <div className="flex items-center justify-end gap-1.5">
+                  <td className="p-3 align-top">
+                    <div className="flex items-center justify-end gap-1.5 flex-wrap">
                       <IconButton
                         label="Abrir notificación"
                         disabled={busy}
-                        onClick={() => onRequestAction('open', n, actionCompanyId, useRowCompanyId)}
+                        onClick={() => onRequestAction('open', n)}
                       >
                         <IconOpen />
                       </IconButton>
                       <IconButton
                         label="Descargar PDF"
                         disabled={busy}
-                        onClick={() => onRequestAction('download', n, actionCompanyId, useRowCompanyId)}
+                        onClick={() => onRequestAction('download', n)}
                       >
                         <IconDocument />
                       </IconButton>
                       <IconButton
                         label="Correo con IA"
                         disabled={busy}
-                        onClick={() => onRequestAction('mail', n, actionCompanyId, useRowCompanyId)}
+                        onClick={() => onRequestAction('mail', n)}
                       >
                         <IconMail />
                       </IconButton>
