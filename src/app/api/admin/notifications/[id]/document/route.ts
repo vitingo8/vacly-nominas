@@ -1,6 +1,6 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
-import { adminErrorResponse, jsonOk } from '@/lib/admin-integrations/api-helpers'
+import { adminErrorResponse } from '@/lib/admin-integrations/api-helpers'
 import {
   assertValidCompanyId,
   assertCompanyAccess,
@@ -18,6 +18,7 @@ export async function GET(
     const companyId = request.nextUrl.searchParams.get('company_id')
     const certificateId = request.nextUrl.searchParams.get('certificate_id') || undefined
     const userConfirmed = request.nextUrl.searchParams.get('confirm') === '1'
+    const download = request.nextUrl.searchParams.get('download') === '1'
     assertValidCompanyId(companyId)
     assertCompanyAccess(request, companyId!)
 
@@ -29,13 +30,21 @@ export async function GET(
     }
 
     const supabase = getSupabaseClient()
-    const result = await openNotificationDocument(supabase, companyId!, id, {
+    const doc = await openNotificationDocument(supabase, companyId!, id, {
       actorUserId: getActorUserId(request),
       certificateId,
       userConfirmed: true,
     })
 
-    return jsonOk(result)
+    return new NextResponse(new Uint8Array(doc.buffer), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${doc.fileName.replace(/"/g, '')}"`,
+        'Cache-Control': 'private, no-store',
+        'X-Notification-Comparecida': doc.comparecida ? '1' : '0',
+      },
+    })
   } catch (error) {
     return adminErrorResponse(error)
   }

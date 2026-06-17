@@ -32,12 +32,34 @@ export interface AeatEnvioListItem {
 
 export interface AeatAccesoResult {
   concepto?: string
+  descripcionProcedimiento?: string
   sender: string
   documentPdf?: Buffer
   certificationPdf?: Buffer
   fechaAcceso?: string
   fechaEmision?: string
   rawXml: string
+}
+
+export function pickAeatDisplaySubject(input: {
+  consultaAsunto?: string | null
+  concepto?: string | null
+  descripcionProcedimiento?: string | null
+  externalId?: string | null
+}): string {
+  const generic = new Set(['notificación aeat', 'notificacion aeat', 'notificación administrativa', 'notificacion administrativa'])
+  const candidates = [input.concepto, input.descripcionProcedimiento, input.consultaAsunto]
+  for (const candidate of candidates) {
+    const text = String(candidate || '').trim()
+    if (!text) continue
+    if (generic.has(text.toLowerCase())) continue
+    return text
+  }
+
+  const fallback = String(input.consultaAsunto || '').trim()
+  if (fallback) return fallback
+  if (input.externalId) return `Notificación ${input.externalId}`
+  return 'Notificación AEAT'
 }
 
 /** Plazo legal de comparecencia: 10 días hábiles desde la puesta a disposición (notificaciones pendientes). */
@@ -60,11 +82,24 @@ function addBusinessDays(date: Date, days: number): Date {
   return result
 }
 
+function resolveAeatAsunto(block: string, metadatos?: string): string {
+  const scopes = [metadatos, block].filter(Boolean) as string[]
+  const tags = ['Asunto', 'Descripcion', 'DescripcionProcedimiento', 'Concepto']
+  for (const scope of scopes) {
+    for (const tag of tags) {
+      const value = extractTag(scope, tag)
+      if (value) return value
+    }
+  }
+  return 'Notificación AEAT'
+}
+
 function parseEnvioBlock(block: string): AeatEnvioListItem | null {
   const numeroCertificado = extractTag(block, 'NumeroCertificado')
   if (!numeroCertificado) return null
 
-  const metadatos = extractBlocks(block, 'MetadatosPublicos')[0] || block
+  const metadatosBlock = extractBlocks(block, 'MetadatosPublicos')[0]
+  const metadatos = metadatosBlock || block
   const fechaPuestaDisposicion =
     extractTag(metadatos, 'FechaPuestaDisposicion') ||
     extractTag(block, 'FechaPuestaDisposicion') ||
@@ -80,11 +115,12 @@ function parseEnvioBlock(block: string): AeatEnvioListItem | null {
   return {
     numeroCertificado,
     estado,
-    asunto: extractTag(metadatos, 'Asunto') || extractTag(block, 'Asunto') || 'Notificación AEAT',
+    asunto: resolveAeatAsunto(block, metadatosBlock),
     tipoEnvio,
     fechaPuestaDisposicion,
     nifTitular: extractTag(block, 'NifTitular') || extractTag(metadatos, 'NifTitular') || undefined,
-    nifDestinatario: extractTag(block, 'NifDestinatario') || extractTag(metadatos, 'NifDestinatario') || undefined,
+    nifDestinatario:
+      extractTag(block, 'NifDestinatario') || extractTag(metadatos, 'NifDestinatario') || undefined,
     accessDeadline: explicitDeadline
       ? parseIsoOrAeatDate(explicitDeadline)
       : computeAeatAccessDeadline(receivedAt, tipoEnvio, estado),
@@ -187,6 +223,7 @@ export async function accesoEnvio(
 
   return {
     concepto: extractTag(res.body, 'Concepto') || undefined,
+    descripcionProcedimiento: extractTag(res.body, 'DescripcionProcedimiento') || undefined,
     sender: extractTag(res.body, 'NombreOficinaRemitente') || 'AEAT',
     documentPdf: decodeBase64Field(extractTag(res.body, 'DocumentoPDF')),
     certificationPdf: decodeBase64Field(extractTag(res.body, 'CertificacionPDF')),

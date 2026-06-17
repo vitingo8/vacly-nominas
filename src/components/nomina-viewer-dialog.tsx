@@ -105,6 +105,8 @@ export function NominaViewerDialog({
               hasDocument
               defaultTab="documento"
             />
+          ) : document?.pdfUrl && nominaId ? (
+            <NominaPdfPanel nominaId={nominaId} filename={document.filename} />
           ) : document?.pdfUrl ? (
             <NominaPdfPanel pdfUrl={document.pdfUrl} filename={document.filename} />
           ) : (

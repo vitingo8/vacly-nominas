@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -48,48 +48,110 @@ export function NominaPdfPanel({
   filename?: string
   pdfUrl?: string
 }) {
-  const pdfSrc = pdfUrl || (nominaId ? `/api/nominas/document?id=${encodeURIComponent(nominaId)}` : '')
+  const pdfFetchUrl =
+    pdfUrl?.startsWith('http')
+      ? pdfUrl
+      : pdfUrl || (nominaId ? `/api/nominas/document?id=${encodeURIComponent(nominaId)}` : '')
   const downloadName = filename || (nominaId ? `nomina_${nominaId}.pdf` : 'nomina.pdf')
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  if (!pdfSrc) {
-    return (
-      <p className="text-center text-slate-500 py-8">No hay documento PDF disponible.</p>
-    )
+  useEffect(() => {
+    if (!pdfFetchUrl) {
+      setBlobUrl(null)
+      return
+    }
+
+    let objectUrl: string | null = null
+    const controller = new AbortController()
+    setLoading(true)
+    setError(null)
+
+    fetch(pdfFetchUrl, { signal: controller.signal, credentials: 'same-origin' })
+      .then(async (res) => {
+        const contentType = res.headers.get('content-type') || ''
+        if (!res.ok || !contentType.includes('application/pdf')) {
+          let message = 'No se pudo cargar el PDF'
+          try {
+            const data = await res.json()
+            message = data.error || data.message || message
+          } catch {
+            /* respuesta no JSON */
+          }
+          throw new Error(message)
+        }
+        return res.blob()
+      })
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob)
+        setBlobUrl(objectUrl)
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return
+        setError(err instanceof Error ? err.message : 'Error al cargar el PDF')
+        setBlobUrl(null)
+      })
+      .finally(() => setLoading(false))
+
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [pdfFetchUrl])
+
+  if (!pdfFetchUrl) {
+    return <p className="text-center text-slate-500 py-8">No hay documento PDF disponible.</p>
   }
 
   return (
     <div className="h-[min(60vh,520px)] flex flex-col">
-      <div className="flex-1 rounded-xl border-2 border-slate-200 overflow-hidden bg-slate-50 min-h-[320px]">
-        <iframe
-          src={`${pdfSrc}#toolbar=1&navpanes=0&scrollbar=1`}
-          className="w-full h-full"
-          title="Visor PDF de nómina"
-          allowFullScreen
-          style={{ border: 'none' }}
-        />
+      <div className="flex-1 rounded-xl border-2 border-slate-200 overflow-hidden bg-neutral-100 min-h-[320px]">
+        {loading && (
+          <div className="flex h-full min-h-[320px] items-center justify-center text-sm text-slate-500">
+            Cargando PDF…
+          </div>
+        )}
+        {!loading && error && (
+          <div className="flex h-full min-h-[320px] items-center justify-center px-6 text-center text-sm text-red-600">
+            {error}
+          </div>
+        )}
+        {!loading && !error && blobUrl && (
+          <iframe
+            src={`${blobUrl}#toolbar=1&navpanes=0&scrollbar=1`}
+            className="w-full h-full min-h-[320px] border-0"
+            title="Visor PDF de nómina"
+            allowFullScreen
+          />
+        )}
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-600">
-          Visor integrado. Si no carga, abre el PDF en una pestaña nueva.
+          Visor integrado (mismo método que Inbox). Si no carga, prueba descargar el PDF.
         </p>
         <div className="flex items-center gap-2">
-          <a
-            href={pdfSrc}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium inline-flex items-center gap-2"
-          >
-            <EyeIcon className="w-4 h-4" />
-            Abrir en nueva pestaña
-          </a>
-          <a
-            href={pdfSrc}
-            download={downloadName}
-            className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium inline-flex items-center gap-2"
-          >
-            <ArrowDownTrayIcon className="w-4 h-4" />
-            Descargar PDF
-          </a>
+          {blobUrl && (
+            <>
+              <a
+                href={blobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium inline-flex items-center gap-2"
+              >
+                <EyeIcon className="w-4 h-4" />
+                Abrir en nueva pestaña
+              </a>
+              <a
+                href={blobUrl}
+                download={downloadName}
+                className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium inline-flex items-center gap-2"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4" />
+                Descargar PDF
+              </a>
+            </>
+          )}
         </div>
       </div>
     </div>

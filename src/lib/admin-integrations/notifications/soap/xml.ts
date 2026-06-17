@@ -12,6 +12,24 @@ export function stripXmlPrefix(tag: string): string {
   return idx >= 0 ? tag.slice(idx + 1) : tag
 }
 
+export function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+}
+
+function unwrapXmlTextContent(raw: string): string | null {
+  let inner = raw.trim()
+  const cdata = inner.match(/^<!\[CDATA\[([\s\S]*?)]]>$/i)
+  if (cdata) inner = cdata[1].trim()
+  if (!inner || inner.startsWith('<')) return null
+  const text = decodeXmlEntities(inner).trim()
+  return text || null
+}
+
 /** Extrae el texto del primer elemento con nombre local `tag` (ignora prefijo). */
 export function extractTag(xml: string, tag: string): string | null {
   const re = new RegExp(
@@ -20,9 +38,7 @@ export function extractTag(xml: string, tag: string): string | null {
   )
   const match = xml.match(re)
   if (!match) return null
-  const inner = match[1].trim()
-  if (!inner || inner.startsWith('<')) return null
-  return inner
+  return unwrapXmlTextContent(match[1])
 }
 
 /** Extrae bloques XML completos del primer nivel para un tag local. */
@@ -42,8 +58,8 @@ export function extractAllTags(xml: string, tag: string): string[] {
   const out: string[] = []
   let m: RegExpExecArray | null
   while ((m = re.exec(xml)) !== null) {
-    const inner = m[1].trim()
-    if (inner && !inner.startsWith('<')) out.push(inner)
+    const inner = unwrapXmlTextContent(m[1])
+    if (inner) out.push(inner)
   }
   return out
 }
