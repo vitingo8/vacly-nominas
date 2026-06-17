@@ -15,8 +15,8 @@ import {
   CreditCardIcon,
   ExclamationTriangleIcon,
   EyeIcon,
-import { PersonAvatar } from '@/components/ui/person-avatar'
 } from '@heroicons/react/24/outline'
+import { PersonAvatar } from '@/components/ui/person-avatar'
 
 interface NominaData {
   id: string

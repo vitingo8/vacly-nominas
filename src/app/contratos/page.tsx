@@ -32,6 +32,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
 import { PersonAvatar } from '@/components/ui/person-avatar'
+import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface Employee {

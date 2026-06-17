@@ -37,6 +37,7 @@ import {
   DialogDescription, DialogFooter
 } from '@/components/ui/dialog'
 import { PersonAvatar } from '@/components/ui/person-avatar'
+import { cn } from '@/lib/utils'
 import {
   calculatePayslip, isIndefiniteContract, TipoContrato, TipoJornada
 } from '@/lib/calculadora'

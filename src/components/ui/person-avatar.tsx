@@ -32,7 +32,7 @@ export function PersonAvatar({
 }: PersonAvatarProps) {
   const initials = getPersonInitials(firstName ?? name, lastName)
   const displayName =
-    alt ?? [firstName ?? name, lastName].filter(Boolean).join(' ').trim() || 'Usuario'
+    alt ?? ([firstName ?? name, lastName].filter(Boolean).join(' ').trim() || 'Usuario')
   const dim = sizeClasses[size]
 
   if (imageUrl) {

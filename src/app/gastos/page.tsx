@@ -12,11 +12,11 @@ import {
   SparklesIcon,
   Squares2X2Icon,
   TrashIcon,
-import { PersonAvatar } from '@/components/ui/person-avatar'
   WalletIcon,
   ArrowUturnLeftIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
+import { PersonAvatar } from '@/components/ui/person-avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'

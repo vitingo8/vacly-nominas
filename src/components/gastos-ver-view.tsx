@@ -14,9 +14,9 @@ import {
   DocumentTextIcon,
   SparklesIcon,
   TrashIcon,
-import { PersonAvatar } from '@/components/ui/person-avatar'
   XMarkIcon,
 } from '@heroicons/react/24/outline'
+import { PersonAvatar } from '@/components/ui/person-avatar'
 import { cn } from '@/lib/utils'
 import { useEmbeddedMode } from '@/lib/embedded-mode'
 import type { Expense } from '@/types/expenses'
