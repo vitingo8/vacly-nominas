@@ -20,6 +20,23 @@ export interface ParsedCertificate {
 
 const NIF_REGEX = /\b([0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z]|[A-Z][0-9]{7}[0-9A-J])\b/
 
+/**
+ * node-forge devuelve los textos (UTF8String) como cadena "binaria" latin1,
+ * por lo que "ó" (UTF-8 0xC3 0xB3) aparece como "Ã³". Se reinterpretan los
+ * bytes latin1 como UTF-8 para recuperar el texto original.
+ */
+function decodeForgeString(value: string): string {
+  // Solo hace falta corregir si hay bytes altos (no ASCII).
+  if (!/[\u0080-\u00ff]/.test(value)) return value
+  try {
+    const decoded = Buffer.from(value, 'latin1').toString('utf8')
+    // Si la decodificación produce U+FFFD no era UTF-8 válido: conservar original.
+    return decoded.includes('\ufffd') ? value : decoded
+  } catch {
+    return value
+  }
+}
+
 /** Localiza el primer atributo de un campo X.509 (subject/issuer) por shortName o name. */
 function getAttr(
   field: forge.pki.Certificate['subject'] | forge.pki.Certificate['issuer'],
@@ -27,7 +44,7 @@ function getAttr(
 ): string | null {
   for (const name of names) {
     const attr = field.getField(name)
-    if (attr?.value) return String(attr.value)
+    if (attr?.value) return decodeForgeString(String(attr.value))
   }
   return null
 }
