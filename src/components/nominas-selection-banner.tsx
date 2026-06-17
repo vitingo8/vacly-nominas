@@ -61,13 +61,13 @@ export function NominasSelectionBanner({
   return (
     <div
       className={cn(
-        'mt-4 transition-all duration-300 ease-out',
-        show ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0 pointer-events-none',
+        'fixed bottom-4 left-1/2 z-50 w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 transition-all duration-300 ease-out',
+        show ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0 pointer-events-none',
       )}
       role="status"
       aria-live="polite"
     >
-      <div className="rounded-2xl border border-[#1B2A41]/15 bg-gradient-to-r from-[#1B2A41] to-[#243656] text-white shadow-2xl shadow-[#1B2A41]/20 px-4 py-4 sm:px-6">
+      <div className="rounded-2xl border border-[#1B2A41]/15 bg-gradient-to-r from-[#1B2A41] to-[#243656] text-white shadow-2xl shadow-[#1B2A41]/40 px-4 py-4 sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <div>

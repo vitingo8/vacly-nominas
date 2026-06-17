@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 
-type EmployeeOption = { id: string; name: string; nif?: string }
+type EmployeeOption = { id: string; name: string; nif?: string; hire_date?: string | null }
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
     const { data: employees, error } = await supabase
       .from('employees')
-      .select('id, first_name, last_name, nif')
+      .select('id, first_name, last_name, nif, entry_date')
       .eq('company_id', companyId)
       .order('first_name')
       .order('last_name')
@@ -25,6 +25,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Error al cargar empleados' }, { status: 500 })
     }
 
+    // Fecha de alta = fecha del contrato más antiguo (con fallback a entry_date).
+    const earliestContractByEmployee = new Map<string, string>()
+    const { data: contracts } = await supabase
+      .from('contracts')
+      .select('employee_id, start_date')
+      .eq('company_id', companyId)
+      .not('start_date', 'is', null)
+
+    for (const c of contracts || []) {
+      const empId = c.employee_id as string
+      const start = c.start_date as string
+      if (!empId || !start) continue
+      const current = earliestContractByEmployee.get(empId)
+      if (!current || start < current) {
+        earliestContractByEmployee.set(empId, start)
+      }
+    }
+
     const byId = new Map<string, EmployeeOption>()
 
     for (const emp of employees || []) {
@@ -32,6 +50,9 @@ export async function GET(request: NextRequest) {
         id: emp.id,
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Sin nombre',
         nif: emp.nif || undefined,
+        hire_date:
+          earliestContractByEmployee.get(emp.id) ||
+          ((emp as { entry_date?: string | null }).entry_date ?? null),
       })
     }
 

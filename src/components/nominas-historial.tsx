@@ -2,20 +2,21 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { NominaDetailPanel } from '@/components/nomina-detail-panel'
+import { NominaDetailPanel, NominaAggregatePanel, type NominaAggregate } from '@/components/nomina-detail-panel'
 import { NominaEstadoBadge } from '@/components/nomina-estado-badge'
 import { NominasSelectionBanner, type SelectionTotals } from '@/components/nominas-selection-banner'
 import type { NominaViewerData } from '@/components/nomina-viewer-dialog'
 import {
+  AdjustmentsHorizontalIcon,
   ArrowDownTrayIcon,
   ArrowPathIcon,
   ArrowUturnLeftIcon,
-  CalendarDaysIcon,
   ChevronDownIcon,
+  FunnelIcon,
   MagnifyingGlassIcon,
+  RectangleGroupIcon,
   TrashIcon,
   UserIcon,
   XMarkIcon,
@@ -23,7 +24,34 @@ import {
 import { cn } from '@/lib/utils'
 
 const HISTORIAL_LIMIT = 25
+const GROUPED_FETCH_LIMIT = 2000
 const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+type RangePreset = 'all' | 'currentYear' | 'lastYear' | 'currentQuarter' | 'lastQuarter' | 'custom'
+type GroupBy = 'none' | 'month' | 'quarter' | 'year'
+
+const RANGE_PRESETS: Array<{ value: RangePreset; label: string }> = [
+  { value: 'all', label: 'Todo el histórico' },
+  { value: 'currentYear', label: 'Año actual' },
+  { value: 'lastYear', label: 'Año anterior' },
+  { value: 'currentQuarter', label: 'Trimestre actual' },
+  { value: 'lastQuarter', label: 'Trimestre anterior' },
+  { value: 'custom', label: 'Personalizado' },
+]
+
+const GROUP_OPTIONS: Array<{ value: GroupBy; label: string }> = [
+  { value: 'none', label: 'Sin grupo (cada nómina)' },
+  { value: 'month', label: 'Mes' },
+  { value: 'quarter', label: 'Trimestre' },
+  { value: 'year', label: 'Año' },
+]
+
+interface EmployeeOption {
+  id: string
+  name: string
+  nif?: string
+  hire_date?: string | null
+}
 
 interface NominaRow {
   id: string
@@ -36,17 +64,23 @@ interface NominaRow {
   gross_salary?: number
   net_pay?: number
   cost_empresa?: number
+  base_ss?: number
   created_at?: string
   employee?: { name?: string; dni?: string; nss?: string; category?: string; code?: string }
   company?: { name?: string; cif?: string }
   perceptions?: NominaViewerData['perceptions']
   deductions?: NominaViewerData['deductions']
   contributions?: NominaViewerData['contributions']
-  base_ss?: number
   iban?: string
   swift_bic?: string
   signed?: boolean
   employee_avatar?: string | null
+}
+
+interface NominaGroup {
+  key: string
+  label: string
+  aggregate: NominaAggregate
 }
 
 function formatCurrency(amount: number | undefined) {
@@ -57,6 +91,139 @@ function formatCurrency(amount: number | undefined) {
 function formatPeriod(periodStart?: string) {
   if (!periodStart) return '—'
   return new Date(periodStart).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })
+}
+
+function lastDayOfMonth(year: number, month1: number) {
+  return new Date(year, month1, 0).getDate()
+}
+
+function quarterRange(year: number, qIndex: number) {
+  const startMonth = qIndex * 3 + 1
+  const endMonth = startMonth + 2
+  return {
+    from: `${year}-${String(startMonth).padStart(2, '0')}-01`,
+    to: `${year}-${String(endMonth).padStart(2, '0')}-${String(lastDayOfMonth(year, endMonth)).padStart(2, '0')}`,
+  }
+}
+
+function computeBaseRange(
+  preset: RangePreset,
+  customFrom: string,
+  customTo: string,
+): { from?: string; to?: string } {
+  const now = new Date()
+  const year = now.getFullYear()
+  const currentQ = Math.floor(now.getMonth() / 3) // 0..3
+
+  switch (preset) {
+    case 'currentYear':
+      return { from: `${year}-01-01`, to: `${year}-12-31` }
+    case 'lastYear':
+      return { from: `${year - 1}-01-01`, to: `${year - 1}-12-31` }
+    case 'currentQuarter':
+      return quarterRange(year, currentQ)
+    case 'lastQuarter':
+      return currentQ === 0 ? quarterRange(year - 1, 3) : quarterRange(year, currentQ - 1)
+    case 'custom': {
+      const range: { from?: string; to?: string } = {}
+      if (customFrom) range.from = `${customFrom}-01`
+      if (customTo) {
+        const [cy, cm] = customTo.split('-').map((n) => parseInt(n, 10))
+        if (cy && cm) range.to = `${customTo}-${String(lastDayOfMonth(cy, cm)).padStart(2, '0')}`
+      }
+      return range
+    }
+    case 'all':
+    default:
+      return {}
+  }
+}
+
+function groupKeyLabel(periodStart: string, groupBy: GroupBy): { key: string; label: string } {
+  const d = new Date(periodStart)
+  const year = d.getFullYear()
+  const month = d.getMonth() + 1
+  switch (groupBy) {
+    case 'year':
+      return { key: `${year}`, label: `${year}` }
+    case 'quarter': {
+      const q = Math.floor((month - 1) / 3) + 1
+      return { key: `${year}-Q${q}`, label: `T${q} ${year}` }
+    }
+    case 'month':
+    default:
+      return { key: `${year}-${String(month).padStart(2, '0')}`, label: `${MONTH_LABELS[month - 1]} ${year}` }
+  }
+}
+
+function buildAggregate(nominas: NominaRow[]): NominaAggregate {
+  const perceptionsMap = new Map<string, { code?: string; concept?: string; amount: number }>()
+  const deductionsMap = new Map<string, { code?: string; concept?: string; amount: number }>()
+  const contributionsMap = new Map<string, { concept?: string; base: number; employer_contribution: number }>()
+
+  let gross = 0
+  let net = 0
+  let cost = 0
+  let baseSs = 0
+
+  for (const n of nominas) {
+    gross += n.gross_salary || 0
+    net += n.net_pay || 0
+    cost += n.cost_empresa || 0
+    baseSs += n.base_ss || 0
+
+    for (const p of n.perceptions || []) {
+      const key = `${p.code || ''}||${p.concept || ''}`
+      const prev = perceptionsMap.get(key)
+      if (prev) prev.amount += p.amount || 0
+      else perceptionsMap.set(key, { code: p.code, concept: p.concept, amount: p.amount || 0 })
+    }
+    for (const d of n.deductions || []) {
+      const key = `${d.code || ''}||${d.concept || ''}`
+      const prev = deductionsMap.get(key)
+      if (prev) prev.amount += d.amount || 0
+      else deductionsMap.set(key, { code: d.code, concept: d.concept, amount: d.amount || 0 })
+    }
+    for (const c of n.contributions || []) {
+      const key = c.concept || ''
+      const prev = contributionsMap.get(key)
+      if (prev) {
+        prev.base += c.base || 0
+        prev.employer_contribution += c.employer_contribution || 0
+      } else {
+        contributionsMap.set(key, {
+          concept: c.concept,
+          base: c.base || 0,
+          employer_contribution: c.employer_contribution || 0,
+        })
+      }
+    }
+  }
+
+  return {
+    count: nominas.length,
+    gross,
+    net,
+    cost,
+    baseSs,
+    perceptions: Array.from(perceptionsMap.values()).sort((a, b) => b.amount - a.amount),
+    deductions: Array.from(deductionsMap.values()).sort((a, b) => b.amount - a.amount),
+    contributions: Array.from(contributionsMap.values()),
+  }
+}
+
+function buildGroups(nominas: NominaRow[], groupBy: GroupBy): NominaGroup[] {
+  const buckets = new Map<string, { label: string; rows: NominaRow[] }>()
+  for (const n of nominas) {
+    if (!n.period_start) continue
+    const { key, label } = groupKeyLabel(n.period_start, groupBy)
+    const bucket = buckets.get(key)
+    if (bucket) bucket.rows.push(n)
+    else buckets.set(key, { label, rows: [n] })
+  }
+  return Array.from(buckets.entries())
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([key, { label, rows }]) => ({ key, label, aggregate: buildAggregate(rows) }))
 }
 
 function buildNominaViewerData(nomina: NominaRow): NominaViewerData {
@@ -87,25 +254,46 @@ interface NominasHistorialProps {
 
 export function NominasHistorial({ companyId }: NominasHistorialProps) {
   const [historialNominas, setHistorialNominas] = useState<NominaRow[]>([])
+  const [groupedNominas, setGroupedNominas] = useState<NominaRow[]>([])
   const [isLoadingHistorial, setIsLoadingHistorial] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [historialPage, setHistorialPage] = useState(0)
   const [historialTotal, setHistorialTotal] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   const [filterEmployee, setFilterEmployee] = useState('')
   const [filterDni, setFilterDni] = useState('')
-  const [filterYear, setFilterYear] = useState(new Date().getFullYear())
-  const [selectedPeriods, setSelectedPeriods] = useState<Set<string>>(new Set())
-  const [showPeriodPicker, setShowPeriodPicker] = useState(false)
-  const [employees, setEmployees] = useState<Array<{ id: string; name: string; nif?: string }>>([])
+  const [employees, setEmployees] = useState<EmployeeOption[]>([])
 
-  const yearOptions = useMemo(() => {
-    const current = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => current - i)
-  }, [])
+  const [rangePreset, setRangePreset] = useState<RangePreset>('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [showFilterMenu, setShowFilterMenu] = useState(false)
+  const filterMenuRef = useRef<HTMLDivElement>(null)
+
+  const [groupBy, setGroupBy] = useState<GroupBy>('none')
+  const [showGroupMenu, setShowGroupMenu] = useState(false)
+  const groupMenuRef = useRef<HTMLDivElement>(null)
+
+  const selectedEmployee = useMemo(
+    () => employees.find((e) => e.id === filterEmployee),
+    [employees, filterEmployee],
+  )
+
+  const effectiveRange = useMemo(() => {
+    const range = computeBaseRange(rangePreset, customFrom, customTo)
+    // Filtrado jerárquico: un empleado nunca tiene nóminas antes de su alta.
+    if (selectedEmployee?.hire_date) {
+      const hire = selectedEmployee.hire_date.slice(0, 10)
+      if (!range.from || hire > range.from) range.from = hire
+    }
+    return range
+  }, [rangePreset, customFrom, customTo, selectedEmployee])
+
+  const rangeKey = `${effectiveRange.from || ''}_${effectiveRange.to || ''}`
 
   const buildQueryString = useCallback(
     (page: number, limit = HISTORIAL_LIMIT) => {
@@ -117,12 +305,11 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
       })
       if (filterEmployee) params.set('employee_id', filterEmployee)
       if (filterDni.trim()) params.set('dni', filterDni.trim())
-      if (selectedPeriods.size > 0) {
-        params.set('periods', Array.from(selectedPeriods).sort().join(','))
-      }
+      if (effectiveRange.from) params.set('date_from', effectiveRange.from)
+      if (effectiveRange.to) params.set('date_to', effectiveRange.to)
       return params.toString()
     },
-    [companyId, filterEmployee, filterDni, selectedPeriods],
+    [companyId, filterEmployee, filterDni, effectiveRange],
   )
 
   const loadEmployees = useCallback(async () => {
@@ -161,39 +348,57 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
     [companyId, buildQueryString],
   )
 
+  const loadGrouped = useCallback(async () => {
+    if (!companyId) return
+    setIsLoadingHistorial(true)
+    try {
+      const qs = buildQueryString(0, GROUPED_FETCH_LIMIT)
+      const response = await fetch(`/api/nominas?${qs}`)
+      const data = await response.json()
+      if (data.success) {
+        setGroupedNominas(data.data || [])
+        setHistorialTotal(data.total || 0)
+      }
+    } catch (error) {
+      console.error('[HISTORIAL] Error cargando agrupado:', error)
+    } finally {
+      setIsLoadingHistorial(false)
+    }
+  }, [companyId, buildQueryString])
+
   useEffect(() => {
     loadEmployees()
   }, [loadEmployees])
 
   useEffect(() => {
-    if (companyId) loadHistorial(0)
-  }, [companyId, filterEmployee, filterDni, selectedPeriods])
+    if (!companyId) return
+    setExpandedId(null)
+    setExpandedGroup(null)
+    if (groupBy === 'none') loadHistorial(0)
+    else loadGrouped()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, filterEmployee, filterDni, rangeKey, groupBy])
 
-  const togglePeriod = (monthIndex: number) => {
-    const value = `${filterYear}-${String(monthIndex + 1).padStart(2, '0')}`
-    setSelectedPeriods((prev) => {
-      const next = new Set(prev)
-      if (next.has(value)) next.delete(value)
-      else next.add(value)
-      return next
-    })
-  }
-
-  const selectAllMonthsInYear = () => {
-    setSelectedPeriods((prev) => {
-      const next = new Set(prev)
-      for (let i = 0; i < 12; i++) {
-        next.add(`${filterYear}-${String(i + 1).padStart(2, '0')}`)
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
+        setShowFilterMenu(false)
       }
-      return next
-    })
-  }
+      if (groupMenuRef.current && !groupMenuRef.current.contains(e.target as Node)) {
+        setShowGroupMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   const clearFilters = () => {
     setFilterEmployee('')
     setFilterDni('')
-    setSelectedPeriods(new Set())
-    setShowPeriodPicker(false)
+    setRangePreset('all')
+    setCustomFrom('')
+    setCustomTo('')
+    setShowFilterMenu(false)
   }
 
   const pageIds = historialNominas.map((n) => n.id)
@@ -228,7 +433,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   }
 
   const fetchAllFilteredIds = async (): Promise<string[]> => {
-    const qs = buildQueryString(0, Math.max(historialTotal, 1))
+    const qs = buildQueryString(0, Math.max(historialTotal, GROUPED_FETCH_LIMIT))
     const response = await fetch(`/api/nominas?${qs}`)
     const data = await response.json()
     if (!data.success) return []
@@ -279,6 +484,11 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
     }
   }
 
+  const reload = () => {
+    if (groupBy === 'none') loadHistorial(historialPage)
+    else loadGrouped()
+  }
+
   const deleteNomina = async (id: string) => {
     if (!confirm('¿Estás seguro de eliminar esta nómina del historial?')) return
     try {
@@ -286,14 +496,22 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
       const data = await response.json()
       if (data.success) {
         if (expandedId === id) setExpandedId(null)
-        loadHistorial(historialPage)
+        reload()
       }
     } catch (error) {
       console.error('Error eliminando nómina:', error)
     }
   }
 
-  const hasActiveFilters = filterEmployee || filterDni.trim() || selectedPeriods.size > 0
+  const hasActiveFilters = Boolean(filterEmployee) || Boolean(filterDni.trim()) || rangePreset !== 'all'
+
+  const activePresetLabel = RANGE_PRESETS.find((p) => p.value === rangePreset)?.label || 'Todo el histórico'
+  const activeGroupLabel = GROUP_OPTIONS.find((g) => g.value === groupBy)?.label || ''
+
+  const groups = useMemo(
+    () => (groupBy === 'none' ? [] : buildGroups(groupedNominas, groupBy)),
+    [groupedNominas, groupBy],
+  )
 
   const selectionTotals = useMemo((): SelectionTotals => {
     const selected = historialNominas.filter((n) => selectedIds.has(n.id))
@@ -328,11 +546,11 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
     }
   }
 
-  const showSelectionBanner = selectedIds.size > 1
+  const showSelectionBanner = groupBy === 'none' && selectedIds.size > 1
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8 pb-28">
         <div className="mb-6">
           <div className="flex items-center gap-4 mb-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
@@ -342,7 +560,8 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
               <h1 className="text-2xl font-bold text-slate-800">Ver Nóminas</h1>
               <p className="text-sm text-slate-500">
                 {historialTotal} nóminas
-                {selectedIds.size > 0 ? ` · ${selectedIds.size} seleccionadas` : ''}
+                {groupBy !== 'none' ? ` · ${groups.length} ${activeGroupLabel.toLowerCase()}` : ''}
+                {groupBy === 'none' && selectedIds.size > 0 ? ` · ${selectedIds.size} seleccionadas` : ''}
               </p>
             </div>
           </div>
@@ -372,23 +591,115 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                 />
               </div>
 
-              <Button
-                variant={showPeriodPicker ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setShowPeriodPicker((v) => !v)}
-                className={cn(
-                  'gap-1.5 text-xs h-9',
-                  showPeriodPicker && 'bg-[#1B2A41] hover:bg-[#152036]',
+              {/* Filtro por rango de fechas (presets) */}
+              <div className="relative" ref={filterMenuRef}>
+                <Button
+                  variant={rangePreset !== 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setShowFilterMenu((v) => !v)}
+                  className={cn('gap-1.5 text-xs h-9', rangePreset !== 'all' && 'bg-[#1B2A41] hover:bg-[#152036]')}
+                >
+                  <FunnelIcon className="w-4 h-4" />
+                  {activePresetLabel}
+                  <ChevronDownIcon className="w-3.5 h-3.5" />
+                </Button>
+
+                {showFilterMenu && (
+                  <div className="absolute left-0 top-full z-30 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
+                    {RANGE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => {
+                          setRangePreset(preset.value)
+                          if (preset.value !== 'custom') setShowFilterMenu(false)
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors',
+                          rangePreset === preset.value
+                            ? 'bg-[#C6A664]/15 text-[#1B2A41] font-semibold'
+                            : 'text-slate-600 hover:bg-slate-50',
+                        )}
+                      >
+                        {preset.label}
+                        {rangePreset === preset.value && <span className="text-[#C6A664]">✓</span>}
+                      </button>
+                    ))}
+
+                    {rangePreset === 'custom' && (
+                      <div className="mt-1 space-y-2 border-t border-slate-100 px-3 py-3">
+                        <div>
+                          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                            Desde (mm/aaaa)
+                          </label>
+                          <input
+                            type="month"
+                            value={customFrom}
+                            onChange={(e) => setCustomFrom(e.target.value)}
+                            className="h-8 w-full rounded-md border border-slate-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                            Hasta (mm/aaaa)
+                          </label>
+                          <input
+                            type="month"
+                            value={customTo}
+                            onChange={(e) => setCustomTo(e.target.value)}
+                            className="h-8 w-full rounded-md border border-slate-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+                          />
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => setShowFilterMenu(false)}
+                          className="h-8 w-full bg-[#1B2A41] text-xs hover:bg-[#152036]"
+                        >
+                          Aplicar
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 )}
-              >
-                <CalendarDaysIcon className="w-4 h-4" />
-                Período
-                {selectedPeriods.size > 0 && (
-                  <span className="ml-1 rounded-full bg-white/20 px-1.5 text-[10px]">
-                    {selectedPeriods.size}
-                  </span>
+              </div>
+
+              {/* Agrupación */}
+              <div className="relative" ref={groupMenuRef}>
+                <Button
+                  variant={groupBy !== 'none' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setShowGroupMenu((v) => !v)}
+                  className={cn('gap-1.5 text-xs h-9', groupBy !== 'none' && 'bg-[#C6A664] text-[#1B2A41] hover:bg-[#d4b574]')}
+                >
+                  <RectangleGroupIcon className="w-4 h-4" />
+                  Agrupar: {activeGroupLabel.replace(' (cada nómina)', '')}
+                  <ChevronDownIcon className="w-3.5 h-3.5" />
+                </Button>
+
+                {showGroupMenu && (
+                  <div className="absolute left-0 top-full z-30 mt-1 w-60 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
+                    {GROUP_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setGroupBy(opt.value)
+                          setShowGroupMenu(false)
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors',
+                          groupBy === opt.value
+                            ? 'bg-[#C6A664]/15 text-[#1B2A41] font-semibold'
+                            : 'text-slate-600 hover:bg-slate-50',
+                        )}
+                      >
+                        {opt.label}
+                        {groupBy === opt.value && <span className="text-[#C6A664]">✓</span>}
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </Button>
+              </div>
 
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-xs h-9">
@@ -413,7 +724,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => loadHistorial(historialPage)}
+                  onClick={reload}
                   disabled={isLoadingHistorial}
                   className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10 h-9"
                 >
@@ -423,276 +734,283 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
               </div>
             </div>
           )}
+
+          {(effectiveRange.from || effectiveRange.to) && (
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+              <AdjustmentsHorizontalIcon className="w-3.5 h-3.5 text-[#C6A664]" />
+              Rango aplicado: {effectiveRange.from || '…'} → {effectiveRange.to || '…'}
+              {selectedEmployee?.hire_date && (
+                <span className="text-slate-400">
+                  (acotado al alta de {selectedEmployee.name}: {selectedEmployee.hire_date.slice(0, 10)})
+                </span>
+              )}
+            </p>
+          )}
         </div>
 
         {!companyId ? (
           <div className="text-center py-16 bg-slate-50 rounded-xl">
             <p className="text-slate-600">Falta el parámetro company_id en la URL.</p>
           </div>
+        ) : isLoadingHistorial && historialNominas.length === 0 && groupedNominas.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <ArrowPathIcon className="w-8 h-8 animate-spin text-[#C6A664]" />
+          </div>
+        ) : groupBy !== 'none' ? (
+          groups.length === 0 ? (
+            <div className="text-center py-16 bg-slate-50 rounded-xl">
+              <h3 className="text-lg font-semibold text-slate-600 mb-1">Sin nóminas</h3>
+              <p className="text-slate-500 text-sm">No hay resultados con los filtros aplicados</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead className="font-semibold text-slate-700">{activeGroupLabel}</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Nóminas</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Bruto</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Neto</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Coste Emp.</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Base SS</TableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {groups.map((group) => {
+                    const isExpanded = expandedGroup === group.key
+                    return (
+                      <Fragment key={group.key}>
+                        <TableRow
+                          className={cn('cursor-pointer hover:bg-slate-50/50', isExpanded && 'bg-slate-50/80')}
+                          onClick={() => setExpandedGroup(isExpanded ? null : group.key)}
+                        >
+                          <TableCell className="font-semibold text-slate-800">{group.label}</TableCell>
+                          <TableCell className="text-center text-sm text-slate-600">{group.aggregate.count}</TableCell>
+                          <TableCell className="text-center font-mono text-sm font-semibold text-[#1B2A41]">
+                            {formatCurrency(group.aggregate.gross)}
+                          </TableCell>
+                          <TableCell className="text-center font-mono text-sm font-semibold text-emerald-600">
+                            {formatCurrency(group.aggregate.net)}
+                          </TableCell>
+                          <TableCell className="text-center font-mono text-sm font-semibold text-[#C6A664]">
+                            {formatCurrency(group.aggregate.cost)}
+                          </TableCell>
+                          <TableCell className="text-center font-mono text-sm text-slate-600">
+                            {formatCurrency(group.aggregate.baseSs)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <ChevronDownIcon
+                              className={cn('w-4 h-4 text-slate-400 transition-transform', isExpanded && 'rotate-180')}
+                            />
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
+                            <TableCell colSpan={7} className="p-0 border-t border-slate-200">
+                              <NominaAggregatePanel aggregate={group.aggregate} />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )
+        ) : historialNominas.length === 0 ? (
+          <div className="text-center py-16 bg-slate-50 rounded-xl">
+            <h3 className="text-lg font-semibold text-slate-600 mb-1">Sin nóminas</h3>
+            <p className="text-slate-500 text-sm">
+              {hasActiveFilters
+                ? 'No hay resultados con los filtros aplicados'
+                : 'Aún no hay nóminas procesadas para esta empresa'}
+            </p>
+          </div>
         ) : (
           <>
-            {showPeriodPicker && (
-              <Card className="p-4 border-slate-200 mb-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-2">
-                      <CalendarDaysIcon className="w-5 h-5 text-[#C6A664]" />
-                      <span className="text-sm font-medium text-slate-700">Seleccionar meses</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={filterYear}
-                        onChange={(e) => setFilterYear(parseInt(e.target.value, 10))}
-                        className="h-8 px-2 rounded-md border border-slate-300 bg-white text-sm"
-                      >
-                        {yearOptions.map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                      <Button variant="outline" size="sm" onClick={selectAllMonthsInYear} className="text-xs h-8">
-                        Todo {filterYear}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedPeriods(new Set())}
-                        className="text-xs h-8"
-                      >
-                        Desmarcar
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2">
-                    {MONTH_LABELS.map((label, index) => {
-                      const value = `${filterYear}-${String(index + 1).padStart(2, '0')}`
-                      const checked = selectedPeriods.has(value)
-                      return (
-                        <label
-                          key={value}
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead className="w-[44px] px-3 text-center">
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        checked={allPageSelected}
+                        onChange={toggleSelectAllPage}
+                        className="rounded border-slate-300"
+                        aria-label="Seleccionar todas las nóminas de la página"
+                      />
+                    </TableHead>
+                    <TableHead className="font-semibold text-slate-700">Empleado</TableHead>
+                    <TableHead className="font-semibold text-slate-700">Empresa</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Período</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Bruto</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Neto</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Coste Emp.</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Estado</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center">Fecha</TableHead>
+                    <TableHead className="font-semibold text-slate-700 text-center w-16" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historialNominas.map((nomina) => {
+                    const isExpanded = expandedId === nomina.id
+                    const isSelected = selectedIds.has(nomina.id)
+                    return (
+                      <Fragment key={nomina.id}>
+                        <TableRow
                           className={cn(
-                            'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs cursor-pointer transition-colors',
-                            checked
-                              ? 'border-[#C6A664] bg-[#C6A664]/10 text-[#1B2A41] font-semibold'
-                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                            'hover:bg-slate-50/50',
+                            isExpanded && 'bg-slate-50/80',
+                            isSelected && 'bg-[#C6A664]/5',
                           )}
                         >
-                          <input
-                            type="checkbox"
-                            className="sr-only"
-                            checked={checked}
-                            onChange={() => togglePeriod(index)}
-                          />
-                          {label}
-                        </label>
-                      )
-                    })}
-                  </div>
-                  {selectedPeriods.size > 0 && (
-                    <p className="mt-3 text-xs text-slate-500">
-                      {selectedPeriods.size} mes(es) seleccionado(s):{' '}
-                      {Array.from(selectedPeriods).sort().join(', ')}
-                    </p>
-                  )}
-                </Card>
-            )}
-
-            {isLoadingHistorial && historialNominas.length === 0 ? (
-              <div className="flex items-center justify-center py-12">
-                <ArrowPathIcon className="w-8 h-8 animate-spin text-[#C6A664]" />
-              </div>
-            ) : historialNominas.length === 0 ? (
-              <div className="text-center py-16 bg-slate-50 rounded-xl">
-                <h3 className="text-lg font-semibold text-slate-600 mb-1">Sin nóminas</h3>
-                <p className="text-slate-500 text-sm">
-                  {hasActiveFilters
-                    ? 'No hay resultados con los filtros aplicados'
-                    : 'Aún no hay nóminas procesadas para esta empresa'}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="w-[44px] px-3 text-center">
-                          <input
-                            ref={selectAllRef}
-                            type="checkbox"
-                            checked={allPageSelected}
-                            onChange={toggleSelectAllPage}
-                            className="rounded border-slate-300"
-                            aria-label="Seleccionar todas las nóminas de la página"
-                          />
-                        </TableHead>
-                        <TableHead className="font-semibold text-slate-700">Empleado</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Empresa</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-center">Período</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-center">Bruto</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-center">Neto</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-center">Coste Emp.</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-center">Estado</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-center">Fecha</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-center w-16" />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {historialNominas.map((nomina) => {
-                        const isExpanded = expandedId === nomina.id
-                        const isSelected = selectedIds.has(nomina.id)
-                        return (
-                          <Fragment key={nomina.id}>
-                            <TableRow
-                              className={cn(
-                                'hover:bg-slate-50/50',
-                                isExpanded && 'bg-slate-50/80',
-                                isSelected && 'bg-[#C6A664]/5',
-                              )}
+                          <TableCell className="px-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelect(nomina.id)}
+                              className="rounded border-slate-300"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedId(isExpanded ? null : nomina.id)}
+                              className="flex items-center gap-2 text-left w-full group"
                             >
-                              <TableCell className="px-3 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => toggleSelect(nomina.id)}
-                                  className="rounded border-slate-300"
-                                  onClick={(e) => e.stopPropagation()}
+                              {nomina.employee_avatar ? (
+                                <img
+                                  src={nomina.employee_avatar}
+                                  alt={nomina.employee?.name || 'Avatar'}
+                                  className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-slate-200"
                                 />
-                              </TableCell>
-                              <TableCell>
-                                <button
-                                  type="button"
-                                  onClick={() => setExpandedId(isExpanded ? null : nomina.id)}
-                                  className="flex items-center gap-2 text-left w-full group"
-                                >
-                                  {nomina.employee_avatar ? (
-                                    <img
-                                      src={nomina.employee_avatar}
-                                      alt={nomina.employee?.name || 'Avatar'}
-                                      className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-slate-200"
-                                    />
-                                  ) : (
-                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                                      <UserIcon className="w-4 h-4 text-white" />
-                                    </div>
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-medium text-slate-800 text-sm group-hover:text-[#1B2A41]">
-                                      {nomina.employee?.name || 'Sin nombre'}
-                                    </p>
-                                    <p className="text-xs text-slate-500">
-                                      {nomina.dni || nomina.employee?.dni || '—'}
-                                    </p>
-                                  </div>
-                                  <ChevronDownIcon
-                                    className={cn(
-                                      'w-4 h-4 text-slate-400 transition-transform flex-shrink-0',
-                                      isExpanded && 'rotate-180',
-                                    )}
-                                  />
-                                </button>
-                              </TableCell>
-                              <TableCell>
-                                <p className="text-sm text-slate-700">{nomina.company?.name || '—'}</p>
-                              </TableCell>
-                              <TableCell className="text-center text-sm text-slate-600">
-                                {formatPeriod(nomina.period_start)}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <span className="font-mono text-sm font-semibold text-[#1B2A41]">
-                                  {formatCurrency(nomina.gross_salary)}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <span className="font-mono text-sm font-semibold text-emerald-600">
-                                  {formatCurrency(nomina.net_pay)}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <span className="font-mono text-sm font-semibold text-[#C6A664]">
-                                  {formatCurrency(nomina.cost_empresa)}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <NominaEstadoBadge signed={nomina.signed} />
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <span className="text-xs text-slate-500">
-                                  {nomina.created_at
-                                    ? new Date(nomina.created_at).toLocaleDateString('es-ES')
-                                    : '—'}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => deleteNomina(nomina.id)}
-                                  className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                                  title="Eliminar"
-                                >
-                                  <TrashIcon className="w-3.5 h-3.5" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                            {isExpanded && (
-                              <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
-                                <TableCell colSpan={10} className="p-0 border-t border-slate-200">
-                                  <NominaDetailPanel
-                                    nominaData={buildNominaViewerData(nomina)}
-                                    nominaId={nomina.id}
-                                    filename={nomina.document_name || undefined}
-                                    hasDocument={!!nomina.document_name}
-                                    compact
-                                  />
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </Fragment>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
+                                  <UserIcon className="w-4 h-4 text-white" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium text-slate-800 text-sm group-hover:text-[#1B2A41]">
+                                  {nomina.employee?.name || 'Sin nombre'}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {nomina.dni || nomina.employee?.dni || '—'}
+                                </p>
+                              </div>
+                              <ChevronDownIcon
+                                className={cn(
+                                  'w-4 h-4 text-slate-400 transition-transform flex-shrink-0',
+                                  isExpanded && 'rotate-180',
+                                )}
+                              />
+                            </button>
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-sm text-slate-700">{nomina.company?.name || '—'}</p>
+                          </TableCell>
+                          <TableCell className="text-center text-sm text-slate-600">
+                            {formatPeriod(nomina.period_start)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="font-mono text-sm font-semibold text-[#1B2A41]">
+                              {formatCurrency(nomina.gross_salary)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="font-mono text-sm font-semibold text-emerald-600">
+                              {formatCurrency(nomina.net_pay)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="font-mono text-sm font-semibold text-[#C6A664]">
+                              {formatCurrency(nomina.cost_empresa)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <NominaEstadoBadge signed={nomina.signed} />
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="text-xs text-slate-500">
+                              {nomina.created_at
+                                ? new Date(nomina.created_at).toLocaleDateString('es-ES')
+                                : '—'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteNomina(nomina.id)}
+                              className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                              title="Eliminar"
+                            >
+                              <TrashIcon className="w-3.5 h-3.5" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
+                            <TableCell colSpan={10} className="p-0 border-t border-slate-200">
+                              <NominaDetailPanel
+                                nominaData={buildNominaViewerData(nomina)}
+                                nominaId={nomina.id}
+                                filename={nomina.document_name || undefined}
+                                hasDocument={!!nomina.document_name}
+                                compact
+                              />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {historialTotal > HISTORIAL_LIMIT && (
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-sm text-slate-500">
+                  Mostrando {historialPage * HISTORIAL_LIMIT + 1}-
+                  {Math.min((historialPage + 1) * HISTORIAL_LIMIT, historialTotal)} de {historialTotal}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadHistorial(historialPage - 1)}
+                    disabled={historialPage === 0 || isLoadingHistorial}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadHistorial(historialPage + 1)}
+                    disabled={(historialPage + 1) * HISTORIAL_LIMIT >= historialTotal || isLoadingHistorial}
+                  >
+                    Siguiente
+                  </Button>
                 </div>
-
-                <NominasSelectionBanner
-                  visible={showSelectionBanner}
-                  totals={selectionTotals}
-                  isExporting={isExporting}
-                  onExport={handleExport}
-                  onClear={clearSelection}
-                  onDelete={deleteSelected}
-                />
-
-                {historialTotal > HISTORIAL_LIMIT && (
-                  <div className="flex items-center justify-between mt-4">
-                    <p className="text-sm text-slate-500">
-                      Mostrando {historialPage * HISTORIAL_LIMIT + 1}-
-                      {Math.min((historialPage + 1) * HISTORIAL_LIMIT, historialTotal)} de {historialTotal}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => loadHistorial(historialPage - 1)}
-                        disabled={historialPage === 0 || isLoadingHistorial}
-                      >
-                        Anterior
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => loadHistorial(historialPage + 1)}
-                        disabled={(historialPage + 1) * HISTORIAL_LIMIT >= historialTotal || isLoadingHistorial}
-                      >
-                        Siguiente
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </>
+              </div>
             )}
           </>
         )}
       </div>
+
+      <NominasSelectionBanner
+        visible={showSelectionBanner}
+        totals={selectionTotals}
+        isExporting={isExporting}
+        onExport={handleExport}
+        onClear={clearSelection}
+        onDelete={deleteSelected}
+      />
     </div>
   )
 }

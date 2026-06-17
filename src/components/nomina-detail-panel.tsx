@@ -23,6 +23,13 @@ function formatCurrency(amount: number | undefined) {
   }).format(amount)
 }
 
+function formatRate(rate: number | undefined | null) {
+  if (rate == null) return '—'
+  // Las tasas pueden venir como fracción (0.2418) o como porcentaje (24.18).
+  const pct = Math.abs(rate) <= 1 ? rate * 100 : rate
+  return `${pct.toFixed(2)}%`
+}
+
 export function NominaPdfPanel({
   nominaId,
   filename,
@@ -76,6 +83,180 @@ export function NominaPdfPanel({
           </a>
         </div>
       </div>
+    </div>
+  )
+}
+
+export interface NominaAggregateLine {
+  code?: string
+  concept?: string
+  amount: number
+}
+
+export interface NominaAggregateContribution {
+  concept?: string
+  base: number
+  rate?: number
+  employer_contribution: number
+}
+
+export interface NominaAggregate {
+  count: number
+  gross: number
+  net: number
+  cost: number
+  baseSs: number
+  perceptions: NominaAggregateLine[]
+  deductions: NominaAggregateLine[]
+  contributions: NominaAggregateContribution[]
+}
+
+export function NominaAggregatePanel({ aggregate }: { aggregate: NominaAggregate }) {
+  const totalPerceptions = aggregate.perceptions.reduce((s, p) => s + (p.amount || 0), 0)
+  const totalDeductions = aggregate.deductions.reduce((s, d) => s + (d.amount || 0), 0)
+  const totalContributions = aggregate.contributions.reduce(
+    (s, c) => s + (c.employer_contribution || 0),
+    0,
+  )
+
+  return (
+    <div className="p-4 bg-slate-50/80 space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { label: 'Nóminas', value: String(aggregate.count), color: 'text-slate-900' },
+          { label: 'Bruto', value: formatCurrency(aggregate.gross), color: 'text-[#1B2A41]' },
+          { label: 'Neto', value: formatCurrency(aggregate.net), color: 'text-emerald-700' },
+          { label: 'Coste empresa', value: formatCurrency(aggregate.cost), color: 'text-[#C6A664]' },
+          { label: 'Base SS', value: formatCurrency(aggregate.baseSs), color: 'text-slate-700' },
+        ].map(({ label, value, color }) => (
+          <Card key={label} className="border shadow-sm">
+            <CardContent className="p-3">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
+              <p className={`text-lg font-bold font-mono ${color}`}>{value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Percepciones por concepto ({aggregate.perceptions.length})</CardTitle>
+            <CardDescription>Suma de devengos del grupo · base modelo 190</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {aggregate.perceptions.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Concepto</TableHead>
+                    <TableHead>Código</TableHead>
+                    <TableHead className="text-right">Importe</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {aggregate.perceptions.map((p, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-medium">{p.concept || 'N/A'}</TableCell>
+                      <TableCell>{p.code || '—'}</TableCell>
+                      <TableCell className="text-right font-mono text-emerald-600">
+                        {formatCurrency(p.amount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-emerald-50">
+                    <TableCell colSpan={2} className="font-bold">Total Percepciones</TableCell>
+                    <TableCell className="text-right font-bold font-mono text-emerald-700">
+                      {formatCurrency(totalPerceptions)}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-center text-slate-500 py-6">Sin percepciones</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Deducciones por concepto ({aggregate.deductions.length})</CardTitle>
+            <CardDescription>Retención IRPF (modelo 111/190) y SS trabajador</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {aggregate.deductions.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Concepto</TableHead>
+                    <TableHead>Código</TableHead>
+                    <TableHead className="text-right">Importe</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {aggregate.deductions.map((d, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-medium">{d.concept || 'N/A'}</TableCell>
+                      <TableCell>{d.code || '—'}</TableCell>
+                      <TableCell className="text-right font-mono text-rose-600">
+                        -{formatCurrency(d.amount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-rose-50">
+                    <TableCell colSpan={2} className="font-bold">Total Deducciones</TableCell>
+                    <TableCell className="text-right font-bold font-mono text-rose-700">
+                      -{formatCurrency(totalDeductions)}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-center text-slate-500 py-6">Sin deducciones</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {aggregate.contributions.length > 0 && (
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Contribuciones empresa por concepto ({aggregate.contributions.length})</CardTitle>
+            <CardDescription>Coste SS a cargo de la empresa · base modelo RLC</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Concepto</TableHead>
+                  <TableHead className="text-right">Base</TableHead>
+                  <TableHead className="text-right">Tasa efectiva</TableHead>
+                  <TableHead className="text-right">Importe</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {aggregate.contributions.map((c, i) => {
+                  const effRate = c.base > 0 ? (c.employer_contribution / c.base) * 100 : null
+                  return (
+                    <TableRow key={i}>
+                      <TableCell>{c.concept || '—'}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(c.base)}</TableCell>
+                      <TableCell className="text-right">{effRate != null ? `${effRate.toFixed(2)}%` : '—'}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(c.employer_contribution)}</TableCell>
+                    </TableRow>
+                  )
+                })}
+                <TableRow className="bg-[#C6A664]/10">
+                  <TableCell colSpan={3} className="font-bold">Total Contribuciones</TableCell>
+                  <TableCell className="text-right font-bold font-mono text-[#1B2A41]">
+                    {formatCurrency(totalContributions)}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
@@ -228,7 +409,7 @@ export function NominaDetailPanel({
                       <TableRow key={i}>
                         <TableCell>{c.concept || '—'}</TableCell>
                         <TableCell className="text-right font-mono">{formatCurrency(c.base)}</TableCell>
-                        <TableCell className="text-right">{c.rate != null ? `${(c.rate * 100).toFixed(2)}%` : '—'}</TableCell>
+                        <TableCell className="text-right">{formatRate(c.rate)}</TableCell>
                         <TableCell className="text-right font-mono">{formatCurrency(c.employer_contribution)}</TableCell>
                       </TableRow>
                     ))}
