@@ -31,19 +31,17 @@ export {
 } from './signing/signing-service'
 export { notifyExpiringCertificates, type ExpiryNotifierResult } from './notifications/expiry-notifier'
 export {
-  createDehuAdapter,
-  ApiDehuAdapter,
-  type NotificationAdapter,
-  type FetchedNotification,
-} from './notifications/notification-adapter'
-export {
   syncCompanyNotifications,
   listCompanyNotifications,
   listAgencyNotifications,
+  listNotificationSyncRuns,
   markNotificationRead,
   type AdminNotificationRow,
   type SyncResult,
+  type ProviderSyncResult,
 } from './notifications/notification-service'
+export { getNotificationsConfig } from './notifications/config'
+export { createNotificationAdapters } from './notifications/adapters'
 export { AfiFileGenerator } from './tgss-red/afi-generator'
 export { validateAfiPayload } from './tgss-red/afi-validator'
 export { TgssAffiliationService } from './tgss-red/tgss-affiliation-service'

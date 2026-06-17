@@ -47,9 +47,29 @@ curl -X POST http://localhost:3000/api/admin/cron/certificates-expiry \
 
 `signSubmission()` descifra el certificado en memoria y firma con **PKCS#7 detached** real. Integrado en `/api/filing` (Modelo 111/190), `/api/red` y `/api/sepa`.
 
-### Notificaciones electrónicas (DEHu)
+### Notificaciones electrónicas (AEAT / TGSS WSCN / DEHú LEMA)
 
-`POST /api/admin/notifications/sync` requiere integración real con el servicio PAU/DEHu (pendiente de implementación completa).
+Tres conectores SOAP independientes con certificado cliente (mTLS):
+
+| Proveedor | Servicio oficial | Operaciones |
+|---|---|---|
+| **AEAT** | WS Envíos (Consulta / Acceso / Autorizados) | Listado paginado + comparecer/descargar PDF |
+| **TGSS** | WSCN | `consultarListadoNotificaciones`, `verNotificacionAceptada` |
+| **DEHú** | LEMA (Gran Destinatario) | `Localiza`, `PeticionAcceso` con WS-Security |
+
+`POST /api/admin/notifications/sync` ejecuta los tres adaptadores activos, persiste en
+`admin_notifications`, guarda PDFs en storage y registra trazas en
+`admin_notification_sync_runs`.
+
+Variables clave: `ADMIN_NOTIFICATIONS_ENV=sandbox|production`,
+`AEAT_NOTIFICATIONS_ENABLED`, `TGSS_WSCN_ENABLED`, `DEHU_LEMA_ENABLED`.
+
+Requisitos operativos:
+
+- Certificado `.pfx` válido en la bóveda (`ADMIN_ENCRYPTION_KEY`).
+- **DEHú**: alta como Gran Destinatario LEMA por entidad.
+- **TGSS**: autorización RED o apoderamiento según el rol consultado.
+- **AEAT**: certificado admitido en @firma; contacto opcional con `wsnotificaciones@correo.aeat.es` para pruebas.
 
 ## Procesar cola TGSS
 

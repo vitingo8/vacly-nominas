@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import { adminErrorResponse, jsonOk } from '@/lib/admin-integrations/api-helpers'
 import {
@@ -31,8 +31,14 @@ export async function POST(request: NextRequest) {
       actorUserId: getActorUserId(request),
     })
 
-    return jsonOk({ fetched: result.fetched, stored: result.stored })
+    return jsonOk({ fetched: result.fetched, stored: result.stored, runs: result.runs })
   } catch (error) {
+    if (error instanceof AdminIntegrationError && error.details) {
+      return NextResponse.json(
+        { success: false, ...error.toJSON(), runs: (error.details as any)?.runs },
+        { status: 500 },
+      )
+    }
     return adminErrorResponse(error)
   }
 }

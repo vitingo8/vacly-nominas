@@ -2,8 +2,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { AdminIntegrationError } from '../errors'
 import { AuditService } from '../audit/audit-service'
 import { createCertificateVault } from '../certificate-vault/certificate-vault-service'
-import { createDehuAdapter, type FetchedNotification } from './notification-adapter'
 import { getCompanyRecipientUserIds } from './recipients'
+import { getNotificationsConfig } from './config'
+import { createNotificationAdapters } from './adapters'
+import { storeNotificationDocument } from './notification-document-storage'
+import type {
+  FetchedNotification,
+  NotificationSyncResult,
+  ProviderSyncResult,
+} from './domain/types'
 
 export interface AdminNotificationRow {
   id: string
@@ -22,7 +29,11 @@ export interface AdminNotificationRow {
 export interface SyncResult {
   fetched: number
   stored: number
+  runs: ProviderSyncResult[]
 }
+
+const NOTIF_COLUMNS =
+  'id, company_id, provider, external_id, subject, sender, concept, received_at, access_deadline, read_at'
 
 function rowToNotification(row: Record<string, any>): AdminNotificationRow {
   return {
@@ -39,80 +50,106 @@ function rowToNotification(row: Record<string, any>): AdminNotificationRow {
   }
 }
 
-const NOTIF_COLUMNS =
-  'id, company_id, provider, external_id, subject, sender, concept, received_at, access_deadline, read_at'
-
-/**
- * Sincroniza las notificaciones electronicas de una empresa usando su
- * certificado. Persiste las nuevas (idempotente por external_id) y crea un
- * aviso en la tabla `notifications` de vacly-app por cada nueva.
- */
-export async function syncCompanyNotifications(
+async function startSyncRun(
   supabase: SupabaseClient,
-  input: { companyId: string; certificateId: string; actorUserId?: string },
-): Promise<SyncResult> {
-  const audit = new AuditService(supabase)
-  const vault = createCertificateVault(supabase, audit)
+  companyId: string,
+  provider: string,
+  certificateId: string,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('admin_notification_sync_runs')
+    .insert({
+      company_id: companyId,
+      provider,
+      certificate_id: certificateId,
+      status: 'running',
+    })
+    .select('id')
+    .single()
 
-  const certificate = await vault.useCertificate(
-    input.companyId,
-    input.certificateId,
-    'notifications:dehu:fetch',
-    input.actorUserId,
-  )
-
-  const adapter = createDehuAdapter()
-  const fetched: FetchedNotification[] = await adapter.fetchNotifications({
-    companyId: input.companyId,
-    holderNif: certificate.holderNif,
-    certificate,
-  })
-
-  if (!fetched.length) return { fetched: 0, stored: 0 }
-
-  let stored = 0
-  for (const n of fetched) {
-    const { data, error } = await supabase
-      .from('admin_notifications')
-      .insert({
-        company_id: input.companyId,
-        provider: n.provider,
-        external_id: n.externalId,
-        subject: n.subject,
-        sender: n.sender ?? null,
-        concept: n.concept ?? null,
-        received_at: n.receivedAt,
-        access_deadline: n.accessDeadline ?? null,
-        certificate_id: input.certificateId,
-        metadata: n.metadata ?? {},
-      })
-      .select('id')
-      .maybeSingle()
-
-    if (error) {
-      // 23505 = ya existe (duplicado), sincronizacion idempotente.
-      if (error.code !== '23505') {
-        console.error('[notification-service] insert failed:', error.message)
-      }
-      continue
-    }
-    if (data?.id) {
-      stored += 1
-      await createAppNotificationForArrival(supabase, input.companyId, n, data.id)
-    }
+  if (error || !data?.id) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'No se pudo iniciar sync_run', error)
   }
-
-  await audit.log({
-    companyId: input.companyId,
-    eventType: 'notifications_synced',
-    actorUserId: input.actorUserId,
-    metadata: { provider: 'dehu', fetched: fetched.length, stored },
-  })
-
-  return { fetched: fetched.length, stored }
+  return data.id
 }
 
-/** Crea un aviso en vacly-app (tabla notifications) para los usuarios de la empresa. */
+async function finishSyncRun(
+  supabase: SupabaseClient,
+  runId: string,
+  result: ProviderSyncResult,
+): Promise<void> {
+  await supabase
+    .from('admin_notification_sync_runs')
+    .update({
+      status: result.status,
+      fetched: result.fetched,
+      stored: result.stored,
+      error_code: result.errorCode ?? null,
+      error_message: result.errorMessage ?? null,
+      finished_at: new Date().toISOString(),
+    })
+    .eq('id', runId)
+}
+
+async function persistNotification(
+  supabase: SupabaseClient,
+  companyId: string,
+  certificateId: string,
+  notification: FetchedNotification,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('admin_notifications')
+    .insert({
+      company_id: companyId,
+      provider: notification.provider,
+      external_id: notification.externalId,
+      subject: notification.subject,
+      sender: notification.sender ?? null,
+      concept: notification.concept ?? null,
+      received_at: notification.receivedAt,
+      access_deadline: notification.accessDeadline ?? null,
+      certificate_id: certificateId,
+      metadata: notification.metadata ?? {},
+    })
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    if (error.code === '23505') return false
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error insertando notificación', error)
+  }
+  if (!data?.id) return false
+
+  if (notification.documentPdf?.length) {
+    const stored = await storeNotificationDocument(supabase, {
+      companyId,
+      notificationId: data.id,
+      provider: notification.provider,
+      externalId: notification.externalId,
+      fileName: 'notification.pdf',
+      content: notification.documentPdf,
+    })
+    await supabase
+      .from('admin_notifications')
+      .update({ document_path: stored.storagePath })
+      .eq('id', data.id)
+  }
+
+  if (notification.certificationPdf?.length) {
+    await storeNotificationDocument(supabase, {
+      companyId,
+      notificationId: data.id,
+      provider: notification.provider,
+      externalId: notification.externalId,
+      fileName: 'certification.pdf',
+      content: notification.certificationPdf,
+    })
+  }
+
+  await createAppNotificationForArrival(supabase, companyId, notification, data.id)
+  return true
+}
+
 async function createAppNotificationForArrival(
   supabase: SupabaseClient,
   companyId: string,
@@ -142,6 +179,105 @@ async function createAppNotificationForArrival(
       console.error('[notification-service] app notification failed:', error.message)
     }
   }
+}
+
+/**
+ * Sincroniza notificaciones administrativas reales contra AEAT WS Envíos,
+ * TGSS WSCN y DEHú/LEMA usando el certificado de la empresa.
+ */
+export async function syncCompanyNotifications(
+  supabase: SupabaseClient,
+  input: { companyId: string; certificateId: string; actorUserId?: string },
+): Promise<SyncResult> {
+  const config = getNotificationsConfig()
+  if (!config.enabled) {
+    throw new AdminIntegrationError('INTEGRATIONS_DISABLED', 'Sincronización de notificaciones desactivada')
+  }
+
+  const audit = new AuditService(supabase)
+  const vault = createCertificateVault(supabase, audit)
+  const decrypted = await vault.useCertificate(
+    input.companyId,
+    input.certificateId,
+    'notifications:sync',
+    input.actorUserId,
+  )
+
+  const ctx = {
+    companyId: input.companyId,
+    certificateId: input.certificateId,
+    holderNif: decrypted.holderNif,
+    pfx: decrypted.pfx,
+    password: decrypted.password,
+    actorUserId: input.actorUserId,
+  }
+
+  const adapters = createNotificationAdapters()
+  const runs: ProviderSyncResult[] = []
+  let totalFetched = 0
+  let totalStored = 0
+
+  for (const adapter of adapters) {
+    const runId = await startSyncRun(supabase, input.companyId, adapter.provider, input.certificateId)
+    try {
+      const fetchedItems = await adapter.syncNotifications(ctx)
+      let stored = 0
+      for (const item of fetchedItems) {
+        const inserted = await persistNotification(supabase, input.companyId, input.certificateId, item)
+        if (inserted) stored += 1
+      }
+
+      const run: ProviderSyncResult = {
+        provider: adapter.provider,
+        status: 'success',
+        fetched: fetchedItems.length,
+        stored,
+      }
+      await finishSyncRun(supabase, runId, run)
+      runs.push(run)
+      totalFetched += run.fetched
+      totalStored += run.stored
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido'
+      const code =
+        error instanceof AdminIntegrationError ? error.code : 'PROCESSING_ERROR'
+      const run: ProviderSyncResult = {
+        provider: adapter.provider,
+        status: 'failed',
+        fetched: 0,
+        stored: 0,
+        errorCode: code,
+        errorMessage: message,
+      }
+      await finishSyncRun(supabase, runId, run)
+      runs.push(run)
+      console.error(`[notification-sync] ${adapter.provider} failed:`, message)
+    }
+  }
+
+  const anySuccess = runs.some((r) => r.status === 'success')
+  const allFailed = runs.every((r) => r.status === 'failed')
+
+  await audit.log({
+    companyId: input.companyId,
+    eventType: 'notifications_synced',
+    actorUserId: input.actorUserId,
+    metadata: { runs, fetched: totalFetched, stored: totalStored },
+  })
+
+  if (allFailed) {
+    throw new AdminIntegrationError(
+      'PROCESSING_ERROR',
+      'No se pudo sincronizar con ningún organismo. Revisa certificado, alta DEHú Gran Destinatario y autorización RED/TGSS.',
+      { runs },
+    )
+  }
+
+  if (!anySuccess) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Sincronización sin resultados', { runs })
+  }
+
+  return { fetched: totalFetched, stored: totalStored, runs }
 }
 
 export async function listCompanyNotifications(
@@ -196,6 +332,24 @@ export async function listAgencyNotifications(
   })
 }
 
+export async function listNotificationSyncRuns(
+  supabase: SupabaseClient,
+  companyId: string,
+  limit = 20,
+): Promise<Record<string, unknown>[]> {
+  const { data, error } = await supabase
+    .from('admin_notification_sync_runs')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('started_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando sync runs', error)
+  }
+  return data || []
+}
+
 export async function markNotificationRead(
   supabase: SupabaseClient,
   companyId: string,
@@ -211,3 +365,5 @@ export async function markNotificationRead(
     throw new AdminIntegrationError('PROCESSING_ERROR', 'Error marcando notificacion como leida', error)
   }
 }
+
+export type { NotificationSyncResult, ProviderSyncResult }

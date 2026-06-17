@@ -41,7 +41,15 @@ function fmtDate(value?: string | null): string {
   }
 }
 
-const PROVIDER_LABEL: Record<string, string> = { dehu: 'DEHu', aeat: 'AEAT', tgss: 'TGSS' }
+const PROVIDER_LABEL: Record<string, string> = { dehu: 'DEHú LEMA', aeat: 'AEAT WS Envíos', tgss: 'TGSS WSCN' }
+
+interface ProviderRun {
+  provider: string
+  status: string
+  fetched: number
+  stored: number
+  errorMessage?: string
+}
 
 export default function AdminNotificationsPage() {
   const companyId = useCompanyId()
@@ -108,7 +116,16 @@ export default function AdminNotificationsPage() {
       })
       const data = await res.json()
       if (data.success) {
-        setMessage(`Sincronizacion completada: ${data.stored} nuevas de ${data.fetched} recibidas.`)
+        const runs = (data.runs || []) as ProviderRun[]
+        const summary = runs
+          .map(
+            (r) =>
+              `${PROVIDER_LABEL[r.provider] || r.provider}: ${r.status}${r.errorMessage ? ` (${r.errorMessage})` : ''}`,
+          )
+          .join(' · ')
+        setMessage(
+          `Sincronización completada: ${data.stored} nuevas de ${data.fetched} recibidas.${summary ? ` ${summary}` : ''}`,
+        )
         loadMine()
         loadAgency()
       } else {
@@ -137,7 +154,7 @@ export default function AdminNotificationsPage() {
       <Card className="p-6 border-slate-200 w-full">
         <h2 className="font-semibold text-slate-800 mb-1">Sincronizar notificaciones</h2>
         <p className="text-xs text-slate-500 mb-4">
-          Descarga las notificaciones del organismo usando un certificado de esta empresa.
+          Descarga notificaciones reales vía AEAT WS Envíos, TGSS WSCN y DEHú/LEMA con el certificado de esta empresa.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <select
