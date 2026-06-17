@@ -1,10 +1,9 @@
 @echo off
 title Vacly - Instalar asistente de certificados
-cd /d "%~dp0"
+set NOMINAS_ORIGIN=https://vacly-nominas.vercel.app
 echo.
-echo Instalando asistente Vacly para certificados de Windows...
-echo Solo necesitas hacer esto UNA vez en este PC.
+echo Instalando asistente Vacly (solo una vez en este PC)...
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-cert-bridge.ps1"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$installer = Join-Path $env:TEMP 'install-vacly-cert-bridge.ps1'; Invoke-WebRequest '%NOMINAS_ORIGIN%/install-vacly-cert-bridge.ps1' -OutFile $installer -UseBasicParsing; & $installer -NominasOrigin '%NOMINAS_ORIGIN%'"
 echo.
 pause

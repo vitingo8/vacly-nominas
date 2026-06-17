@@ -55,13 +55,20 @@ const BLOCKED_HTML = `<!DOCTYPE html>
 export function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
 
-  // Permitir rutas internas de Next.js, estáticos y API
+  // Instalador del puente Windows + estáticos internos (sin company_id)
+  const publicPaths = new Set([
+    '/install-vacly-cert-bridge.ps1',
+    '/install-vacly-cert-bridge.bat',
+    '/windows-cert-bridge.ps1',
+  ])
+
   if (
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/favicon') ||
     pathname.startsWith('/robots') ||
-    pathname.startsWith('/sitemap')
+    pathname.startsWith('/sitemap') ||
+    publicPaths.has(pathname)
   ) {
     return NextResponse.next()
   }

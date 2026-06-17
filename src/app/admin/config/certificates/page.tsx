@@ -22,7 +22,7 @@ import {
   probeWindowsCertBridge,
   type WindowsCertificateEntry,
 } from '@/lib/admin-integrations/certificate-vault/windows-cert-bridge'
-import { WindowsBridgeSetup } from '@/components/admin/windows-bridge-setup'
+import { WindowsBridgeBanner } from '@/components/admin/windows-bridge-banner'
 
 type CertStatus = 'valid' | 'expiring_soon' | 'expired' | 'revoked'
 
@@ -115,6 +115,11 @@ export default function AdminCertificatesPage() {
   const [uploadPassword, setUploadPassword] = useState('')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [installInWindows, setInstallInWindows] = useState(true)
+  const [nominasOrigin, setNominasOrigin] = useState('https://vacly-nominas.vercel.app')
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') setNominasOrigin(window.location.origin)
+  }, [])
 
   const load = useCallback(() => {
     if (!companyId) return
@@ -167,6 +172,10 @@ export default function AdminCertificatesPage() {
     loadAgency()
     if (win) void refreshWindowsStore()
   }, [companyId, load, loadAgency, refreshWindowsStore])
+
+  const onBridgeConnected = useCallback(() => {
+    void refreshWindowsStore()
+  }, [refreshWindowsStore])
 
   const filteredWindows = useMemo(() => {
     return windowsCerts.filter((wc) => {
@@ -295,6 +304,10 @@ export default function AdminCertificatesPage() {
 
   return (
     <AdminShell>
+      {isWindows && !bridgeReady && (
+        <WindowsBridgeBanner nominasOrigin={nominasOrigin} onConnected={onBridgeConnected} />
+      )}
+
       <div className="flex flex-col lg:flex-row lg:items-end gap-4 w-full">
         <div className="flex-1 min-w-0">
           <Input
@@ -324,20 +337,19 @@ export default function AdminCertificatesPage() {
         </div>
       )}
 
-      <Tabs defaultValue={isWindows ? 'windows' : 'vacly'} className="w-full">
+      <Tabs defaultValue="vacly" className="w-full">
         <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
-          {isWindows && <TabsTrigger value="windows">Este equipo (Windows)</TabsTrigger>}
+          {isWindows && bridgeReady && (
+            <TabsTrigger value="windows">Este equipo (Windows)</TabsTrigger>
+          )}
           <TabsTrigger value="vacly">En Vacly — esta empresa</TabsTrigger>
           <TabsTrigger value="agency">Cartera gestoría</TabsTrigger>
           <TabsTrigger value="add">Añadir certificado</TabsTrigger>
         </TabsList>
 
-        {isWindows && (
+        {isWindows && bridgeReady && (
           <TabsContent value="windows">
-            {!bridgeReady ? (
-              <WindowsBridgeSetup onRetry={() => void refreshWindowsStore()} loading={bridgeLoading} />
-            ) : (
-              <WindowsCertTable
+            <WindowsCertTable
                 rows={filteredWindows}
                 vaclyCerts={certs}
                 registerThumb={registerThumb}
@@ -359,7 +371,6 @@ export default function AdminCertificatesPage() {
                 onRegisterAlias={setRegisterAlias}
                 onConfirmRegister={() => registerThumb && void registerWindowsCert(registerThumb)}
               />
-            )}
           </TabsContent>
         )}
 
