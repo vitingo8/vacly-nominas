@@ -275,6 +275,23 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   const filterMenuRef = useRef<HTMLDivElement>(null)
 
   const [groupBy, setGroupBy] = useState<GroupBy>('none')
+  const [isEmbedded, setIsEmbedded] = useState(false)
+
+  useEffect(() => {
+    const embedded = window.self !== window.top
+    setIsEmbedded(embedded)
+    if (!embedded) return
+
+    const html = document.documentElement
+    const body = document.body
+    html.classList.add('nominas-embedded')
+    body.classList.add('nominas-embedded')
+
+    return () => {
+      html.classList.remove('nominas-embedded')
+      body.classList.remove('nominas-embedded')
+    }
+  }, [])
   const [showGroupMenu, setShowGroupMenu] = useState(false)
   const groupMenuRef = useRef<HTMLDivElement>(null)
 
@@ -549,9 +566,19 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   const showSelectionBanner = groupBy === 'none' && selectedIds.size > 1
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8 pb-28">
-        <div className="mb-6">
+    <div
+      className={cn(
+        'bg-gradient-to-br from-slate-50 via-white to-slate-100',
+        isEmbedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'min-h-screen',
+      )}
+    >
+      <div
+        className={cn(
+          'flex w-full flex-col px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8',
+          isEmbedded ? 'min-h-0 flex-1 overflow-hidden pb-4' : 'pb-28',
+        )}
+      >
+        <div className={cn('mb-6', isEmbedded && 'flex-shrink-0')}>
           <div className="flex items-center gap-4 mb-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
               <ArrowUturnLeftIcon className="w-8 h-8 text-[#C6A664]" />
@@ -748,6 +775,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           )}
         </div>
 
+        <div className={cn(isEmbedded && 'min-h-0 flex-1 overflow-y-auto scrollbar-thin')}>
         {!companyId ? (
           <div className="text-center py-16 bg-slate-50 rounded-xl">
             <p className="text-slate-600">Falta el parámetro company_id en la URL.</p>
@@ -1001,6 +1029,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
             )}
           </>
         )}
+        </div>
       </div>
 
       <NominasSelectionBanner

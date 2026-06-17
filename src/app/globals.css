@@ -38,6 +38,12 @@ body {
   scrollbar-width: none;
 }
 
+html.nominas-embedded,
+html.nominas-embedded body {
+  height: 100%;
+  overflow: hidden;
+}
+
 /* Disable image context menu */
 img {
   pointer-events: none;
