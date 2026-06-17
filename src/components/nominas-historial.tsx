@@ -8,6 +8,8 @@ import { NominaDetailPanel, NominaAggregatePanel, type NominaAggregate } from '@
 import { NominaEstadoBadge } from '@/components/nomina-estado-badge'
 import { NominasSelectionBanner, type SelectionTotals } from '@/components/nominas-selection-banner'
 import { EmployeeFilterSelect, type EmployeeFilterOption } from '@/components/employee-filter-select'
+import { ExcelColumnHeader } from '@/components/excel-column-header'
+import type { NominaEstadoFilter, NominaSortColumn, NominaSortDir } from '@/lib/nomina-list-query'
 import type { NominaViewerData } from '@/components/nomina-viewer-dialog'
 import {
   AdjustmentsHorizontalIcon,
@@ -291,6 +293,17 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   const [showGroupMenu, setShowGroupMenu] = useState(false)
   const groupMenuRef = useRef<HTMLDivElement>(null)
 
+  const [sortColumn, setSortColumn] = useState<NominaSortColumn>('period_start')
+  const [sortDir, setSortDir] = useState<NominaSortDir>('desc')
+  const [columnFilters, setColumnFilters] = useState<{
+    employee_name: string
+    company_name: string
+    estado: NominaEstadoFilter
+  }>({ employee_name: '', company_name: '', estado: '' })
+  const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null)
+  const [columnFilterDraft, setColumnFilterDraft] = useState({ employee_name: '', company_name: '' })
+  const columnFiltersRef = useRef<HTMLTableSectionElement>(null)
+
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.id === filterEmployee),
     [employees, filterEmployee],
@@ -320,9 +333,14 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
       if (filterDni.trim()) params.set('dni', filterDni.trim())
       if (effectiveRange.from) params.set('date_from', effectiveRange.from)
       if (effectiveRange.to) params.set('date_to', effectiveRange.to)
+      params.set('sort_by', sortColumn)
+      params.set('sort_dir', sortDir)
+      if (columnFilters.employee_name.trim()) params.set('col_employee', columnFilters.employee_name.trim())
+      if (columnFilters.company_name.trim()) params.set('col_company', columnFilters.company_name.trim())
+      if (columnFilters.estado) params.set('col_estado', columnFilters.estado)
       return params.toString()
     },
-    [companyId, filterEmployee, filterDni, effectiveRange],
+    [companyId, filterEmployee, filterDni, effectiveRange, sortColumn, sortDir, columnFilters],
   )
 
   const loadEmployees = useCallback(async () => {
@@ -390,10 +408,10 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
     if (groupBy === 'none') loadHistorial(0)
     else loadGrouped()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, filterEmployee, filterDni, rangeKey, groupBy])
+  }, [companyId, filterEmployee, filterDni, rangeKey, groupBy, sortColumn, sortDir, columnFilters])
 
   useEffect(() => {
-    if (!showFilterMenu && !showGroupMenu) return
+    if (!showFilterMenu && !showGroupMenu && !openColumnFilter) return
     const handler = (e: MouseEvent) => {
       if (showFilterMenu && filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
         setShowFilterMenu(false)
@@ -401,10 +419,17 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
       if (showGroupMenu && groupMenuRef.current && !groupMenuRef.current.contains(e.target as Node)) {
         setShowGroupMenu(false)
       }
+      if (
+        openColumnFilter &&
+        columnFiltersRef.current &&
+        !columnFiltersRef.current.contains(e.target as Node)
+      ) {
+        setOpenColumnFilter(null)
+      }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [showFilterMenu, showGroupMenu])
+  }, [showFilterMenu, showGroupMenu, openColumnFilter])
 
   const clearFilters = () => {
     setFilterEmployee('')
@@ -413,6 +438,43 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
     setCustomFrom('')
     setCustomTo('')
     setShowFilterMenu(false)
+    setColumnFilters({ employee_name: '', company_name: '', estado: '' })
+    setColumnFilterDraft({ employee_name: '', company_name: '' })
+    setOpenColumnFilter(null)
+    setSortColumn('period_start')
+    setSortDir('desc')
+  }
+
+  const toggleSort = (column: NominaSortColumn) => {
+    if (sortColumn === column) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortColumn(column)
+      setSortDir(column === 'employee_name' || column === 'company_name' ? 'asc' : 'desc')
+    }
+  }
+
+  const openColumnFilterMenu = (key: string) => {
+    setOpenColumnFilter((current) => (current === key ? null : key))
+    if (key === 'employee_name') {
+      setColumnFilterDraft((d) => ({ ...d, employee_name: columnFilters.employee_name }))
+    }
+    if (key === 'company_name') {
+      setColumnFilterDraft((d) => ({ ...d, company_name: columnFilters.company_name }))
+    }
+  }
+
+  const applyTextColumnFilter = (key: 'employee_name' | 'company_name') => {
+    setColumnFilters((prev) => ({
+      ...prev,
+      [key]: columnFilterDraft[key].trim(),
+    }))
+    setOpenColumnFilter(null)
+  }
+
+  const applyEstadoColumnFilter = (estado: NominaEstadoFilter) => {
+    setColumnFilters((prev) => ({ ...prev, estado }))
+    setOpenColumnFilter(null)
   }
 
   const pageIds = historialNominas.map((n) => n.id)
@@ -517,7 +579,15 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
     }
   }
 
-  const hasActiveFilters = Boolean(filterEmployee) || Boolean(filterDni.trim()) || rangePreset !== 'all'
+  const hasActiveFilters =
+    Boolean(filterEmployee) ||
+    Boolean(filterDni.trim()) ||
+    rangePreset !== 'all' ||
+    Boolean(columnFilters.employee_name.trim()) ||
+    Boolean(columnFilters.company_name.trim()) ||
+    Boolean(columnFilters.estado) ||
+    sortColumn !== 'period_start' ||
+    sortDir !== 'desc'
 
   const activePresetLabel = RANGE_PRESETS.find((p) => p.value === rangePreset)?.label || 'Todo el histórico'
   const shortPresetLabel = SHORT_RANGE_LABELS[rangePreset] || 'Todo'
@@ -878,8 +948,8 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           <>
             <div className="w-full rounded-xl border border-slate-200 bg-white">
               <Table noScrollContainer>
-                <TableHeader>
-                  <TableRow className="bg-slate-50">
+                <TableHeader ref={columnFiltersRef}>
+                  <TableRow className="bg-slate-50/90 hover:bg-slate-50/90">
                     <TableHead className="w-[44px] px-3 text-center">
                       <input
                         ref={selectAllRef}
@@ -890,15 +960,180 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                         aria-label="Seleccionar todas las nóminas de la página"
                       />
                     </TableHead>
-                    <TableHead className="font-semibold text-slate-700">Empleado</TableHead>
-                    <TableHead className="font-semibold text-slate-700">Empresa</TableHead>
-                    <TableHead className="font-semibold text-slate-700 text-center">Período</TableHead>
-                    <TableHead className="font-semibold text-slate-700 text-center">Bruto</TableHead>
-                    <TableHead className="font-semibold text-slate-700 text-center">Neto</TableHead>
-                    <TableHead className="font-semibold text-slate-700 text-center">Coste Emp.</TableHead>
-                    <TableHead className="font-semibold text-slate-700 text-center">Estado</TableHead>
-                    <TableHead className="font-semibold text-slate-700 text-center">Fecha</TableHead>
-                    <TableHead className="font-semibold text-slate-700 text-center w-16" />
+                    <ExcelColumnHeader
+                      label="Empleado"
+                      sortActive={sortColumn === 'employee_name'}
+                      sortDir={sortDir}
+                      onSort={() => toggleSort('employee_name')}
+                      filterable
+                      filterActive={Boolean(columnFilters.employee_name.trim())}
+                      filterOpen={openColumnFilter === 'employee_name'}
+                      onFilterToggle={() => openColumnFilterMenu('employee_name')}
+                      filterPanel={
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Filtrar empleado
+                          </p>
+                          <Input
+                            value={columnFilterDraft.employee_name}
+                            onChange={(e) =>
+                              setColumnFilterDraft((d) => ({ ...d, employee_name: e.target.value }))
+                            }
+                            placeholder="Contiene…"
+                            className="h-8 text-xs"
+                            onKeyDown={(e) => e.key === 'Enter' && applyTextColumnFilter('employee_name')}
+                          />
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 flex-1 bg-[#1B2A41] text-xs hover:bg-[#152036]"
+                              onClick={() => applyTextColumnFilter('employee_name')}
+                            >
+                              Aplicar
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs"
+                              onClick={() => {
+                                setColumnFilterDraft((d) => ({ ...d, employee_name: '' }))
+                                setColumnFilters((p) => ({ ...p, employee_name: '' }))
+                                setOpenColumnFilter(null)
+                              }}
+                            >
+                              Limpiar
+                            </Button>
+                          </div>
+                        </div>
+                      }
+                    />
+                    <ExcelColumnHeader
+                      label="Empresa"
+                      sortActive={sortColumn === 'company_name'}
+                      sortDir={sortDir}
+                      onSort={() => toggleSort('company_name')}
+                      filterable
+                      filterActive={Boolean(columnFilters.company_name.trim())}
+                      filterOpen={openColumnFilter === 'company_name'}
+                      onFilterToggle={() => openColumnFilterMenu('company_name')}
+                      filterPanel={
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Filtrar empresa
+                          </p>
+                          <Input
+                            value={columnFilterDraft.company_name}
+                            onChange={(e) =>
+                              setColumnFilterDraft((d) => ({ ...d, company_name: e.target.value }))
+                            }
+                            placeholder="Contiene…"
+                            className="h-8 text-xs"
+                            onKeyDown={(e) => e.key === 'Enter' && applyTextColumnFilter('company_name')}
+                          />
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 flex-1 bg-[#1B2A41] text-xs hover:bg-[#152036]"
+                              onClick={() => applyTextColumnFilter('company_name')}
+                            >
+                              Aplicar
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs"
+                              onClick={() => {
+                                setColumnFilterDraft((d) => ({ ...d, company_name: '' }))
+                                setColumnFilters((p) => ({ ...p, company_name: '' }))
+                                setOpenColumnFilter(null)
+                              }}
+                            >
+                              Limpiar
+                            </Button>
+                          </div>
+                        </div>
+                      }
+                    />
+                    <ExcelColumnHeader
+                      label="Período"
+                      align="center"
+                      sortActive={sortColumn === 'period_start'}
+                      sortDir={sortDir}
+                      onSort={() => toggleSort('period_start')}
+                    />
+                    <ExcelColumnHeader
+                      label="Bruto"
+                      align="center"
+                      sortActive={sortColumn === 'gross_salary'}
+                      sortDir={sortDir}
+                      onSort={() => toggleSort('gross_salary')}
+                    />
+                    <ExcelColumnHeader
+                      label="Neto"
+                      align="center"
+                      sortActive={sortColumn === 'net_pay'}
+                      sortDir={sortDir}
+                      onSort={() => toggleSort('net_pay')}
+                    />
+                    <ExcelColumnHeader
+                      label="Coste Emp."
+                      align="center"
+                      sortActive={sortColumn === 'cost_empresa'}
+                      sortDir={sortDir}
+                      onSort={() => toggleSort('cost_empresa')}
+                    />
+                    <ExcelColumnHeader
+                      label="Estado"
+                      align="center"
+                      sortActive={sortColumn === 'signed'}
+                      sortDir={sortDir}
+                      onSort={() => toggleSort('signed')}
+                      filterable
+                      filterActive={Boolean(columnFilters.estado)}
+                      filterOpen={openColumnFilter === 'estado'}
+                      onFilterToggle={() => openColumnFilterMenu('estado')}
+                      filterPanel={
+                        <div className="space-y-1">
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Filtrar estado
+                          </p>
+                          {(
+                            [
+                              { value: '' as NominaEstadoFilter, label: 'Todos' },
+                              { value: 'enviada' as NominaEstadoFilter, label: 'Enviada' },
+                              { value: 'firmada' as NominaEstadoFilter, label: 'Firmada' },
+                            ] as const
+                          ).map(({ value, label }) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => applyEstadoColumnFilter(value)}
+                              className={cn(
+                                'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-slate-50',
+                                columnFilters.estado === value && 'bg-[#C6A664]/12 font-medium text-[#1B2A41]',
+                              )}
+                            >
+                              {label}
+                              {columnFilters.estado === value && (
+                                <span className="text-[#C6A664]">✓</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      }
+                    />
+                    <ExcelColumnHeader
+                      label="Fecha"
+                      align="center"
+                      sortActive={sortColumn === 'created_at'}
+                      sortDir={sortDir}
+                      onSort={() => toggleSort('created_at')}
+                    />
+                    <TableHead className="w-16 p-0" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>

@@ -1,50 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
-
-function applyNominaFilters(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query: any,
-  params: {
-    employeeId?: string | null
-    dni?: string | null
-    search?: string | null
-    periods?: string[]
-    dateFrom?: string | null
-    dateTo?: string | null
-  },
-) {
-  let q = query
-
-  if (params.employeeId) {
-    q = q.eq('employee_id', params.employeeId)
-  }
-
-  const dniTerm = (params.dni || params.search || '').trim()
-  if (dniTerm) {
-    const pattern = `%${dniTerm}%`
-    q = q.or(`dni.ilike.${pattern},employee->>dni.ilike.${pattern},employee->>name.ilike.${pattern}`)
-  }
-
-  if (params.periods && params.periods.length > 0) {
-    const orConditions = params.periods.map((period) => {
-      const [year, month] = period.split('-')
-      const start = `${year}-${month}-01`
-      const lastDay = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate()
-      const end = `${year}-${month}-${String(lastDay).padStart(2, '0')}`
-      return `and(period_start.gte.${start},period_start.lte.${end})`
-    })
-    q = q.or(orConditions.join(','))
-  } else {
-    if (params.dateFrom) {
-      q = q.gte('period_start', params.dateFrom)
-    }
-    if (params.dateTo) {
-      q = q.lte('period_start', params.dateTo)
-    }
-  }
-
-  return q
-}
+import {
+  applyNominaListFilters,
+  applyNominaListSort,
+  parseNominaEstadoFilter,
+  parseNominaSortColumn,
+  parseNominaSortDir,
+} from '@/lib/nomina-list-query'
 
 async function enrichWithAvatars(
   supabase: ReturnType<typeof getSupabaseClient>,
@@ -103,15 +65,21 @@ export async function GET(request: NextRequest) {
       periods,
       dateFrom: searchParams.get('date_from'),
       dateTo: searchParams.get('date_to'),
+      employeeName: searchParams.get('col_employee'),
+      companyName: searchParams.get('col_company'),
+      estado: parseNominaEstadoFilter(searchParams.get('col_estado')),
     }
+
+    const sortBy = parseNominaSortColumn(searchParams.get('sort_by'))
+    const sortDir = parseNominaSortDir(searchParams.get('sort_dir'))
 
     let query = supabase
       .from('nominas')
       .select('*', { count: 'exact' })
       .eq('company_id', companyId)
 
-    query = applyNominaFilters(query, filters)
-    query = query.order('period_start', { ascending: false }).order('created_at', { ascending: false })
+    query = applyNominaListFilters(query, filters)
+    query = applyNominaListSort(query, sortBy, sortDir)
 
     const { data: nominas, error, count } = await query.range(offset, offset + limit - 1)
 
