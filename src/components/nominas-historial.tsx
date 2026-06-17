@@ -9,6 +9,7 @@ import { NominaEstadoBadge } from '@/components/nomina-estado-badge'
 import { NominasSelectionBanner, type SelectionTotals } from '@/components/nominas-selection-banner'
 import { EmployeeFilterSelect, type EmployeeFilterOption } from '@/components/employee-filter-select'
 import { ExcelColumnHeader } from '@/components/excel-column-header'
+import { PersonAvatar } from '@/components/ui/person-avatar'
 import type { NominaEstadoFilter, NominaSortColumn, NominaSortDir } from '@/lib/nomina-list-query'
 import type { NominaViewerData } from '@/components/nomina-viewer-dialog'
 import {
@@ -21,7 +22,6 @@ import {
   MagnifyingGlassIcon,
   RectangleGroupIcon,
   TrashIcon,
-  UserIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
@@ -1199,9 +1199,10 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                                   className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-slate-200"
                                 />
                               ) : (
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                                  <UserIcon className="w-4 h-4 text-white" />
-                                </div>
+                                <PersonAvatar
+                                  name={nomina.employee?.name || nomina.dni || '—'}
+                                  size="sm"
+                                />
                               )}
                               <div className="min-w-0 flex-1">
                                 <p className="font-medium text-slate-800 text-sm group-hover:text-[#1B2A41]">

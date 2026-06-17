@@ -15,7 +15,7 @@ import {
   CreditCardIcon,
   ExclamationTriangleIcon,
   EyeIcon,
-  UserIcon,
+import { PersonAvatar } from '@/components/ui/person-avatar'
 } from '@heroicons/react/24/outline'
 
 interface NominaData {
@@ -215,17 +215,11 @@ export function NominaCard({
           isSelected && !isBlocked ? "border-emerald-500 bg-emerald-50/50" : isSelected ? "border-amber-500" : "border-slate-200"
         )}
       >
-        {employeeAvatar ? (
-          <img
-            src={employeeAvatar}
-            alt={nominaData.employee?.name || 'Avatar'}
-            className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-slate-200"
-          />
-        ) : (
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-            <UserIcon className="w-5 h-5 text-white" />
-          </div>
-        )}
+        <PersonAvatar
+          name={nominaData.employee?.name || 'Empleado'}
+          imageUrl={employeeAvatar}
+          size="md"
+        />
         
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -388,17 +382,12 @@ export function NominaCard({
       <div className="p-4 pb-2">
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3">
-            {nominaData.employee_avatar ? (
-              <img
-                src={nominaData.employee_avatar}
-                alt={nominaData.employee?.name || 'Avatar'}
-                className="w-12 h-12 rounded-full object-cover flex-shrink-0 shadow-lg border border-slate-200"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg">
-                <UserIcon className="w-6 h-6 text-white" />
-              </div>
-            )}
+            <PersonAvatar
+              name={nominaData.employee?.name || 'Empleado'}
+              imageUrl={nominaData.employee_avatar}
+              size="lg"
+              className="shadow-lg border-2 border-slate-200"
+            />
             <div className="flex-1 min-w-0">
               <p className="text-base font-bold text-slate-800 truncate leading-tight">
                 {nominaData.employee?.name || 'Empleado'}

@@ -10,6 +10,7 @@ export interface FetchedNotification {
   concept?: string
   receivedAt: string
   accessDeadline?: string
+  readAt?: string
   documentPdf?: Buffer
   certificationPdf?: Buffer
   metadata?: Record<string, unknown>

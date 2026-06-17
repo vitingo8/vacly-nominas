@@ -14,7 +14,7 @@ import {
   DocumentTextIcon,
   SparklesIcon,
   TrashIcon,
-  UserIcon,
+import { PersonAvatar } from '@/components/ui/person-avatar'
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
@@ -374,13 +374,11 @@ export function GastosVerView({ companyId }: GastosVerViewProps) {
                   <TableRow key={expense.id} className="hover:bg-slate-50/50">
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        {expense.employee_avatar ? (
-                          <img src={expense.employee_avatar} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1B2A41] to-slate-700 flex items-center justify-center">
-                            <UserIcon className="w-4 h-4 text-white" />
-                          </div>
-                        )}
+                        <PersonAvatar
+                          name={employees.find((e) => e.id === expense.employee_id)?.name}
+                          imageUrl={expense.employee_avatar}
+                          size="sm"
+                        />
                         <div className="flex items-center gap-2">
                           {expense.image && (
                             <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">

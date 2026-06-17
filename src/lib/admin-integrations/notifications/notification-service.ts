@@ -6,6 +6,9 @@ import { getCompanyRecipientUserIds } from './recipients'
 import { getNotificationsConfig } from './config'
 import { createNotificationAdapters } from './adapters'
 import { storeNotificationDocument } from './notification-document-storage'
+import { accesoEnvio } from './adapters/aeat/aeat-ws-envios'
+import { getAdminConfig } from '../config'
+import { parseIsoOrAeatDate } from './soap/xml'
 import type {
   FetchedNotification,
   NotificationSyncResult,
@@ -24,6 +27,8 @@ export interface AdminNotificationRow {
   receivedAt: string
   accessDeadline: string | null
   readAt: string | null
+  hasDocument: boolean
+  aeatEstado?: string | null
 }
 
 export interface SyncResult {
@@ -33,9 +38,10 @@ export interface SyncResult {
 }
 
 const NOTIF_COLUMNS =
-  'id, company_id, provider, external_id, subject, sender, concept, received_at, access_deadline, read_at'
+  'id, company_id, provider, external_id, subject, sender, concept, received_at, access_deadline, read_at, document_path, certificate_id, metadata'
 
 function rowToNotification(row: Record<string, any>): AdminNotificationRow {
+  const metadata = (row.metadata || {}) as Record<string, unknown>
   return {
     id: row.id,
     companyId: row.company_id,
@@ -47,6 +53,8 @@ function rowToNotification(row: Record<string, any>): AdminNotificationRow {
     receivedAt: row.received_at,
     accessDeadline: row.access_deadline ?? null,
     readAt: row.read_at ?? null,
+    hasDocument: !!row.document_path,
+    aeatEstado: typeof metadata.estado === 'string' ? metadata.estado : null,
   }
 }
 
@@ -97,6 +105,19 @@ async function persistNotification(
   certificateId: string,
   notification: FetchedNotification,
 ): Promise<boolean> {
+  const { data: existing } = await supabase
+    .from('admin_notifications')
+    .select('id, read_at, document_path, metadata')
+    .eq('company_id', companyId)
+    .eq('provider', notification.provider)
+    .eq('external_id', notification.externalId)
+    .maybeSingle()
+
+  if (existing?.id) {
+    await updateExistingNotification(supabase, existing.id, companyId, certificateId, notification, existing)
+    return false
+  }
+
   const { data, error } = await supabase
     .from('admin_notifications')
     .insert({
@@ -108,6 +129,7 @@ async function persistNotification(
       concept: notification.concept ?? null,
       received_at: notification.receivedAt,
       access_deadline: notification.accessDeadline ?? null,
+      read_at: null,
       certificate_id: certificateId,
       metadata: notification.metadata ?? {},
     })
@@ -120,10 +142,52 @@ async function persistNotification(
   }
   if (!data?.id) return false
 
+  await storeNotificationPdfs(supabase, companyId, data.id, notification)
+  await createAppNotificationForArrival(supabase, companyId, notification, data.id)
+  return true
+}
+
+async function updateExistingNotification(
+  supabase: SupabaseClient,
+  notificationId: string,
+  companyId: string,
+  certificateId: string,
+  notification: FetchedNotification,
+  existing: { read_at?: string | null; document_path?: string | null; metadata?: Record<string, unknown> },
+): Promise<void> {
+  const mergedMetadata = { ...(existing.metadata || {}), ...(notification.metadata || {}) }
+  // No sobrescribir read_at en sync: solo se establece al comparecer/abrir desde el frontend.
+  const readAt = existing.read_at ?? null
+
+  await supabase
+    .from('admin_notifications')
+    .update({
+      subject: notification.subject,
+      sender: notification.sender ?? null,
+      concept: notification.concept ?? null,
+      access_deadline: notification.accessDeadline ?? null,
+      read_at: readAt,
+      certificate_id: certificateId,
+      metadata: mergedMetadata,
+    })
+    .eq('id', notificationId)
+    .eq('company_id', companyId)
+
+  if (!existing.document_path && notification.documentPdf?.length) {
+    await storeNotificationPdfs(supabase, companyId, notificationId, notification)
+  }
+}
+
+async function storeNotificationPdfs(
+  supabase: SupabaseClient,
+  companyId: string,
+  notificationId: string,
+  notification: FetchedNotification,
+): Promise<void> {
   if (notification.documentPdf?.length) {
     const stored = await storeNotificationDocument(supabase, {
       companyId,
-      notificationId: data.id,
+      notificationId,
       provider: notification.provider,
       externalId: notification.externalId,
       fileName: 'notification.pdf',
@@ -132,22 +196,19 @@ async function persistNotification(
     await supabase
       .from('admin_notifications')
       .update({ document_path: stored.storagePath })
-      .eq('id', data.id)
+      .eq('id', notificationId)
   }
 
   if (notification.certificationPdf?.length) {
     await storeNotificationDocument(supabase, {
       companyId,
-      notificationId: data.id,
+      notificationId,
       provider: notification.provider,
       externalId: notification.externalId,
       fileName: 'certification.pdf',
       content: notification.certificationPdf,
     })
   }
-
-  await createAppNotificationForArrival(supabase, companyId, notification, data.id)
-  return true
 }
 
 async function createAppNotificationForArrival(
@@ -312,18 +373,33 @@ export async function listAgencyNotifications(
 ): Promise<AdminNotificationRow[]> {
   const { data: companies, error: companiesError } = await supabase
     .from('companies')
-    .select('company_id, company, company_short')
+    .select('company_id')
     .eq('agency_id', agencyCompanyId)
 
   if (companiesError) {
     throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando empresas de la cartera', companiesError)
   }
 
-  const nameById = new Map<string, string>()
-  for (const c of companies || []) {
-    nameById.set((c as any).company_id, (c as any).company_short || (c as any).company || '')
-  }
   const companyIds = [agencyCompanyId, ...(companies || []).map((c: any) => c.company_id)]
+
+  const { data: names, error: namesError } = await supabase
+    .from('companies')
+    .select('company_id, company, company_short, cif')
+    .in('company_id', companyIds)
+
+  if (namesError) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error resolviendo nombres de empresa', namesError)
+  }
+
+  const nameById = new Map<string, string>()
+  for (const row of names || []) {
+    const label =
+      (row as any).company_short ||
+      (row as any).company ||
+      (row as any).cif ||
+      String((row as any).company_id).slice(0, 8)
+    nameById.set((row as any).company_id, label)
+  }
 
   const { data, error } = await supabase
     .from('admin_notifications')
@@ -364,16 +440,208 @@ export async function markNotificationRead(
   supabase: SupabaseClient,
   companyId: string,
   notificationId: string,
+  input?: { actorUserId?: string; certificateId?: string },
 ): Promise<void> {
-  const { error } = await supabase
+  const { data: row, error: loadError } = await supabase
+    .from('admin_notifications')
+    .select('id, company_id, provider, external_id, read_at, certificate_id, metadata, document_path')
+    .eq('id', notificationId)
+    .eq('company_id', companyId)
+    .maybeSingle()
+
+  if (loadError || !row) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Notificación no encontrada', loadError)
+  }
+
+  if (row.read_at) return
+
+  const certificateId = input?.certificateId || row.certificate_id
+  if (row.provider === 'aeat') {
+    if (!certificateId) {
+      throw new AdminIntegrationError(
+        'VALIDATION_ERROR',
+        'Se requiere certificado para comparecer la notificación en AEAT',
+      )
+    }
+
+    const audit = new AuditService(supabase)
+    const vault = createCertificateVault(supabase, audit)
+    const decrypted = await vault.useCertificate(
+      companyId,
+      certificateId,
+      'notifications:comparecer',
+      input?.actorUserId,
+    )
+
+    const acceso = await accesoEnvio(
+      {
+        companyId,
+        certificateId,
+        holderNif: decrypted.holderNif,
+        pfx: decrypted.pfx,
+        password: decrypted.password,
+        actorUserId: input?.actorUserId,
+      },
+      row.external_id,
+      'C',
+    )
+
+    const readAt = acceso.fechaAcceso ? new Date(parseIsoOrAeatDate(acceso.fechaAcceso)).toISOString() : new Date().toISOString()
+    const metadata = { ...(row.metadata as Record<string, unknown>), estado: 'A', fechaAcceso: readAt, operacion: 'C' }
+
+    await supabase
+      .from('admin_notifications')
+      .update({
+        read_at: readAt,
+        sender: acceso.sender,
+        concept: acceso.concepto ?? null,
+        metadata,
+        certificate_id: certificateId,
+      })
+      .eq('id', notificationId)
+      .eq('company_id', companyId)
+
+    if (acceso.documentPdf?.length) {
+      await storeNotificationPdfs(supabase, companyId, notificationId, {
+        provider: 'aeat',
+        externalId: row.external_id,
+        documentPdf: acceso.documentPdf,
+        certificationPdf: acceso.certificationPdf,
+        subject: '',
+        receivedAt: readAt,
+      })
+    }
+    return
+  }
+
+  await supabase
     .from('admin_notifications')
     .update({ read_at: new Date().toISOString() })
     .eq('id', notificationId)
     .eq('company_id', companyId)
+}
 
-  if (error) {
-    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error marcando notificacion como leida', error)
+export async function openNotificationDocument(
+  supabase: SupabaseClient,
+  companyId: string,
+  notificationId: string,
+  input?: { actorUserId?: string; certificateId?: string; userConfirmed?: boolean },
+): Promise<{ url: string; comparecida?: boolean }> {
+  if (!input?.userConfirmed) {
+    throw new AdminIntegrationError(
+      'VALIDATION_ERROR',
+      'Debes confirmar la apertura de la notificación desde el frontend',
+    )
   }
+  const { data: row, error: loadError } = await supabase
+    .from('admin_notifications')
+    .select('id, company_id, provider, external_id, read_at, certificate_id, metadata, document_path')
+    .eq('id', notificationId)
+    .eq('company_id', companyId)
+    .maybeSingle()
+
+  if (loadError || !row) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Notificación no encontrada', loadError)
+  }
+
+  const config = getAdminConfig()
+
+  if (row.document_path) {
+    const { data, error } = await supabase.storage
+      .from(config.storageBucket)
+      .createSignedUrl(row.document_path, 3600)
+    if (error || !data?.signedUrl) {
+      throw new AdminIntegrationError('STORAGE_ERROR', 'No se pudo abrir el documento', error)
+    }
+    return { url: data.signedUrl, comparecida: false }
+  }
+
+  if (row.provider !== 'aeat') {
+    throw new AdminIntegrationError('FILE_NOT_FOUND', 'Documento no disponible para esta notificación')
+  }
+
+  const certificateId = input?.certificateId || row.certificate_id
+  if (!certificateId) {
+    throw new AdminIntegrationError('VALIDATION_ERROR', 'Se requiere certificado para descargar desde AEAT')
+  }
+
+  const metadata = (row.metadata || {}) as Record<string, unknown>
+  const operacion: 'C' | 'D' = metadata.estado === 'A' || row.read_at ? 'D' : 'C'
+
+  const audit = new AuditService(supabase)
+  const vault = createCertificateVault(supabase, audit)
+  const decrypted = await vault.useCertificate(
+    companyId,
+    certificateId,
+    'notifications:open',
+    input?.actorUserId,
+  )
+
+  const acceso = await accesoEnvio(
+    {
+      companyId,
+      certificateId,
+      holderNif: decrypted.holderNif,
+      pfx: decrypted.pfx,
+      password: decrypted.password,
+      actorUserId: input?.actorUserId,
+    },
+    row.external_id,
+    operacion,
+  )
+
+  if (!acceso.documentPdf?.length) {
+    throw new AdminIntegrationError('FILE_NOT_FOUND', 'AEAT no devolvió el PDF del envío')
+  }
+
+  const readAt =
+    operacion === 'C'
+      ? acceso.fechaAcceso
+        ? new Date(parseIsoOrAeatDate(acceso.fechaAcceso)).toISOString()
+        : new Date().toISOString()
+      : row.read_at
+
+  await supabase
+    .from('admin_notifications')
+    .update({
+      read_at: readAt,
+      sender: acceso.sender,
+      concept: acceso.concepto ?? null,
+      metadata: {
+        ...metadata,
+        estado: operacion === 'C' ? 'A' : metadata.estado,
+        fechaAcceso: operacion === 'C' ? readAt : metadata.fechaAcceso,
+        operacion,
+      },
+      certificate_id: certificateId,
+    })
+    .eq('id', notificationId)
+    .eq('company_id', companyId)
+
+  await storeNotificationPdfs(supabase, companyId, notificationId, {
+    provider: 'aeat',
+    externalId: row.external_id,
+    documentPdf: acceso.documentPdf,
+    certificationPdf: acceso.certificationPdf,
+    subject: '',
+    receivedAt: readAt || new Date().toISOString(),
+  })
+
+  const { data: updated } = await supabase
+    .from('admin_notifications')
+    .select('document_path')
+    .eq('id', notificationId)
+    .single()
+
+  const { data, error } = await supabase.storage
+    .from(config.storageBucket)
+    .createSignedUrl(updated?.document_path || '', 3600)
+
+  if (error || !data?.signedUrl) {
+    throw new AdminIntegrationError('STORAGE_ERROR', 'Documento guardado pero no se pudo abrir', error)
+  }
+
+  return { url: data.signedUrl, comparecida: operacion === 'C' }
 }
 
 export type { NotificationSyncResult, ProviderSyncResult }

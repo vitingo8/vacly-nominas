@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDownIcon, UserIcon } from '@heroicons/react/24/outline'
+import { ChevronDownIcon } from '@heroicons/react/24/outline'
+import { PersonAvatar } from '@/components/ui/person-avatar'
 import { cn } from '@/lib/utils'
 
 export interface EmployeeFilterOption {
@@ -22,25 +23,12 @@ function EmployeeAvatar({
   imageUrl?: string | null
   size?: 'sm' | 'md'
 }) {
-  const dim = size === 'sm' ? 'h-6 w-6' : 'h-8 w-8'
-  if (imageUrl) {
-    return (
-      <img
-        src={imageUrl}
-        alt={name}
-        className={cn(dim, 'shrink-0 rounded-full border border-slate-200/80 object-cover')}
-      />
-    )
-  }
   return (
-    <div
-      className={cn(
-        dim,
-        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1B2A41] to-[#C6A664]',
-      )}
-    >
-      <UserIcon className={cn(size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4', 'text-white')} />
-    </div>
+    <PersonAvatar
+      name={name}
+      imageUrl={imageUrl}
+      size={size === 'sm' ? 'xs' : 'sm'}
+    />
   )
 }
 

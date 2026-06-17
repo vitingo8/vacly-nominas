@@ -31,7 +31,7 @@ import { Label } from '@/components/ui/label'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
-import { cn } from '@/lib/utils'
+import { PersonAvatar } from '@/components/ui/person-avatar'
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface Employee {
@@ -730,15 +730,11 @@ export default function ContratosPage() {
                     <TableRow key={contract.id} className="hover:bg-slate-50/50">
                       <TableCell>
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1B2A41] to-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden border border-slate-200">
-                            {contract.employees?.image_url ? (
-                              <img src={contract.employees.image_url} alt={empName} className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="text-xs font-bold text-white">
-                                {empName.charAt(0).toUpperCase()}
-                              </span>
-                            )}
-                          </div>
+                          <PersonAvatar
+                            name={empName}
+                            imageUrl={contract.employees?.image_url}
+                            size="sm"
+                          />
                           <div>
                             <span className="font-medium text-slate-800 block">{empName}</span>
                             {contract.employees?.nif && (

@@ -36,7 +36,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter
 } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
+import { PersonAvatar } from '@/components/ui/person-avatar'
 import {
   calculatePayslip, isIndefiniteContract, TipoContrato, TipoJornada
 } from '@/lib/calculadora'
@@ -1289,13 +1289,7 @@ function GeneracionContent() {
                             {/* Employee Name + Avatar */}
                             <TableCell className="px-3 py-2">
                               <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden border border-slate-200 bg-gradient-to-br from-[#1B2A41] to-slate-600 flex items-center justify-center">
-                                  {emp.imageUrl ? (
-                                    <img src={emp.imageUrl} alt={emp.name} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <span className="text-[11px] font-bold text-white">{emp.name.charAt(0).toUpperCase()}</span>
-                                  )}
-                                </div>
+                                <PersonAvatar name={emp.name} imageUrl={emp.imageUrl} size="sm" />
                                 <div className="min-w-0 flex-1">
                                   <p className="text-sm font-medium leading-tight truncate">{emp.name}</p>
                                   <div className="flex items-center gap-1.5 flex-wrap">
