@@ -1,6 +1,6 @@
-export type TgssMode = 'mock' | 'siltra'
-export type AeatMode = 'mock' | 'soap' | 'file'
-export type DehuMode = 'mock' | 'api'
+export type TgssMode = 'siltra'
+export type AeatMode = 'soap' | 'file'
+export type DehuMode = 'api'
 
 export interface AdminIntegrationsConfig {
   enabled: boolean
@@ -19,16 +19,26 @@ export interface AdminIntegrationsConfig {
 export function getAdminConfig(): AdminIntegrationsConfig {
   return {
     enabled: process.env.ADMIN_INTEGRATIONS_ENABLED !== 'false',
-    tgssMode: (process.env.TGSS_MODE as TgssMode) || 'mock',
+    tgssMode: 'siltra',
     tgssSiltraInputDir: process.env.TGSS_SILTRA_INPUT_DIR || '',
     tgssSiltraOutputDir: process.env.TGSS_SILTRA_OUTPUT_DIR || '',
     tgssSiltraExecutablePath: process.env.TGSS_SILTRA_EXECUTABLE_PATH || '',
     tgssCertificateId: process.env.TGSS_CERTIFICATE_ID,
-    aeatMode: (process.env.AEAT_MODE as AeatMode) || 'mock',
-    dehuMode: (process.env.DEHU_MODE as DehuMode) || 'mock',
+    aeatMode: (process.env.AEAT_MODE as AeatMode) || 'soap',
+    dehuMode: 'api',
     encryptionKey: process.env.ADMIN_ENCRYPTION_KEY,
     cronSecret: process.env.CRON_SECRET,
     storageBucket: process.env.ADMIN_STORAGE_BUCKET || 'admin-integrations',
+  }
+}
+
+export function assertSiltraConfig(): void {
+  const config = getAdminConfig()
+  if (!config.tgssSiltraInputDir.trim()) {
+    throw new Error('TGSS_SILTRA_INPUT_DIR es obligatorio (carpeta de entrada de SILTRA)')
+  }
+  if (!config.tgssSiltraOutputDir.trim()) {
+    throw new Error('TGSS_SILTRA_OUTPUT_DIR es obligatorio (carpeta de salida de SILTRA)')
   }
 }
 

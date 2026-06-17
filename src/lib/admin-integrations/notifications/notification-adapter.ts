@@ -1,4 +1,3 @@
-import { createHash } from 'crypto'
 import { getAdminConfig } from '../config'
 import type { AdminProvider } from '../types'
 import type { DecryptedCertificate } from '../certificate-vault/certificate-vault-service'
@@ -27,60 +26,20 @@ export interface NotificationAdapter {
 }
 
 /**
- * Adapter DEHu simulado: genera notificaciones deterministas a partir del NIF
- * del titular para poder probar el flujo completo sin acceso real al organismo.
- */
-export class MockDehuAdapter implements NotificationAdapter {
-  readonly provider: AdminProvider = 'dehu'
-
-  async fetchNotifications(input: {
-    companyId: string
-    holderNif: string | null
-    certificate: DecryptedCertificate
-  }): Promise<FetchedNotification[]> {
-    const seed = createHash('sha256')
-      .update(`${input.companyId}:${input.holderNif ?? ''}:${new Date().toISOString().slice(0, 10)}`)
-      .digest('hex')
-
-    // 0-2 notificaciones simuladas en funcion del seed (estable por dia).
-    const count = parseInt(seed.slice(0, 2), 16) % 3
-    const now = Date.now()
-    const samples = [
-      { sender: 'AEAT - Agencia Tributaria', subject: 'Requerimiento de documentacion', concept: 'Procedimiento de comprobacion' },
-      { sender: 'TGSS - Seguridad Social', subject: 'Comunicacion de deuda', concept: 'Reclamacion de cuotas' },
-    ]
-
-    return Array.from({ length: count }).map((_, i) => {
-      const s = samples[i % samples.length]
-      const externalId = `DEHU-${seed.slice(i * 8, i * 8 + 12).toUpperCase()}`
-      return {
-        provider: 'dehu' as const,
-        externalId,
-        subject: s.subject,
-        sender: s.sender,
-        concept: s.concept,
-        receivedAt: new Date(now - i * 86400000).toISOString(),
-        accessDeadline: new Date(now + (10 - i) * 86400000).toISOString(),
-        metadata: { simulated: true },
-      }
-    })
-  }
-}
-
-/**
- * Adapter DEHu real (pendiente de implementar contra el servicio del PAU/DEHu).
- * Requiere el certificado descifrado para autenticarse.
+ * Adapter DEHu real (PAU / punto de acceso usuario).
+ * Requiere el certificado descifrado para autenticarse contra el servicio.
  */
 export class ApiDehuAdapter implements NotificationAdapter {
   readonly provider: AdminProvider = 'dehu'
 
   async fetchNotifications(): Promise<FetchedNotification[]> {
+    const mode = getAdminConfig().dehuMode
     throw new Error(
-      'Adapter DEHu real no implementado. Configura DEHU_MODE=mock o implementa la integracion con el servicio DEHu/PAU.',
+      `Integración DEHu (${mode}) pendiente de implementar contra el servicio PAU/DEHu oficial.`,
     )
   }
 }
 
 export function createDehuAdapter(): NotificationAdapter {
-  return getAdminConfig().dehuMode === 'api' ? new ApiDehuAdapter() : new MockDehuAdapter()
+  return new ApiDehuAdapter()
 }

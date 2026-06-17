@@ -47,6 +47,11 @@ export interface ParsedAfiResponse {
 
 export type SubmissionStatus = 'pending' | 'submitted' | 'completed' | 'error'
 
+export interface TransportFilePayload {
+  fileName: string
+  content: Buffer
+}
+
 export interface TransportSubmissionResult {
   externalRef: string
   status: SubmissionStatus

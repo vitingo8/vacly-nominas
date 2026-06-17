@@ -137,7 +137,7 @@ function rowToMetadata(row: Record<string, any>): CertificateMetadata {
   }
 }
 
-export class MockCertificateVault implements CertificateVault {
+export class BaseCertificateVault implements CertificateVault {
   constructor(
     protected supabase: SupabaseClient,
     protected audit: AuditService,
@@ -145,7 +145,13 @@ export class MockCertificateVault implements CertificateVault {
 
   protected getSecret(): string {
     const config = getAdminConfig()
-    return config.encryptionKey || 'dev-mock-key-not-for-production!!'
+    if (!config.encryptionKey || config.encryptionKey.length < 32) {
+      throw new AdminIntegrationError(
+        'PROCESSING_ERROR',
+        'ADMIN_ENCRYPTION_KEY requerida (min. 32 caracteres)',
+      )
+    }
+    return config.encryptionKey
   }
 
   async storeCertificate(input: StoreCertificateInput): Promise<CertificateMetadata> {
@@ -322,26 +328,12 @@ export class MockCertificateVault implements CertificateVault {
   }
 }
 
-/** En produccion exige una clave de cifrado real (>= 32 caracteres). */
-export class EncryptedCertificateVault extends MockCertificateVault {
-  protected getSecret(): string {
-    const config = getAdminConfig()
-    if (!config.encryptionKey || config.encryptionKey.length < 32) {
-      throw new AdminIntegrationError(
-        'PROCESSING_ERROR',
-        'ADMIN_ENCRYPTION_KEY requerida en produccion (min. 32 caracteres)',
-      )
-    }
-    return config.encryptionKey
-  }
-}
+/** Alias de compatibilidad. */
+export class EncryptedCertificateVault extends BaseCertificateVault {}
 
 export function createCertificateVault(
   supabase: SupabaseClient,
   audit: AuditService,
 ): CertificateVault {
-  if (process.env.NODE_ENV === 'production') {
-    return new EncryptedCertificateVault(supabase, audit)
-  }
-  return new MockCertificateVault(supabase, audit)
+  return new BaseCertificateVault(supabase, audit)
 }

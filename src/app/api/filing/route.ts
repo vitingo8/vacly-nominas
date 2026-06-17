@@ -247,7 +247,6 @@ export async function POST(request: NextRequest) {
         ? {
             transactionId: signature.transactionId,
             format: signature.format,
-            mock: signature.mock,
             contentSha256: signature.contentSha256,
             signedAt: signature.signedAt,
           }

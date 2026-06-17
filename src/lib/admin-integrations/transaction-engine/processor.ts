@@ -3,7 +3,7 @@ import { TransactionService } from './transaction-service'
 import { AuditService } from '../audit/audit-service'
 import { DocumentStorageService } from '../document-storage/document-storage-service'
 import { createTransportAdapter } from '../tgss-red/transport/transport-adapter'
-import { parseMockAfiResponse } from '../tgss-red/response-parser'
+import { parseAfiResponse } from '../tgss-red/response-parser'
 import { getAdminConfig } from '../config'
 
 export interface ProcessorResult {
@@ -52,7 +52,11 @@ export class TransactionProcessor {
             continue
           }
 
-          await this.transport.submitFile(tx.id, file.storage_path)
+          const fileBuffer = await this.storage.download(file)
+          await this.transport.submitFile(tx.id, {
+            fileName: file.file_name,
+            content: fileBuffer,
+          })
           await this.txService.transition(tx.id, 'submitted')
           await this.audit.log({
             companyId: tx.company_id,
@@ -73,7 +77,7 @@ export class TransactionProcessor {
         }
 
         const rawContent = poll.responseContent || ''
-        const parsed = parseMockAfiResponse(rawContent, tx.id)
+        const parsed = parseAfiResponse(rawContent, tx.id)
 
         const { data: responseRow } = await this.supabase
           .from('administrative_responses')

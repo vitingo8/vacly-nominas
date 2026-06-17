@@ -1,7 +1,6 @@
 import forge from 'node-forge'
 import { createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getAdminConfig } from '../config'
 import { AdminIntegrationError } from '../errors'
 import { AuditService } from '../audit/audit-service'
 import { createCertificateVault } from '../certificate-vault/certificate-vault-service'
@@ -9,49 +8,27 @@ import { extractSigningMaterial } from '../certificate-vault/pfx-parser'
 import { TransactionService } from '../transaction-engine/transaction-service'
 import type { AdminProvider } from '../types'
 
-export type SignatureFormat = 'pkcs7-detached' | 'mock'
+export type SignatureFormat = 'pkcs7-detached'
 
 export interface SignResult {
-  /** Firma en base64 (PKCS#7 detached DER, o firma simulada en modo mock). */
+  /** Firma PKCS#7 detached en base64 (DER). */
   signatureB64: string
   format: SignatureFormat
   algorithm: string
   /** Hash SHA-256 del contenido firmado (hex). */
   contentSha256: string
-  mock: boolean
   signedAt: string
 }
 
-/** Modo de firma: por defecto mock salvo que AEAT_MODE != mock. */
-function isMockMode(): boolean {
-  return getAdminConfig().aeatMode === 'mock'
-}
-
 /**
- * Produce una firma PKCS#7 detached del contenido con la clave/certificado
- * indicados. En modo mock no usa el certificado real: genera una firma
- * deterministica para trazar el flujo sin material sensible.
+ * Produce una firma PKCS#7 detached del contenido con la clave/certificado indicados.
  */
 export function signContent(
   material: { privateKeyPem: string; certificatePem: string },
   content: Buffer,
-  opts?: { forceMock?: boolean },
 ): SignResult {
   const contentSha256 = createHash('sha256').update(content).digest('hex')
   const signedAt = new Date().toISOString()
-  const mock = opts?.forceMock ?? isMockMode()
-
-  if (mock) {
-    const sig = createHash('sha256').update(content).update('|mock-signature').digest('base64')
-    return {
-      signatureB64: sig,
-      format: 'mock',
-      algorithm: 'sha256-mock',
-      contentSha256,
-      mock: true,
-      signedAt,
-    }
-  }
 
   try {
     const privateKey = forge.pki.privateKeyFromPem(material.privateKeyPem)
@@ -70,7 +47,6 @@ export function signContent(
         { type: forge.pki.oids.signingTime, value: signedAt },
       ],
     })
-    // Detached: no se incluye el contenido en la estructura firmada.
     p7.sign({ detached: true })
 
     const der = forge.asn1.toDer(p7.toAsn1()).getBytes()
@@ -81,7 +57,6 @@ export function signContent(
       format: 'pkcs7-detached',
       algorithm: 'RSA-SHA256',
       contentSha256,
-      mock: false,
       signedAt,
     }
   } catch (error) {
@@ -105,12 +80,6 @@ export interface SignSubmissionResult extends SignResult {
   certificateId: string
 }
 
-/**
- * Orquesta la firma de una presentacion: descifra el certificado en memoria,
- * firma el contenido, registra una transaccion administrativa con el
- * certificate_id y deja traza en auditoria. Pensado para usarse desde las
- * rutas de filing/RED/SEPA cuando el llamante aporta un certificateId.
- */
 export async function signSubmission(
   supabase: SupabaseClient,
   input: SignSubmissionInput,
@@ -119,7 +88,6 @@ export async function signSubmission(
   const vault = createCertificateVault(supabase, audit)
   const txService = new TransactionService(supabase)
 
-  // Descifra el PFX en memoria (audita certificate_used).
   const decrypted = await vault.useCertificate(
     input.companyId,
     input.certificateId,
@@ -140,7 +108,6 @@ export async function signSubmission(
     certificateId: input.certificateId,
   })
 
-  // created -> validated -> file_generated (presentacion firmada lista).
   await txService.transition(tx.id, 'validated')
   await txService.transition(tx.id, 'file_generated')
 
@@ -154,7 +121,6 @@ export async function signSubmission(
       procedureCode: input.procedureCode,
       certificateId: input.certificateId,
       format: signature.format,
-      mock: signature.mock,
       contentSha256: signature.contentSha256,
     },
   })

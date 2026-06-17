@@ -32,7 +32,7 @@ export {
 export { notifyExpiringCertificates, type ExpiryNotifierResult } from './notifications/expiry-notifier'
 export {
   createDehuAdapter,
-  MockDehuAdapter,
+  ApiDehuAdapter,
   type NotificationAdapter,
   type FetchedNotification,
 } from './notifications/notification-adapter'
