@@ -352,9 +352,9 @@ export function NominaDetailPanel({
                   { label: 'Categoría', value: nominaData.employee?.category },
                   { label: 'Código', value: nominaData.employee?.code },
                 ].map(({ label, value }) => (
-                  <div key={label} className="flex justify-between items-center py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span className="text-slate-600">{label}</span>
-                    <span className="font-medium text-slate-900">{value || '—'}</span>
+                  <div key={label} className="flex items-start justify-between gap-4 py-1.5 border-b border-slate-100 last:border-0 text-sm">
+                    <span className="shrink-0 text-slate-600">{label}</span>
+                    <span className="min-w-0 flex-1 text-right font-medium text-slate-900 break-words">{value || '—'}</span>
                   </div>
                 ))}
               </CardContent>
@@ -380,9 +380,9 @@ export function NominaDetailPanel({
                   { label: 'IBAN', value: nominaData.iban },
                   { label: 'SWIFT/BIC', value: nominaData.swift_bic },
                 ].map(({ label, value }) => (
-                  <div key={label} className="flex justify-between items-center py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span className="text-slate-600">{label}</span>
-                    <span className="font-medium text-slate-900 text-right max-w-[220px] truncate">{value || '—'}</span>
+                  <div key={label} className="flex items-start justify-between gap-4 py-1.5 border-b border-slate-100 last:border-0 text-sm">
+                    <span className="shrink-0 text-slate-600">{label}</span>
+                    <span className="min-w-0 flex-1 text-right font-medium text-slate-900 break-all">{value || '—'}</span>
                   </div>
                 ))}
               </CardContent>

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
-import { useCompanyId } from './admin-shell'
+import { useCompanyId, useEmbeddedMode } from './admin-shell'
 
 type AffiliationType = 'alta' | 'baja' | 'variacion'
 
@@ -22,6 +22,7 @@ interface AffiliationFormProps {
 
 export function AffiliationForm({ type, title, description }: AffiliationFormProps) {
   const companyId = useCompanyId()
+  const isEmbedded = useEmbeddedMode()
   const [employees, setEmployees] = useState<Array<{ id: string; name: string; nif?: string }>>([])
   const [employeeId, setEmployeeId] = useState('')
   const [nss, setNss] = useState('')
@@ -71,8 +72,12 @@ export function AffiliationForm({ type, title, description }: AffiliationFormPro
 
   return (
     <Card className="p-6 border-slate-200 w-full">
-      <h2 className="text-lg font-semibold text-slate-800 mb-1">{title}</h2>
-      <p className="text-sm text-slate-500 mb-6">{description}</p>
+      {!isEmbedded && (
+        <>
+          <h2 className="text-lg font-semibold text-slate-800 mb-1">{title}</h2>
+          <p className="text-sm text-slate-500 mb-6">{description}</p>
+        </>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="md:col-span-2 xl:col-span-2">

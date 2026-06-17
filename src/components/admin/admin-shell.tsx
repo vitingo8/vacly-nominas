@@ -1,15 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { readSearchParam, useEmbeddedMode } from '@/lib/embedded-mode'
 
 /** Mismo contenedor de ancho que el gestor de nóminas (`src/app/page.tsx`). */
 export const ADMIN_PAGE_SHELL_CLASS =
   'w-full max-w-none px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8'
-
-function readSearchParam(key: string): string | null {
-  if (typeof window === 'undefined') return null
-  return new URLSearchParams(window.location.search).get(key)
-}
 
 interface AdminShellProps {
   title?: string
@@ -21,17 +17,12 @@ interface AdminShellProps {
 
 export function AdminShell({ title, subtitle, embedded, children }: AdminShellProps) {
   const [companyId, setCompanyId] = useState<string | null>(() => readSearchParam('company_id'))
-  const [isEmbedded, setIsEmbedded] = useState(() => {
-    if (embedded != null) return embedded
-    return readSearchParam('embedded') === '1'
-  })
+  const detectedEmbedded = useEmbeddedMode()
+  const isEmbedded = embedded ?? detectedEmbedded
 
   useEffect(() => {
     setCompanyId(readSearchParam('company_id'))
-    if (embedded == null) {
-      setIsEmbedded(readSearchParam('embedded') === '1')
-    }
-  }, [embedded])
+  }, [])
 
   if (!companyId) {
     return (
@@ -64,10 +55,4 @@ export function useCompanyId() {
   return companyId
 }
 
-export function useEmbeddedMode() {
-  const [embedded, setEmbedded] = useState(() => readSearchParam('embedded') === '1')
-  useEffect(() => {
-    setEmbedded(readSearchParam('embedded') === '1')
-  }, [])
-  return embedded
-}
+export { useEmbeddedMode } from '@/lib/embedded-mode'

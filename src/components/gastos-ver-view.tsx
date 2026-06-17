@@ -18,6 +18,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
+import { useEmbeddedMode } from '@/lib/embedded-mode'
 import type { Expense } from '@/types/expenses'
 
 const HISTORIAL_LIMIT = 20
@@ -68,6 +69,7 @@ interface GastosVerViewProps {
 }
 
 export function GastosVerView({ companyId }: GastosVerViewProps) {
+  const isEmbedded = useEmbeddedMode()
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [historialPage, setHistorialPage] = useState(0)
@@ -226,15 +228,17 @@ export function GastosVerView({ companyId }: GastosVerViewProps) {
     <div className="w-full min-h-screen bg-transparent">
       <div className="w-full px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
         <div className="mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center">
-              <ArrowUturnLeftIcon className="w-6 h-6 text-[#C6A664]" />
+          {!isEmbedded && (
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center">
+                <ArrowUturnLeftIcon className="w-6 h-6 text-[#C6A664]" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-[#1B2A41]">Ver Gastos</h1>
+                <p className="text-sm text-slate-500">{historialTotal} gastos encontrados</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-[#1B2A41]">Ver Gastos</h1>
-              <p className="text-sm text-slate-500">{historialTotal} gastos encontrados</p>
-            </div>
-          </div>
+          )}
 
           {/* Presets de fecha */}
           <div className="flex flex-wrap gap-2 mb-4">

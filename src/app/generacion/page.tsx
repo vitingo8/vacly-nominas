@@ -36,6 +36,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
+import { useEmbeddedMode } from '@/lib/embedded-mode'
 import {
   calculatePayslip,
   TipoContrato,
@@ -198,6 +199,7 @@ function defaultExtras(): { inKind: InKindExtra; garnishment: GarnishmentExtra; 
 function WizardInner() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get('company_id') || ''
+  const isEmbedded = useEmbeddedMode()
 
   const now = new Date()
   const [step, setStep] = useState(1)
@@ -687,22 +689,24 @@ function WizardInner() {
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
       {/* Cabecera + stepper */}
       <div className="bg-[#1B2A41] text-white">
-        <div className="max-w-6xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Asistente de nóminas</h1>
-              <p className="text-sm text-white/70 mt-1">
-                {MONTH_NAMES[selectedMonth - 1]} {selectedYear} · 100% automático conforme a la legislación española
-              </p>
+        <div className={cn('max-w-6xl mx-auto px-6', isEmbedded ? 'py-4' : 'py-6')}>
+          {!isEmbedded && (
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight">Asistente de nóminas</h1>
+                <p className="text-sm text-white/70 mt-1">
+                  {MONTH_NAMES[selectedMonth - 1]} {selectedYear} · 100% automático conforme a la legislación española
+                </p>
+              </div>
+              <a
+                href={`/generacion/clasico?company_id=${companyId}`}
+                className="text-xs text-[#C6A664] hover:text-[#d8bd86] underline underline-offset-4"
+              >
+                Vista avanzada
+              </a>
             </div>
-            <a
-              href={`/generacion/clasico?company_id=${companyId}`}
-              className="text-xs text-[#C6A664] hover:text-[#d8bd86] underline underline-offset-4"
-            >
-              Vista avanzada
-            </a>
-          </div>
-          <div className="mt-6 flex items-center gap-2">
+          )}
+          <div className={cn('flex items-center gap-2', !isEmbedded && 'mt-6')}>
             {steps.map((s, idx) => {
               const Icon = s.icon
               const active = step === s.n

@@ -40,8 +40,14 @@ body {
 
 html.nominas-embedded,
 html.nominas-embedded body {
-  height: 100%;
-  overflow: hidden;
+  min-height: 100%;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html.nominas-embedded [data-vacly-page-header] {
+  display: none !important;
 }
 
 /* Disable image context menu */

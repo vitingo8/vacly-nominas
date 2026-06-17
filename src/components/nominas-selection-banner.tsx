@@ -66,7 +66,7 @@ export function NominasSelectionBanner({
 
   return createPortal(
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[9999]"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[9999] w-full"
       role="status"
       aria-live="polite"
     >
@@ -76,68 +76,64 @@ export function NominasSelectionBanner({
           show ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0',
         )}
       >
-        <div className="border-t border-[#1B2A41]/15 bg-gradient-to-r from-[#1B2A41] to-[#243656] text-white shadow-2xl shadow-[#1B2A41]/40 px-4 py-2.5 sm:px-6">
-          <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto">
-            <div className="flex flex-nowrap items-center gap-x-4 gap-y-0 shrink-0">
-              <p className="whitespace-nowrap text-sm font-semibold">
-                <span className="text-white/60 font-normal">Selección:</span>{' '}
+        <div className="w-full border-t border-[#1B2A41]/15 bg-gradient-to-r from-[#1B2A41] to-[#243656] text-white shadow-2xl shadow-[#1B2A41]/40 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="grid w-full min-w-0 grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:flex lg:flex-1 lg:flex-wrap lg:items-center lg:gap-x-5 lg:gap-y-2">
+              <p className="col-span-2 text-sm font-semibold sm:col-span-3 lg:col-span-1 lg:whitespace-nowrap">
+                <span className="font-normal text-white/60">Selección:</span>{' '}
                 {totals.count} nóminas
               </p>
 
-              <div className="h-5 w-px shrink-0 bg-white/15" />
-
-              <p className="whitespace-nowrap text-sm">
+              <p className="text-sm">
                 <span className="text-white/60">Bruto</span>{' '}
                 <span className="font-mono font-semibold">{formatCurrency(totals.gross)}</span>
               </p>
-              <p className="whitespace-nowrap text-sm">
+              <p className="text-sm">
                 <span className="text-white/60">Neto</span>{' '}
                 <span className="font-mono font-semibold text-emerald-300">{formatCurrency(totals.net)}</span>
               </p>
-              <p className="whitespace-nowrap text-sm">
+              <p className="text-sm">
                 <span className="text-white/60">Coste</span>{' '}
                 <span className="font-mono font-semibold text-[#C6A664]">{formatCurrency(totals.cost)}</span>
               </p>
 
-              <div className="h-5 w-px shrink-0 bg-white/15" />
-
-              <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-sky-500/20 px-2 py-0.5 text-xs text-sky-100">
-                <PaperAirplaneIcon className="w-3.5 h-3.5" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/20 px-2 py-0.5 text-xs text-sky-100">
+                <PaperAirplaneIcon className="h-3.5 w-3.5 shrink-0" />
                 {totals.sent} enviada{totals.sent !== 1 ? 's' : ''}
               </span>
-              <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-100">
-                <CheckBadgeIcon className="w-3.5 h-3.5" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-100">
+                <CheckBadgeIcon className="h-3.5 w-3.5 shrink-0" />
                 {totals.signed} firmada{totals.signed !== 1 ? 's' : ''}
               </span>
             </div>
 
-            <div className="flex shrink-0 flex-nowrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap lg:shrink-0">
               <Button
                 size="sm"
                 onClick={onExport}
                 disabled={isExporting}
-                className="h-8 shrink-0 border-0 bg-[#C6A664] text-[#1B2A41] hover:bg-[#d4b574]"
+                className="h-8 flex-1 border-0 bg-[#C6A664] text-[#1B2A41] hover:bg-[#d4b574] sm:flex-none"
               >
-                <ArrowDownTrayIcon className={`w-4 h-4 ${isExporting ? 'animate-pulse' : ''}`} />
-                <span className="ml-1.5 whitespace-nowrap">{isExporting ? 'Exportando…' : 'Exportar'}</span>
+                <ArrowDownTrayIcon className={`h-4 w-4 ${isExporting ? 'animate-pulse' : ''}`} />
+                <span className="ml-1.5">{isExporting ? 'Exportando…' : 'Exportar'}</span>
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={onDelete}
-                className="h-8 shrink-0 border-white/20 bg-white/5 text-white hover:border-rose-400/30 hover:bg-rose-500/20 hover:text-rose-100"
+                className="h-8 flex-1 border-white/20 bg-white/5 text-white hover:border-rose-400/30 hover:bg-rose-500/20 hover:text-rose-100 sm:flex-none"
               >
-                <TrashIcon className="w-4 h-4" />
-                <span className="ml-1.5 whitespace-nowrap">Eliminar</span>
+                <TrashIcon className="h-4 w-4" />
+                <span className="ml-1.5">Eliminar</span>
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={onClear}
-                className="h-8 shrink-0 text-white/80 hover:bg-white/10 hover:text-white"
+                className="h-8 flex-1 text-white/80 hover:bg-white/10 hover:text-white sm:flex-none"
               >
-                <XMarkIcon className="w-4 h-4" />
-                <span className="ml-1 whitespace-nowrap">Deseleccionar</span>
+                <XMarkIcon className="h-4 w-4" />
+                <span className="ml-1">Deseleccionar</span>
               </Button>
             </div>
           </div>

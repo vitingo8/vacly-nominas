@@ -22,6 +22,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
+import { useEmbeddedMode } from '@/lib/embedded-mode'
 
 const HISTORIAL_LIMIT = 25
 const GROUPED_FETCH_LIMIT = 2000
@@ -275,23 +276,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   const filterMenuRef = useRef<HTMLDivElement>(null)
 
   const [groupBy, setGroupBy] = useState<GroupBy>('none')
-  const [isEmbedded, setIsEmbedded] = useState(false)
-
-  useEffect(() => {
-    const embedded = window.self !== window.top
-    setIsEmbedded(embedded)
-    if (!embedded) return
-
-    const html = document.documentElement
-    const body = document.body
-    html.classList.add('nominas-embedded')
-    body.classList.add('nominas-embedded')
-
-    return () => {
-      html.classList.remove('nominas-embedded')
-      body.classList.remove('nominas-embedded')
-    }
-  }, [])
+  const isEmbedded = useEmbeddedMode()
   const [showGroupMenu, setShowGroupMenu] = useState(false)
   const groupMenuRef = useRef<HTMLDivElement>(null)
 
@@ -564,41 +549,44 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   }
 
   const showSelectionBanner = groupBy === 'none' && selectedIds.size > 1
+  const tableBottomPadding = showSelectionBanner ? 'pb-28' : isEmbedded ? 'pb-12' : 'pb-8'
 
   return (
     <div
       className={cn(
         'bg-gradient-to-br from-slate-50 via-white to-slate-100',
-        isEmbedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'min-h-screen',
+        isEmbedded ? 'min-h-full w-full' : 'min-h-screen',
       )}
     >
       <div
         className={cn(
-          'flex w-full flex-col px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8',
-          isEmbedded ? 'min-h-0 flex-1 overflow-hidden pb-4' : 'pb-28',
+          'flex w-full flex-col px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-6 sm:py-8',
+          isEmbedded ? tableBottomPadding : 'pb-28',
         )}
       >
-        <div className={cn('mb-6', isEmbedded && 'flex-shrink-0')}>
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
-              <ArrowUturnLeftIcon className="w-8 h-8 text-[#C6A664]" />
+        <div className="mb-6 w-full">
+          {!isEmbedded && (
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
+                <ArrowUturnLeftIcon className="w-8 h-8 text-[#C6A664]" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800">Ver Nóminas</h1>
+                <p className="text-sm text-slate-500">
+                  {historialTotal} nóminas
+                  {groupBy !== 'none' ? ` · ${groups.length} ${activeGroupLabel.toLowerCase()}` : ''}
+                  {groupBy === 'none' && selectedIds.size > 0 ? ` · ${selectedIds.size} seleccionadas` : ''}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-800">Ver Nóminas</h1>
-              <p className="text-sm text-slate-500">
-                {historialTotal} nóminas
-                {groupBy !== 'none' ? ` · ${groups.length} ${activeGroupLabel.toLowerCase()}` : ''}
-                {groupBy === 'none' && selectedIds.size > 0 ? ` · ${selectedIds.size} seleccionadas` : ''}
-              </p>
-            </div>
-          </div>
+          )}
 
           {companyId && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto_auto] xl:items-center">
               <select
                 value={filterEmployee}
                 onChange={(e) => setFilterEmployee(e.target.value)}
-                className="h-9 px-3 rounded-md border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664] min-w-[180px] max-w-[240px]"
+                className="h-9 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
               >
                 <option value="">Todos los empleados</option>
                 {employees.map((emp) => (
@@ -608,13 +596,13 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                 ))}
               </select>
 
-              <div className="relative">
+              <div className="relative w-full min-w-0 sm:col-span-2 xl:col-span-1">
                 <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
                   value={filterDni}
                   onChange={(e) => setFilterDni(e.target.value)}
                   placeholder="Buscar por DNI o nombre"
-                  className="h-9 pl-8 w-[200px] sm:w-[220px] text-sm"
+                  className="h-9 w-full pl-8 text-sm"
                 />
               </div>
 
@@ -735,13 +723,13 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                 </Button>
               )}
 
-              <div className="flex items-center gap-2 ml-auto">
+              <div className="flex w-full flex-wrap items-center gap-2 xl:col-span-2 xl:justify-end">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleExport}
                   disabled={isExporting || historialTotal === 0}
-                  className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10 h-9"
+                  className="h-9 flex-1 border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10 sm:flex-none"
                 >
                   <ArrowDownTrayIcon className={`w-4 h-4 ${isExporting ? 'animate-pulse' : ''}`} />
                   <span className="ml-2">
@@ -753,7 +741,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                   size="sm"
                   onClick={reload}
                   disabled={isLoadingHistorial}
-                  className="border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10 h-9"
+                  className="h-9 flex-1 border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/10 sm:flex-none"
                 >
                   <ArrowPathIcon className={`w-4 h-4 ${isLoadingHistorial ? 'animate-spin' : ''}`} />
                   <span className="ml-2">Actualizar</span>
@@ -775,7 +763,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           )}
         </div>
 
-        <div className={cn(isEmbedded && 'min-h-0 flex-1 overflow-y-auto scrollbar-thin')}>
+        <div className="w-full">
         {!companyId ? (
           <div className="text-center py-16 bg-slate-50 rounded-xl">
             <p className="text-slate-600">Falta el parámetro company_id en la URL.</p>
@@ -791,8 +779,8 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
               <p className="text-slate-500 text-sm">No hay resultados con los filtros aplicados</p>
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <Table>
+            <div className="w-full rounded-xl border border-slate-200 bg-white">
+              <Table noScrollContainer>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
                     <TableHead className="font-semibold text-slate-700">{activeGroupLabel}</TableHead>
@@ -858,8 +846,8 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           </div>
         ) : (
           <>
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <Table>
+            <div className="w-full rounded-xl border border-slate-200 bg-white">
+              <Table noScrollContainer>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
                     <TableHead className="w-[44px] px-3 text-center">
