@@ -43,17 +43,17 @@ export default function AdminTransactionsPage() {
   }
 
   return (
-    <AdminShell title="Historial de trámites" subtitle="Transacciones administrativas TGSS/AEAT">
-      <div className="flex justify-end mb-4">
+    <AdminShell>
+      <div className="flex justify-end">
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>
           <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           <span className="ml-2">Actualizar</span>
         </Button>
       </div>
 
-      <Card className="border-slate-200 overflow-hidden">
+      <Card className="border-slate-200 overflow-hidden w-full">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left p-3 font-semibold text-slate-700">Procedimiento</th>

@@ -133,8 +133,8 @@ export default function AdminNotificationsPage() {
   }
 
   return (
-    <AdminShell title="Notificaciones electronicas" subtitle="Bandeja unificada de DEHu / AEAT / TGSS de la cartera">
-      <Card className="p-6 border-slate-200 mb-6">
+    <AdminShell>
+      <Card className="p-6 border-slate-200 w-full">
         <h2 className="font-semibold text-slate-800 mb-1">Sincronizar notificaciones</h2>
         <p className="text-xs text-slate-500 mb-4">
           Descarga las notificaciones del organismo usando un certificado de esta empresa.
@@ -160,7 +160,7 @@ export default function AdminNotificationsPage() {
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
       </Card>
 
-      <Tabs defaultValue="mine">
+      <Tabs defaultValue="mine" className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="mine">Esta empresa</TabsTrigger>
           <TabsTrigger value="agency">Cartera de la gestoria</TabsTrigger>
@@ -186,9 +186,9 @@ function NotifTable({
   showCompany?: boolean
 }) {
   return (
-    <Card className="border-slate-200 overflow-hidden">
+    <Card className="border-slate-200 overflow-hidden w-full">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-slate-50">
             <tr>
               {showCompany && <th className="text-left p-3">Empresa</th>}

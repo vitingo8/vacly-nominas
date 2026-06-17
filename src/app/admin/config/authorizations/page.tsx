@@ -60,21 +60,26 @@ export default function AdminAuthorizationsPage() {
   }
 
   return (
-    <AdminShell title="Autorizaciones RED" subtitle="Autorización TGSS para uso del Sistema RED">
-      <Card className="p-6 border-slate-200 mb-6">
+    <AdminShell>
+      <Card className="p-6 border-slate-200 w-full">
         <h2 className="font-semibold mb-4">Nueva autorización</h2>
-        <div className="space-y-3 max-w-md">
-          <Input placeholder="NIF titular" value={holderNif} onChange={(e) => setHolderNif(e.target.value)} />
-          <Input placeholder="Nº autorización RED" value={redNumber} onChange={(e) => setRedNumber(e.target.value)} />
-          <Button onClick={create} className="bg-[#1B2A41] text-white hover:bg-[#152036]">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[180px]">
+            <Input placeholder="NIF titular" value={holderNif} onChange={(e) => setHolderNif(e.target.value)} />
+          </div>
+          <div className="flex-1 min-w-[180px]">
+            <Input placeholder="Nº autorización RED" value={redNumber} onChange={(e) => setRedNumber(e.target.value)} />
+          </div>
+          <Button onClick={create} className="bg-[#1B2A41] text-white hover:bg-[#152036] shrink-0">
             Guardar
           </Button>
-          {message && <p className="text-sm text-slate-600">{message}</p>}
         </div>
+        {message && <p className="text-sm text-slate-600 mt-3">{message}</p>}
       </Card>
 
-      <Card className="border-slate-200 overflow-hidden">
-        <table className="w-full text-sm">
+      <Card className="border-slate-200 overflow-hidden w-full">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[480px]">
           <thead className="bg-slate-50">
             <tr>
               <th className="text-left p-3">Titular</th>
@@ -97,6 +102,7 @@ export default function AdminAuthorizationsPage() {
             )}
           </tbody>
         </table>
+        </div>
       </Card>
     </AdminShell>
   )

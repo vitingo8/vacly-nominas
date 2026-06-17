@@ -5,7 +5,7 @@ import { AffiliationForm } from '@/components/admin/affiliation-form'
 
 export default function AdminTgssTerminatePage() {
   return (
-    <AdminShell title="Baja trabajador TGSS" subtitle="Solicitud de baja en afiliación RED (Mensaje AFI — baja)">
+    <AdminShell>
       <AffiliationForm
         type="baja"
         title="Baja en Seguridad Social"

@@ -1,12 +1,27 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, Fragment } from 'react'
 import { AdminShell, useCompanyId } from '@/components/admin/admin-shell'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  matchesCertSearch,
+  normalizeCertSerial,
+  parseCertSubject,
+} from '@/lib/admin-integrations/certificate-vault/cert-subject-parser'
+import {
+  base64ToPfxFile,
+  exportWindowsCertificate,
+  fileToBase64,
+  installWindowsCertificate,
+  isWindowsClient,
+  listWindowsCertificates,
+  probeWindowsCertBridge,
+  type WindowsCertificateEntry,
+} from '@/lib/admin-integrations/certificate-vault/windows-cert-bridge'
 
 type CertStatus = 'valid' | 'expiring_soon' | 'expired' | 'revoked'
 
@@ -16,6 +31,7 @@ interface CertRow {
   holderNif: string | null
   holderName?: string | null
   issuer?: string | null
+  serialNumber?: string | null
   certificateType?: string | null
   validFrom?: string | null
   validTo?: string | null
@@ -40,12 +56,11 @@ const STATUS_VARIANT: Record<CertStatus, 'default' | 'secondary' | 'destructive'
 }
 
 const TYPE_LABEL: Record<string, string> = {
-  persona_fisica: 'Persona fisica',
+  persona_fisica: 'Persona física',
   representante: 'Representante',
   sello_empresa: 'Sello de empresa',
 }
 
-/** Cabeceras opcionales: reenvia el token de sesion de empresa si vacly-app lo paso por URL. */
 function adminHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {}
   const token = new URLSearchParams(window.location.search).get('token')
@@ -61,31 +76,46 @@ function fmtDate(value?: string | null): string {
   }
 }
 
-function StatusBadge({ row }: { row: CertRow }) {
-  const extra =
-    row.status === 'expiring_soon' && row.daysToExpiry != null
-      ? ` (${row.daysToExpiry}d)`
-      : ''
-  return (
-    <Badge variant={STATUS_VARIANT[row.status]}>
-      {STATUS_LABEL[row.status]}
-      {extra}
-    </Badge>
-  )
+function findVaclyMatch(win: WindowsCertificateEntry, vacly: CertRow[]): CertRow | undefined {
+  const winSerial = normalizeCertSerial(win.serialNumber)
+  if (winSerial) {
+    const bySerial = vacly.find((c) => normalizeCertSerial(c.serialNumber) === winSerial)
+    if (bySerial) return bySerial
+  }
+  if (win.nif) {
+    return vacly.find(
+      (c) =>
+        c.holderNif?.toUpperCase() === win.nif?.toUpperCase() &&
+        c.status !== 'revoked' &&
+        (!c.validTo || !win.notAfter || fmtDate(c.validTo) === fmtDate(win.notAfter)),
+    )
+  }
+  return undefined
 }
 
 export default function AdminCertificatesPage() {
   const companyId = useCompanyId()
   const [certs, setCerts] = useState<CertRow[]>([])
   const [agencyCerts, setAgencyCerts] = useState<CertRow[]>([])
-  const [alias, setAlias] = useState('')
-  const [password, setPassword] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  const [search, setSearch] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
 
-  const load = () => {
+  const [isWindows, setIsWindows] = useState(false)
+  const [bridgeReady, setBridgeReady] = useState(false)
+  const [bridgeLoading, setBridgeLoading] = useState(false)
+  const [windowsCerts, setWindowsCerts] = useState<WindowsCertificateEntry[]>([])
+  const [registerThumb, setRegisterThumb] = useState<string | null>(null)
+  const [registerPassword, setRegisterPassword] = useState('')
+  const [registerAlias, setRegisterAlias] = useState('')
+
+  const [uploadAlias, setUploadAlias] = useState('')
+  const [uploadPassword, setUploadPassword] = useState('')
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [installInWindows, setInstallInWindows] = useState(true)
+
+  const load = useCallback(() => {
     if (!companyId) return
     fetch(`/api/admin/config/certificates?company_id=${encodeURIComponent(companyId)}`, {
       headers: adminHeaders(),
@@ -95,9 +125,9 @@ export default function AdminCertificatesPage() {
         if (d.success) setCerts(d.certificates || [])
       })
       .catch(() => {})
-  }
+  }, [companyId])
 
-  const loadAgency = () => {
+  const loadAgency = useCallback(() => {
     if (!companyId) return
     fetch(`/api/admin/config/certificates?scope=agency&company_id=${encodeURIComponent(companyId)}`, {
       headers: adminHeaders(),
@@ -107,55 +137,140 @@ export default function AdminCertificatesPage() {
         if (d.success) setAgencyCerts(d.certificates || [])
       })
       .catch(() => {})
-  }
-
-  useEffect(() => {
-    load()
-    loadAgency()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
-  const upload = async () => {
+  const refreshWindowsStore = useCallback(async () => {
+    setBridgeLoading(true)
+    setError('')
+    try {
+      const ready = await probeWindowsCertBridge()
+      setBridgeReady(ready)
+      if (!ready) {
+        setWindowsCerts([])
+        return
+      }
+      setWindowsCerts(await listWindowsCertificates())
+    } catch (e) {
+      setBridgeReady(false)
+      setWindowsCerts([])
+      setError(e instanceof Error ? e.message : 'Error leyendo certificados de Windows')
+    } finally {
+      setBridgeLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const win = isWindowsClient()
+    setIsWindows(win)
+    load()
+    loadAgency()
+    if (win) void refreshWindowsStore()
+  }, [companyId, load, loadAgency, refreshWindowsStore])
+
+  const filteredWindows = useMemo(() => {
+    return windowsCerts.filter((wc) => {
+      const parsed = parseCertSubject(wc.subject, wc.friendlyName)
+      return matchesCertSearch(parsed, wc.issuer, search)
+    })
+  }, [windowsCerts, search])
+
+  const filteredVacly = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return certs
+    return certs.filter((c) => {
+      const blob = [c.alias, c.holderName, c.holderNif, c.issuer, c.companyName, c.serialNumber]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return q.split(/\s+/).every((t) => blob.includes(t))
+    })
+  }, [certs, search])
+
+  const uploadPfx = async (pfxFile: File, certAlias: string, certPassword: string) => {
+    if (!companyId) return null
+    const fd = new FormData()
+    fd.set('company_id', companyId)
+    fd.set('alias', certAlias)
+    fd.set('password', certPassword)
+    fd.set('pfx', pfxFile)
+
+    const res = await fetch('/api/admin/config/certificates', {
+      method: 'POST',
+      body: fd,
+      headers: adminHeaders(),
+    })
+    const data = await res.json()
+    if (!data.success) {
+      throw new Error(data.message || 'Error al registrar el certificado')
+    }
+    return data.certificate as CertRow
+  }
+
+  const registerWindowsCert = async (thumbprint: string) => {
     setMessage('')
     setError('')
-    if (!companyId || !file || !alias) {
-      setError('Indica un alias y selecciona el fichero del certificado.')
-      return
-    }
-    if (!password) {
-      setError('Introduce la contrasena del certificado.')
+    const selected = windowsCerts.find((c) => c.thumbprint === thumbprint)
+    if (!selected) return
+    if (!registerPassword) {
+      setError('Introduce la contraseña del certificado.')
       return
     }
 
     setUploading(true)
     try {
-      const fd = new FormData()
-      fd.set('company_id', companyId)
-      fd.set('alias', alias)
-      fd.set('password', password)
-      fd.set('pfx', file)
+      const { pfxBase64, fileName } = await exportWindowsCertificate(thumbprint, registerPassword)
+      const pfxFile = base64ToPfxFile(pfxBase64, fileName)
+      const alias = registerAlias.trim() || selected.displayName || 'Certificado Windows'
+      const saved = await uploadPfx(pfxFile, alias, registerPassword)
+      setMessage(
+        `Certificado de ${saved?.holderName || saved?.holderNif || alias} guardado en Vacly. Sigue disponible en Windows.`,
+      )
+      setRegisterThumb(null)
+      setRegisterPassword('')
+      setRegisterAlias('')
+      load()
+      loadAgency()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al registrar en Vacly')
+    } finally {
+      setUploading(false)
+    }
+  }
 
-      const res = await fetch('/api/admin/config/certificates', {
-        method: 'POST',
-        body: fd,
-        headers: adminHeaders(),
-      })
-      const data = await res.json()
-      if (data.success) {
-        const c = data.certificate as CertRow
-        setMessage(
-          `Certificado de ${c.holderName || c.holderNif || 'titular'} registrado y cifrado. Caduca el ${fmtDate(c.validTo)}.`,
-        )
-        setAlias('')
-        setPassword('')
-        setFile(null)
-        load()
-        loadAgency()
-      } else {
-        setError(data.message || 'Error al registrar el certificado')
+  const uploadNewCert = async () => {
+    setMessage('')
+    setError('')
+    if (!uploadFile || !uploadAlias) {
+      setError('Indica un alias y selecciona el fichero del certificado.')
+      return
+    }
+    if (!uploadPassword) {
+      setError('Introduce la contraseña del certificado.')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const saved = await uploadPfx(uploadFile, uploadAlias, uploadPassword)
+      let winNote = ''
+      if (installInWindows && bridgeReady) {
+        const b64 = await fileToBase64(uploadFile)
+        await installWindowsCertificate(b64, uploadPassword, uploadAlias)
+        winNote = ' También instalado en Windows.'
+        await refreshWindowsStore()
+      } else if (installInWindows && !bridgeReady) {
+        winNote = ' No se pudo instalar en Windows: inicia el puente local.'
       }
-    } catch {
-      setError('Error de conexion al registrar el certificado')
+      setMessage(
+        `Certificado de ${saved?.holderName || saved?.holderNif || uploadAlias} guardado en Vacly.${winNote}`,
+      )
+      setUploadAlias('')
+      setUploadPassword('')
+      setUploadFile(null)
+      load()
+      loadAgency()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al guardar el certificado')
     } finally {
       setUploading(false)
     }
@@ -163,7 +278,7 @@ export default function AdminCertificatesPage() {
 
   const revoke = async (id: string) => {
     if (!companyId) return
-    if (!confirm('Revocar este certificado eliminara su material cifrado de forma permanente. Continuar?')) return
+    if (!confirm('Revocar elimina el material cifrado de Vacly. El certificado en Windows no se borra. ¿Continuar?')) return
     const res = await fetch(
       `/api/admin/config/certificates?company_id=${encodeURIComponent(companyId)}&id=${encodeURIComponent(id)}`,
       { method: 'DELETE', headers: adminHeaders() },
@@ -173,53 +288,289 @@ export default function AdminCertificatesPage() {
       load()
       loadAgency()
     } else {
-      setError(data.message || 'Error al revocar el certificado')
+      setError(data.message || 'Error al revocar')
     }
   }
 
   return (
-    <AdminShell title="Certificados" subtitle="Almacen cifrado de certificados digitales (sin exposicion por API)">
-      <Card className="p-6 border-slate-200 mb-6">
-        <h2 className="font-semibold text-slate-800 mb-1">Registrar certificado (.pfx / .p12)</h2>
-        <p className="text-xs text-slate-500 mb-4">
-          El titular, emisor y fechas se extraen automaticamente del certificado. La contrasena se valida al subirlo.
-        </p>
-        <div className="space-y-3 max-w-md">
-          <Input placeholder="Alias (p. ej. Certificado representante 2026)" value={alias} onChange={(e) => setAlias(e.target.value)} />
+    <AdminShell>
+      <div className="flex flex-col lg:flex-row lg:items-end gap-4 w-full">
+        <div className="flex-1 min-w-0">
           <Input
-            type="password"
-            placeholder="Contrasena del certificado"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Buscar por DNI/NIF, nombre, empresa, emisor…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-11"
           />
-          <Input type="file" accept=".pfx,.p12" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-          <Button onClick={upload} disabled={uploading} className="bg-[#1B2A41] text-white hover:bg-[#152036]">
-            {uploading ? 'Validando y guardando...' : 'Guardar certificado'}
+        </div>
+        {isWindows && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void refreshWindowsStore()}
+            disabled={bridgeLoading}
+            className="shrink-0"
+          >
+            {bridgeLoading ? 'Sincronizando Windows…' : 'Actualizar desde Windows'}
           </Button>
+        )}
+      </div>
+
+      {(message || error) && (
+        <div className="space-y-1 w-full">
           {message && <p className="text-sm text-emerald-700">{message}</p>}
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
-      </Card>
+      )}
 
-      <Tabs defaultValue="mine">
-        <TabsList className="mb-4">
-          <TabsTrigger value="mine">Esta empresa</TabsTrigger>
-          <TabsTrigger value="agency">Cartera de la gestoria</TabsTrigger>
+      <Tabs defaultValue={isWindows ? 'windows' : 'vacly'} className="w-full">
+        <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
+          {isWindows && <TabsTrigger value="windows">Este equipo (Windows)</TabsTrigger>}
+          <TabsTrigger value="vacly">En Vacly — esta empresa</TabsTrigger>
+          <TabsTrigger value="agency">Cartera gestoría</TabsTrigger>
+          <TabsTrigger value="add">Añadir certificado</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="mine">
-          <CertTable rows={certs} onRevoke={revoke} />
+        {isWindows && (
+          <TabsContent value="windows">
+            {!bridgeReady ? (
+              <Card className="p-6 border-slate-200 w-full">
+                <h2 className="font-semibold text-slate-800 mb-2">Conectar con Windows</h2>
+                <p className="text-sm text-slate-600 mb-4">
+                  Para ver tus certificados instalados (como en Chrome o el MMC de Windows), ejecuta el
+                  puente local una vez en este PC. Vacly leerá el almacén personal{' '}
+                  <code className="text-xs bg-slate-100 px-1 rounded">CurrentUser\My</code>.
+                </p>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
+                  <p className="text-xs font-medium text-slate-700">Opción 1 — doble clic:</p>
+                  <code className="block text-xs break-all">scripts\start-cert-bridge.bat</code>
+                  <p className="text-xs font-medium text-slate-700 pt-2">Opción 2 — PowerShell:</p>
+                  <code className="block text-xs break-all">
+                    powershell -ExecutionPolicy Bypass -File scripts/windows-cert-bridge.ps1
+                  </code>
+                </div>
+                <Button className="mt-4" variant="outline" onClick={() => void refreshWindowsStore()}>
+                  Reintentar conexión
+                </Button>
+              </Card>
+            ) : (
+              <WindowsCertTable
+                rows={filteredWindows}
+                vaclyCerts={certs}
+                registerThumb={registerThumb}
+                registerPassword={registerPassword}
+                registerAlias={registerAlias}
+                uploading={uploading}
+                onOpenRegister={(thumb) => {
+                  const wc = windowsCerts.find((c) => c.thumbprint === thumb)
+                  setRegisterThumb(thumb)
+                  setRegisterAlias(wc?.displayName || '')
+                  setRegisterPassword('')
+                }}
+                onCancelRegister={() => {
+                  setRegisterThumb(null)
+                  setRegisterPassword('')
+                  setRegisterAlias('')
+                }}
+                onRegisterPassword={setRegisterPassword}
+                onRegisterAlias={setRegisterAlias}
+                onConfirmRegister={() => registerThumb && void registerWindowsCert(registerThumb)}
+              />
+            )}
+          </TabsContent>
+        )}
+
+        <TabsContent value="vacly">
+          <VaclyCertTable rows={filteredVacly} onRevoke={revoke} />
         </TabsContent>
 
         <TabsContent value="agency">
-          <CertTable rows={agencyCerts} onRevoke={revoke} showCompany />
+          <VaclyCertTable rows={agencyCerts} onRevoke={revoke} showCompany />
+        </TabsContent>
+
+        <TabsContent value="add">
+          <Card className="p-6 border-slate-200 w-full max-w-2xl">
+            <h2 className="font-semibold text-slate-800 mb-1">Añadir certificado (.pfx / .p12)</h2>
+            <p className="text-xs text-slate-500 mb-4">
+              Se guarda cifrado en Vacly. Opcionalmente se instala también en el almacén de Windows de
+              este equipo.
+            </p>
+            <div className="space-y-3">
+              <Input placeholder="Alias" value={uploadAlias} onChange={(e) => setUploadAlias(e.target.value)} />
+              <Input
+                type="password"
+                placeholder="Contraseña del certificado"
+                value={uploadPassword}
+                onChange={(e) => setUploadPassword(e.target.value)}
+              />
+              <Input type="file" accept=".pfx,.p12" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+              {isWindows && (
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={installInWindows}
+                    onChange={(e) => setInstallInWindows(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  Instalar también en Windows (requiere puente activo)
+                </label>
+              )}
+              <Button
+                onClick={() => void uploadNewCert()}
+                disabled={uploading}
+                className="bg-[#1B2A41] text-white hover:bg-[#152036]"
+              >
+                {uploading ? 'Guardando…' : 'Guardar en Vacly'}
+              </Button>
+            </div>
+          </Card>
         </TabsContent>
       </Tabs>
     </AdminShell>
   )
 }
 
-function CertTable({
+function WindowsCertTable({
+  rows,
+  vaclyCerts,
+  registerThumb,
+  registerPassword,
+  registerAlias,
+  uploading,
+  onOpenRegister,
+  onCancelRegister,
+  onRegisterPassword,
+  onRegisterAlias,
+  onConfirmRegister,
+}: {
+  rows: WindowsCertificateEntry[]
+  vaclyCerts: CertRow[]
+  registerThumb: string | null
+  registerPassword: string
+  registerAlias: string
+  uploading: boolean
+  onOpenRegister: (thumb: string) => void
+  onCancelRegister: () => void
+  onRegisterPassword: (v: string) => void
+  onRegisterAlias: (v: string) => void
+  onConfirmRegister: () => void
+}) {
+  return (
+    <Card className="border-slate-200 overflow-hidden w-full">
+      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80">
+        <p className="text-sm text-slate-600">
+          {rows.length} certificado{rows.length === 1 ? '' : 's'} en Windows con clave privada
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[960px]">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="text-left p-3">Titular</th>
+              <th className="text-left p-3">DNI/NIF</th>
+              <th className="text-left p-3">Empresa</th>
+              <th className="text-left p-3">Emisor</th>
+              <th className="text-left p-3">Caducidad</th>
+              <th className="text-left p-3">Vacly</th>
+              <th className="text-right p-3">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((wc) => {
+              const match = findVaclyMatch(wc, vaclyCerts)
+              const isRegistering = registerThumb === wc.thumbprint
+              return (
+                <Fragment key={wc.thumbprint}>
+                  <tr className="border-t border-slate-100 hover:bg-slate-50/50">
+                    <td className="p-3">
+                      <p className="font-medium text-slate-800">{wc.displayName}</p>
+                      {wc.organizationalUnit && (
+                        <p className="text-[11px] text-slate-400">{wc.organizationalUnit}</p>
+                      )}
+                    </td>
+                    <td className="p-3 text-slate-600 font-mono text-xs">{wc.nif || '—'}</td>
+                    <td className="p-3 text-slate-600">{wc.organization || '—'}</td>
+                    <td className="p-3 text-slate-500 text-xs max-w-[180px] truncate" title={wc.issuer}>
+                      {wc.issuer.replace(/^CN=/i, '')}
+                    </td>
+                    <td className="p-3 text-slate-600">{fmtDate(wc.notAfter)}</td>
+                    <td className="p-3">
+                      {match ? (
+                        <Badge variant="default">En Vacly</Badge>
+                      ) : (
+                        <Badge variant="outline">Solo Windows</Badge>
+                      )}
+                    </td>
+                    <td className="p-3 text-right">
+                      {!match && !isRegistering && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenRegister(wc.thumbprint)}
+                          className="text-xs font-medium text-[#1B2A41] hover:underline"
+                        >
+                          Guardar en Vacly
+                        </button>
+                      )}
+                      {match && (
+                        <span className="text-xs text-slate-400">{match.alias}</span>
+                      )}
+                    </td>
+                  </tr>
+                  {isRegistering && (
+                    <tr className="bg-[#1B2A41]/5">
+                      <td colSpan={7} className="p-4">
+                        <p className="text-sm font-medium text-slate-800 mb-3">
+                          Registrar en Vacly: {wc.displayName}
+                        </p>
+                        <div className="flex flex-wrap gap-3 items-end">
+                          <div className="flex-1 min-w-[160px]">
+                            <Input
+                              placeholder="Alias"
+                              value={registerAlias}
+                              onChange={(e) => onRegisterAlias(e.target.value)}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[160px]">
+                            <Input
+                              type="password"
+                              placeholder="Contraseña del certificado"
+                              value={registerPassword}
+                              onChange={(e) => onRegisterPassword(e.target.value)}
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            className="bg-[#1B2A41] text-white"
+                            disabled={uploading}
+                            onClick={onConfirmRegister}
+                          >
+                            {uploading ? 'Guardando…' : 'Confirmar'}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={onCancelRegister}>
+                            Cancelar
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={7} className="p-8 text-center text-slate-500">
+                  No hay certificados que coincidan con la búsqueda
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
+
+function VaclyCertTable({
   rows,
   onRevoke,
   showCompany = false,
@@ -229,9 +580,9 @@ function CertTable({
   showCompany?: boolean
 }) {
   return (
-    <Card className="border-slate-200 overflow-hidden">
+    <Card className="border-slate-200 overflow-hidden w-full">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-slate-50">
             <tr>
               {showCompany && <th className="text-left p-3">Empresa</th>}
@@ -257,17 +608,18 @@ function CertTable({
                     </span>
                   )}
                 </td>
-                <td className="p-3 text-slate-600">{c.holderNif || '—'}</td>
+                <td className="p-3 text-slate-600 font-mono text-xs">{c.holderNif || '—'}</td>
                 <td className="p-3 text-slate-500">{c.issuer || '—'}</td>
                 <td className="p-3 text-slate-600">{fmtDate(c.validTo)}</td>
                 <td className="p-3">
-                  <StatusBadge row={c} />
+                  <Badge variant={STATUS_VARIANT[c.status]}>{STATUS_LABEL[c.status]}</Badge>
                 </td>
                 <td className="p-3 text-right">
                   {c.status !== 'revoked' && (
                     <button
+                      type="button"
                       onClick={() => onRevoke(c.id)}
-                      className="text-xs font-medium text-red-600 hover:text-red-700"
+                      className="text-xs font-medium text-red-600 hover:underline"
                     >
                       Revocar
                     </button>

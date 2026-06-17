@@ -5,7 +5,7 @@ import { AffiliationForm } from '@/components/admin/affiliation-form'
 
 export default function AdminTgssChangePage() {
   return (
-    <AdminShell title="Variación datos TGSS" subtitle="Variación de datos de afiliación RED (Mensaje AFI — variación)">
+    <AdminShell>
       <AffiliationForm
         type="variacion"
         title="Variación de datos"
