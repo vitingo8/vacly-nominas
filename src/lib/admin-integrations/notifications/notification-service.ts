@@ -213,6 +213,13 @@ export async function syncCompanyNotifications(
   }
 
   const adapters = createNotificationAdapters()
+  if (adapters.length === 0) {
+    throw new AdminIntegrationError(
+      'INTEGRATIONS_DISABLED',
+      'Ningún conector de notificaciones está activo (AEAT, TGSS o DEHú).',
+    )
+  }
+
   const runs: ProviderSyncResult[] = []
   let totalFetched = 0
   let totalStored = 0
@@ -266,9 +273,12 @@ export async function syncCompanyNotifications(
   })
 
   if (allFailed) {
+    const detail = runs
+      .map((r) => `${r.provider}: ${r.errorMessage || r.errorCode || 'error desconocido'}`)
+      .join(' · ')
     throw new AdminIntegrationError(
       'PROCESSING_ERROR',
-      'No se pudo sincronizar con ningún organismo. Revisa certificado, alta DEHú Gran Destinatario y autorización RED/TGSS.',
+      detail || 'No se pudo sincronizar con ningún organismo.',
       { runs },
     )
   }

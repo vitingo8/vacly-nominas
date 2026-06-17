@@ -8,6 +8,7 @@ import {
   extractBlocks,
   extractTag,
   formatAeatDate,
+  isAeatSuccessCode,
   normalizeNif,
   parseIsoOrAeatDate,
   xmlEscape,
@@ -17,6 +18,7 @@ import { assertSoapOk, buildSoapEnvelope, postSoap } from '../../soap/soap-trans
 const NS_PC = 'https://www2.agenciatributaria.gob.es/static_files/common/dep/aduanas/es/aeat/gnno/jdit/ws/PeticionConsulta.xsd'
 const NS_PA = 'https://www2.agenciatributaria.gob.es/static_files/common/dep/aduanas/es/aeat/gnno/jdit/ws/PeticionAcceso.xsd'
 const NS_PAU = 'https://www2.agenciatributaria.gob.es/static_files/common/dep/aduanas/es/aeat/gnno/jdit/ws/PeticionAutorizados.xsd'
+const CONSULTA_VERSION = '1.3'
 
 interface AeatEnvioListItem {
   numeroCertificado: string
@@ -40,8 +42,8 @@ export class AeatNotificationsAdapter implements AdministrativeNotificationsAdap
       throw new AdminIntegrationError('VALIDATION_ERROR', 'El certificado AEAT debe incluir NIF del titular')
     }
 
-    const nifs = await this.listAuthorizedNifs(ctx, holderNif)
-    const uniqueNifs = Array.from(new Set([holderNif, ...nifs]))
+    const authorizedNifs = await this.listAuthorizedNifs(ctx, holderNif)
+    const uniqueNifs = Array.from(new Set([holderNif, ...authorizedNifs]))
 
     const end = new Date()
     const start = new Date()
@@ -58,28 +60,39 @@ export class AeatNotificationsAdapter implements AdministrativeNotificationsAdap
     return all
   }
 
+  /**
+   * Servicio auxiliar opcional: NIFs autorizados además del titular del certificado.
+   * Si falla (p. ej. error interno AEAT 10004), continuamos solo con el NIF del titular.
+   */
   private async listAuthorizedNifs(ctx: AdapterSyncContext, holderNif: string): Promise<string[]> {
     const config = getNotificationsConfig()
     const body = `<pau:PeticionAutorizados xmlns:pau="${NS_PAU}">
-  <pau:PeticionAutorizados/>
+  <pau:PeticionAutorizados>${xmlEscape(holderNif)}</pau:PeticionAutorizados>
 </pau:PeticionAutorizados>`
 
-    const res = await postSoap({
-      endpoint: config.endpoints.aeatAutorizados,
-      envelope: buildSoapEnvelope(body),
-      certificate: ctx,
-    })
-    assertSoapOk(res.body, 'AEAT Autorizados')
+    try {
+      const res = await postSoap({
+        endpoint: config.endpoints.aeatAutorizados,
+        envelope: buildSoapEnvelope(body),
+        certificate: ctx,
+      })
+      assertSoapOk(res.body, 'AEAT Autorizados')
 
-    const cod = extractTag(res.body, 'CodRespuesta')
-    if (cod && cod !== '0') {
-      const msg = extractTag(res.body, 'MsgRespuesta') || 'Error consultando autorizados AEAT'
-      throw new AdminIntegrationError('TRANSPORT_ERROR', msg, { codRespuesta: cod })
+      const cod = extractTag(res.body, 'CodRespuesta')
+      if (!isAeatSuccessCode(cod)) {
+        const msg = extractTag(res.body, 'MsgRespuesta') || 'Error consultando autorizados AEAT'
+        console.warn('[aeat-adapter] ConsultaAutorizados no exitosa, usando solo NIF del certificado:', cod, msg)
+        return []
+      }
+
+      return extractAllTags(res.body, 'NifAutorizado')
+        .map((n) => normalizeNif(n))
+        .filter((n): n is string => !!n && n !== holderNif)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido'
+      console.warn('[aeat-adapter] ConsultaAutorizados omitida, usando solo NIF del certificado:', message)
+      return []
     }
-
-    return extractAllTags(res.body, 'NifAutorizado')
-      .map((n) => normalizeNif(n))
-      .filter((n): n is string => !!n && n !== holderNif)
   }
 
   private async consultaEnvios(
@@ -94,6 +107,7 @@ export class AeatNotificationsAdapter implements AdministrativeNotificationsAdap
 
     do {
       const body = `<pc:PeticionConsulta xmlns:pc="${NS_PC}">
+  <pc:Version>${CONSULTA_VERSION}</pc:Version>
   <pc:Nif>${xmlEscape(nif)}</pc:Nif>
   <pc:TipoEnvio>T</pc:TipoEnvio>
   <pc:Estado>T</pc:Estado>
@@ -110,7 +124,7 @@ export class AeatNotificationsAdapter implements AdministrativeNotificationsAdap
       assertSoapOk(res.body, 'AEAT Consulta')
 
       const cod = extractTag(res.body, 'CodRespuesta')
-      if (cod && cod !== '0') {
+      if (!isAeatSuccessCode(cod)) {
         const msg = extractTag(res.body, 'MsgRespuesta') || 'Error consultando envíos AEAT'
         throw new AdminIntegrationError('TRANSPORT_ERROR', msg, { codRespuesta: cod, nif })
       }
@@ -154,7 +168,7 @@ export class AeatNotificationsAdapter implements AdministrativeNotificationsAdap
     assertSoapOk(res.body, 'AEAT Acceso')
 
     const cod = extractTag(res.body, 'CodRespuesta')
-    if (cod && cod !== '0') {
+    if (!isAeatSuccessCode(cod)) {
       console.warn('[aeat-adapter] acceso fallido', envio.numeroCertificado, extractTag(res.body, 'MsgRespuesta'))
       return null
     }

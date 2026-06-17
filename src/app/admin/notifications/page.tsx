@@ -129,7 +129,14 @@ export default function AdminNotificationsPage() {
         loadMine()
         loadAgency()
       } else {
-        setError(data.message || 'Error al sincronizar')
+        const runs = (data.runs || []) as ProviderRun[]
+        const runDetail = runs
+          .map(
+            (r) =>
+              `${PROVIDER_LABEL[r.provider] || r.provider}: ${r.errorMessage || r.status}`,
+          )
+          .join(' · ')
+        setError(runDetail || data.message || 'Error al sincronizar')
       }
     } catch {
       setError('Error de conexion al sincronizar')
@@ -154,7 +161,8 @@ export default function AdminNotificationsPage() {
       <Card className="p-6 border-slate-200 w-full">
         <h2 className="font-semibold text-slate-800 mb-1">Sincronizar notificaciones</h2>
         <p className="text-xs text-slate-500 mb-4">
-          Descarga notificaciones reales vía AEAT WS Envíos, TGSS WSCN y DEHú/LEMA con el certificado de esta empresa.
+          Descarga notificaciones reales vía AEAT WS Envíos con el certificado de esta empresa.
+          TGSS y DEHú se activan cuando estén configurados.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <select

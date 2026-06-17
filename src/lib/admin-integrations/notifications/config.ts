@@ -53,8 +53,8 @@ export function getNotificationsConfig(): NotificationsConfig {
       dehuLema: process.env.DEHU_LEMA_ENDPOINT || (environment === 'sandbox' ? DEHU_SANDBOX : DEHU_PRODUCTION),
     },
     aeatEnabled: process.env.AEAT_NOTIFICATIONS_ENABLED !== 'false',
-    tgssEnabled: process.env.TGSS_WSCN_ENABLED !== 'false',
-    dehuEnabled: process.env.DEHU_LEMA_ENABLED !== 'false',
+    tgssEnabled: process.env.TGSS_WSCN_ENABLED === 'true',
+    dehuEnabled: process.env.DEHU_LEMA_ENABLED === 'true',
     syncLookbackDays: Number(process.env.ADMIN_NOTIFICATIONS_LOOKBACK_DAYS || 90),
   }
 }

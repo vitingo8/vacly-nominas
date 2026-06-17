@@ -80,3 +80,9 @@ export function normalizeNif(value: string | null | undefined): string | null {
   const nif = value.replace(/[\s-]/g, '').toUpperCase()
   return nif.length === 9 ? nif : null
 }
+
+/** AEAT WS Envíos: éxito = "00" (doc oficial); aceptamos "0" por compatibilidad. */
+export function isAeatSuccessCode(cod: string | null | undefined): boolean {
+  if (!cod) return true
+  return cod === '00' || cod === '0'
+}
