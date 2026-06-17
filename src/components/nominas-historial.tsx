@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { NominaDetailPanel, NominaAggregatePanel, type NominaAggregate } from '@/components/nomina-detail-panel'
 import { NominaEstadoBadge } from '@/components/nomina-estado-badge'
 import { NominasSelectionBanner, type SelectionTotals } from '@/components/nominas-selection-banner'
+import { EmployeeFilterSelect, type EmployeeFilterOption } from '@/components/employee-filter-select'
 import type { NominaViewerData } from '@/components/nomina-viewer-dialog'
 import {
   AdjustmentsHorizontalIcon,
@@ -63,12 +64,6 @@ const SHORT_GROUP_LABELS: Record<GroupBy, string> = {
   year: 'Año',
 }
 
-interface EmployeeOption {
-  id: string
-  name: string
-  nif?: string
-  hire_date?: string | null
-}
 
 interface NominaRow {
   id: string
@@ -283,7 +278,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
 
   const [filterEmployee, setFilterEmployee] = useState('')
   const [filterDni, setFilterDni] = useState('')
-  const [employees, setEmployees] = useState<EmployeeOption[]>([])
+  const [employees, setEmployees] = useState<EmployeeFilterOption[]>([])
 
   const [rangePreset, setRangePreset] = useState<RangePreset>('all')
   const [customFrom, setCustomFrom] = useState('')
@@ -398,17 +393,18 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   }, [companyId, filterEmployee, filterDni, rangeKey, groupBy])
 
   useEffect(() => {
+    if (!showFilterMenu && !showGroupMenu) return
     const handler = (e: MouseEvent) => {
-      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
+      if (showFilterMenu && filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
         setShowFilterMenu(false)
       }
-      if (groupMenuRef.current && !groupMenuRef.current.contains(e.target as Node)) {
+      if (showGroupMenu && groupMenuRef.current && !groupMenuRef.current.contains(e.target as Node)) {
         setShowGroupMenu(false)
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [])
+  }, [showFilterMenu, showGroupMenu])
 
   const clearFilters = () => {
     setFilterEmployee('')
@@ -583,7 +579,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           isEmbedded ? tableBottomPadding : 'pb-28',
         )}
       >
-        <div className="mb-6 w-full min-w-0 overflow-x-hidden">
+        <div className="mb-6 w-full min-w-0">
           {!isEmbedded && (
             <div className="flex items-center gap-4 mb-4">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
@@ -601,50 +597,45 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           )}
 
           {companyId && (
-            <div className="flex w-full min-w-0 flex-nowrap items-center gap-1 sm:gap-1.5">
-              <select
+            <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5">
+              <EmployeeFilterSelect
                 value={filterEmployee}
-                onChange={(e) => setFilterEmployee(e.target.value)}
-                title="Filtrar por empleado"
-                className="h-8 min-w-0 max-w-[9.5rem] flex-[1_1_9.5rem] truncate rounded-md border border-slate-300 bg-white px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#C6A664] sm:max-w-[11rem] sm:flex-[1_1_11rem] sm:px-3 sm:text-sm"
-              >
-                <option value="">Todos los empleados</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name}{emp.nif ? ` (${emp.nif})` : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={setFilterEmployee}
+                employees={employees}
+                className="min-w-[12rem] max-w-[18rem] flex-[1.5_1_14rem] sm:min-w-[14rem] sm:max-w-[20rem]"
+              />
 
-              <div className="relative min-w-0 flex-[1_1_5.5rem] basis-0">
-                <MagnifyingGlassIcon className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 sm:left-2.5 sm:h-4 sm:w-4" />
+              <div className="relative min-w-[4.25rem] max-w-[5.5rem] shrink-0 flex-[0_1_5rem] sm:max-w-[6.5rem]">
+                <MagnifyingGlassIcon className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <Input
                   value={filterDni}
                   onChange={(e) => setFilterDni(e.target.value)}
-                  placeholder="DNI / nombre"
-                  className="h-8 w-full min-w-0 pl-7 text-xs sm:pl-8 sm:text-sm"
+                  placeholder="DNI"
+                  title="Buscar por DNI o nombre"
+                  className="h-8 w-full min-w-0 pl-7 text-xs"
                 />
               </div>
 
               {/* Filtro por rango de fechas (presets) */}
               <div className="relative shrink-0" ref={filterMenuRef}>
                 <Button
+                  type="button"
                   variant={rangePreset !== 'all' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setShowFilterMenu((v) => !v)}
                   title={activePresetLabel}
                   className={cn(
-                    'h-8 shrink-0 gap-0.5 px-1.5 text-[11px] sm:gap-1 sm:px-2 sm:text-xs',
+                    'h-8 min-w-[6.25rem] shrink-0 gap-1 px-2.5 text-xs',
                     rangePreset !== 'all' && 'bg-[#1B2A41] hover:bg-[#152036]',
                   )}
                 >
-                  <FunnelIcon className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
-                  <span className="max-w-[3.25rem] truncate sm:max-w-[4.5rem]">{shortPresetLabel}</span>
-                  <ChevronDownIcon className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
+                  <FunnelIcon className="h-4 w-4 shrink-0" />
+                  <span className="max-w-[5.5rem] truncate">{shortPresetLabel}</span>
+                  <ChevronDownIcon className="h-3.5 w-3.5 shrink-0" />
                 </Button>
 
                 {showFilterMenu && (
-                  <div className="absolute left-0 top-full z-30 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
+                  <div className="absolute left-0 top-full z-[200] mt-1 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl">
                     {RANGE_PRESETS.map((preset) => (
                       <button
                         key={preset.value}
@@ -705,22 +696,23 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
               {/* Agrupación */}
               <div className="relative shrink-0" ref={groupMenuRef}>
                 <Button
+                  type="button"
                   variant={groupBy !== 'none' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setShowGroupMenu((v) => !v)}
                   title={`Agrupar: ${activeGroupLabel.replace(' (cada nómina)', '')}`}
                   className={cn(
-                    'h-8 shrink-0 gap-0.5 px-1.5 text-[11px] sm:gap-1 sm:px-2 sm:text-xs',
+                    'h-8 min-w-[6rem] shrink-0 gap-1 px-2.5 text-xs',
                     groupBy !== 'none' && 'bg-[#C6A664] text-[#1B2A41] hover:bg-[#d4b574]',
                   )}
                 >
-                  <RectangleGroupIcon className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
-                  <span className="max-w-[2.75rem] truncate sm:max-w-[3.5rem]">{shortGroupLabel}</span>
-                  <ChevronDownIcon className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
+                  <RectangleGroupIcon className="h-4 w-4 shrink-0" />
+                  <span className="max-w-[4.5rem] truncate">{shortGroupLabel}</span>
+                  <ChevronDownIcon className="h-3.5 w-3.5 shrink-0" />
                 </Button>
 
                 {showGroupMenu && (
-                  <div className="absolute left-0 top-full z-30 mt-1 w-60 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
+                  <div className="absolute left-0 top-full z-[200] mt-1 w-60 rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl">
                     {GROUP_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
@@ -746,6 +738,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
 
               {hasActiveFilters && (
                 <Button
+                  type="button"
                   variant="ghost"
                   size="sm"
                   onClick={clearFilters}
@@ -758,6 +751,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
 
               <div className="ml-auto flex shrink-0 items-center gap-1">
                 <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   onClick={handleExport}
@@ -771,6 +765,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                   </span>
                 </Button>
                 <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   onClick={reload}

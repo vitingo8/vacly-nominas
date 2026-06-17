@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 
-type EmployeeOption = { id: string; name: string; nif?: string; hire_date?: string | null }
+type EmployeeOption = { id: string; name: string; nif?: string; hire_date?: string | null; image_url?: string | null }
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
     const { data: employees, error } = await supabase
       .from('employees')
-      .select('id, first_name, last_name, nif, entry_date')
+      .select('id, first_name, last_name, nif, entry_date, image_url')
       .eq('company_id', companyId)
       .order('first_name')
       .order('last_name')
@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
         id: emp.id,
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Sin nombre',
         nif: emp.nif || undefined,
+        image_url: (emp as { image_url?: string | null }).image_url || null,
         hire_date:
           earliestContractByEmployee.get(emp.id) ||
           ((emp as { entry_date?: string | null }).entry_date ?? null),
