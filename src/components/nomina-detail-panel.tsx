@@ -15,18 +15,27 @@ import {
 } from '@heroicons/react/24/outline'
 import type { NominaViewerData } from '@/components/nomina-viewer-dialog'
 
-function formatCurrency(amount: number | undefined) {
-  if (!amount) return '€0.00'
+function coerceNumber(value: unknown): number | null {
+  if (value == null || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const normalized = String(value).trim().replace(/\s/g, '').replace(',', '.')
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatCurrency(amount: unknown) {
+  const n = coerceNumber(amount)
+  if (n == null) return '€0.00'
   return new Intl.NumberFormat('es-ES', {
     style: 'currency',
     currency: 'EUR',
-  }).format(amount)
+  }).format(n)
 }
 
-function formatRate(rate: number | undefined | null) {
-  if (rate == null) return '—'
-  // Las tasas pueden venir como fracción (0.2418) o como porcentaje (24.18).
-  const pct = Math.abs(rate) <= 1 ? rate * 100 : rate
+function formatRate(rate: unknown) {
+  const n = coerceNumber(rate)
+  if (n == null) return '—'
+  const pct = Math.abs(n) <= 1 ? n * 100 : n
   return `${pct.toFixed(2)}%`
 }
 
@@ -111,13 +120,18 @@ export interface NominaAggregate {
   contributions: NominaAggregateContribution[]
 }
 
+function sumAmounts(items: Array<{ amount?: unknown }>) {
+  return items.reduce((sum, item) => sum + (coerceNumber(item.amount) ?? 0), 0)
+}
+
+function sumContributions(items: Array<{ employer_contribution?: unknown }>) {
+  return items.reduce((sum, item) => sum + (coerceNumber(item.employer_contribution) ?? 0), 0)
+}
+
 export function NominaAggregatePanel({ aggregate }: { aggregate: NominaAggregate }) {
-  const totalPerceptions = aggregate.perceptions.reduce((s, p) => s + (p.amount || 0), 0)
-  const totalDeductions = aggregate.deductions.reduce((s, d) => s + (d.amount || 0), 0)
-  const totalContributions = aggregate.contributions.reduce(
-    (s, c) => s + (c.employer_contribution || 0),
-    0,
-  )
+  const totalPerceptions = sumAmounts(aggregate.perceptions)
+  const totalDeductions = sumAmounts(aggregate.deductions)
+  const totalContributions = sumContributions(aggregate.contributions)
 
   return (
     <div className="p-4 bg-slate-50/80 space-y-4">
@@ -236,13 +250,17 @@ export function NominaAggregatePanel({ aggregate }: { aggregate: NominaAggregate
               </TableHeader>
               <TableBody>
                 {aggregate.contributions.map((c, i) => {
-                  const effRate = c.base > 0 ? (c.employer_contribution / c.base) * 100 : null
+                  const base = coerceNumber(c.base) ?? 0
+                  const contribution = coerceNumber(c.employer_contribution) ?? 0
+                  const effRate = base > 0 ? (contribution / base) * 100 : null
                   return (
                     <TableRow key={i}>
                       <TableCell>{c.concept || '—'}</TableCell>
-                      <TableCell className="text-right font-mono">{formatCurrency(c.base)}</TableCell>
-                      <TableCell className="text-right">{effRate != null ? `${effRate.toFixed(2)}%` : '—'}</TableCell>
-                      <TableCell className="text-right font-mono">{formatCurrency(c.employer_contribution)}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(base)}</TableCell>
+                      <TableCell className="text-right">
+                        {formatRate(effRate)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(contribution)}</TableCell>
                     </TableRow>
                   )
                 })}
@@ -449,7 +467,7 @@ export function NominaDetailPanel({
                     <TableRow className="bg-emerald-50">
                       <TableCell colSpan={2} className="font-bold">Total Percepciones</TableCell>
                       <TableCell className="text-right font-bold font-mono text-emerald-700">
-                        {formatCurrency(nominaData.perceptions.reduce((s, p) => s + (p.amount || 0), 0))}
+                        {formatCurrency(sumAmounts(nominaData.perceptions))}
                       </TableCell>
                     </TableRow>
                   </TableBody>
@@ -490,7 +508,7 @@ export function NominaDetailPanel({
                     <TableRow className="bg-rose-50">
                       <TableCell colSpan={2} className="font-bold">Total Deducciones</TableCell>
                       <TableCell className="text-right font-bold font-mono text-rose-700">
-                        -{formatCurrency(nominaData.deductions.reduce((s, d) => s + (d.amount || 0), 0))}
+                        -{formatCurrency(sumAmounts(nominaData.deductions))}
                       </TableCell>
                     </TableRow>
                   </TableBody>

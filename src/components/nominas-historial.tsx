@@ -97,9 +97,18 @@ interface NominaGroup {
   aggregate: NominaAggregate
 }
 
-function formatCurrency(amount: number | undefined) {
-  if (!amount) return '€0.00'
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount)
+function coerceNumber(value: unknown): number | null {
+  if (value == null || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const normalized = String(value).trim().replace(/\s/g, '').replace(',', '.')
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatCurrency(amount: unknown) {
+  const n = coerceNumber(amount)
+  if (n == null) return '€0.00'
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n)
 }
 
 function formatPeriod(periodStart?: string) {
@@ -181,34 +190,38 @@ function buildAggregate(nominas: NominaRow[]): NominaAggregate {
   let baseSs = 0
 
   for (const n of nominas) {
-    gross += n.gross_salary || 0
-    net += n.net_pay || 0
-    cost += n.cost_empresa || 0
-    baseSs += n.base_ss || 0
+    gross += coerceNumber(n.gross_salary) ?? 0
+    net += coerceNumber(n.net_pay) ?? 0
+    cost += coerceNumber(n.cost_empresa) ?? 0
+    baseSs += coerceNumber(n.base_ss) ?? 0
 
     for (const p of n.perceptions || []) {
       const key = `${p.code || ''}||${p.concept || ''}`
+      const amount = coerceNumber(p.amount) ?? 0
       const prev = perceptionsMap.get(key)
-      if (prev) prev.amount += p.amount || 0
-      else perceptionsMap.set(key, { code: p.code, concept: p.concept, amount: p.amount || 0 })
+      if (prev) prev.amount += amount
+      else perceptionsMap.set(key, { code: p.code, concept: p.concept, amount })
     }
     for (const d of n.deductions || []) {
       const key = `${d.code || ''}||${d.concept || ''}`
+      const amount = coerceNumber(d.amount) ?? 0
       const prev = deductionsMap.get(key)
-      if (prev) prev.amount += d.amount || 0
-      else deductionsMap.set(key, { code: d.code, concept: d.concept, amount: d.amount || 0 })
+      if (prev) prev.amount += amount
+      else deductionsMap.set(key, { code: d.code, concept: d.concept, amount })
     }
     for (const c of n.contributions || []) {
       const key = c.concept || ''
+      const base = coerceNumber(c.base) ?? 0
+      const contribution = coerceNumber(c.employer_contribution) ?? 0
       const prev = contributionsMap.get(key)
       if (prev) {
-        prev.base += c.base || 0
-        prev.employer_contribution += c.employer_contribution || 0
+        prev.base += base
+        prev.employer_contribution += contribution
       } else {
         contributionsMap.set(key, {
           concept: c.concept,
-          base: c.base || 0,
-          employer_contribution: c.employer_contribution || 0,
+          base,
+          employer_contribution: contribution,
         })
       }
     }
@@ -649,7 +662,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           isEmbedded ? tableBottomPadding : 'pb-28',
         )}
       >
-        <div className="mb-6 w-full min-w-0">
+        <div className="relative z-30 mb-6 w-full min-w-0">
           {!isEmbedded && (
             <div className="flex items-center gap-4 mb-4">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A41]/10 to-[#C6A664]/10 flex items-center justify-center shadow-lg">
@@ -863,22 +876,10 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
           )}
         </div>
 
-        <div className="w-full">
+        <div className="relative z-0 w-full">
         {!companyId ? (
-          <div className="text-center py-16 bg-slate-50 rounded-xl">
-            <p className="text-slate-600">Falta el parámetro company_id en la URL.</p>
-          </div>
-        ) : isLoadingHistorial && historialNominas.length === 0 && groupedNominas.length === 0 ? (
-          <div className="flex items-center justify-center py-12">
-            <ArrowPathIcon className="w-8 h-8 animate-spin text-[#C6A664]" />
-          </div>
+          <p className="py-6 text-center text-sm text-slate-600">Falta el parámetro company_id en la URL.</p>
         ) : groupBy !== 'none' ? (
-          groups.length === 0 ? (
-            <div className="text-center py-16 bg-slate-50 rounded-xl">
-              <h3 className="text-lg font-semibold text-slate-600 mb-1">Sin nóminas</h3>
-              <p className="text-slate-500 text-sm">No hay resultados con los filtros aplicados</p>
-            </div>
-          ) : (
             <div className="w-full rounded-xl border border-slate-200 bg-white">
               <Table noScrollContainer>
                 <TableHeader>
@@ -893,7 +894,25 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {groups.map((group) => {
+                  {isLoadingHistorial && groups.length === 0 ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={7} className="py-10 text-center">
+                        <ArrowPathIcon className="mx-auto h-7 w-7 animate-spin text-[#C6A664]" />
+                      </TableCell>
+                    </TableRow>
+                  ) : groups.length === 0 ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={7} className="py-10 text-center">
+                        <p className="text-sm font-medium text-slate-600">Sin nóminas</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {hasActiveFilters
+                            ? 'No hay resultados con los filtros aplicados'
+                            : 'Aún no hay nóminas procesadas para esta empresa'}
+                        </p>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                  groups.map((group) => {
                     const isExpanded = expandedGroup === group.key
                     return (
                       <Fragment key={group.key}>
@@ -930,20 +949,11 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                         )}
                       </Fragment>
                     )
-                  })}
+                  })
+                  )}
                 </TableBody>
               </Table>
             </div>
-          )
-        ) : historialNominas.length === 0 ? (
-          <div className="text-center py-16 bg-slate-50 rounded-xl">
-            <h3 className="text-lg font-semibold text-slate-600 mb-1">Sin nóminas</h3>
-            <p className="text-slate-500 text-sm">
-              {hasActiveFilters
-                ? 'No hay resultados con los filtros aplicados'
-                : 'Aún no hay nóminas procesadas para esta empresa'}
-            </p>
-          </div>
         ) : (
           <>
             <div className="w-full rounded-xl border border-slate-200 bg-white">
@@ -1137,7 +1147,25 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {historialNominas.map((nomina) => {
+                  {isLoadingHistorial && historialNominas.length === 0 ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={10} className="py-10 text-center">
+                        <ArrowPathIcon className="mx-auto h-7 w-7 animate-spin text-[#C6A664]" />
+                      </TableCell>
+                    </TableRow>
+                  ) : historialNominas.length === 0 ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={10} className="py-10 text-center">
+                        <p className="text-sm font-medium text-slate-600">Sin nóminas</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {hasActiveFilters
+                            ? 'No hay resultados con los filtros aplicados'
+                            : 'Aún no hay nóminas procesadas para esta empresa'}
+                        </p>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                  historialNominas.map((nomina) => {
                     const isExpanded = expandedId === nomina.id
                     const isSelected = selectedIds.has(nomina.id)
                     return (
@@ -1249,7 +1277,8 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                         )}
                       </Fragment>
                     )
-                  })}
+                  })
+                  )}
                 </TableBody>
               </Table>
             </div>
