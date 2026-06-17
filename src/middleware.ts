@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { buildNominasCsp } from '@/lib/security/csp'
 
 const BLOCKED_HTML = `<!DOCTYPE html>
 <html lang="es">
@@ -76,17 +77,7 @@ export function middleware(request: NextRequest) {
   // Añadir CSP headers para permitir iframes de Supabase y visualización de PDFs
   const response = NextResponse.next()
 
-  const csp = [
-    "default-src 'self' https://*.supabase.co",
-    "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://*.supabase.co",
-    "font-src 'self' data:",
-    "connect-src 'self' https://api.anthropic.com https://api.voyageai.com https://*.supabase.co",
-    "frame-src 'self' https://*.supabase.co blob: data:",
-    "object-src 'self' https://*.supabase.co blob: data:",
-    "frame-ancestors *",
-  ].join('; ')
+  const csp = buildNominasCsp()
 
   response.headers.set('X-Content-Type-Options', 'nosniff')
   response.headers.set('Content-Security-Policy', csp)

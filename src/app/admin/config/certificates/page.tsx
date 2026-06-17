@@ -22,6 +22,7 @@ import {
   probeWindowsCertBridge,
   type WindowsCertificateEntry,
 } from '@/lib/admin-integrations/certificate-vault/windows-cert-bridge'
+import { WindowsBridgeSetup } from '@/components/admin/windows-bridge-setup'
 
 type CertStatus = 'valid' | 'expiring_soon' | 'expired' | 'revoked'
 
@@ -334,25 +335,7 @@ export default function AdminCertificatesPage() {
         {isWindows && (
           <TabsContent value="windows">
             {!bridgeReady ? (
-              <Card className="p-6 border-slate-200 w-full">
-                <h2 className="font-semibold text-slate-800 mb-2">Conectar con Windows</h2>
-                <p className="text-sm text-slate-600 mb-4">
-                  Para ver tus certificados instalados (como en Chrome o el MMC de Windows), ejecuta el
-                  puente local una vez en este PC. Vacly leerá el almacén personal{' '}
-                  <code className="text-xs bg-slate-100 px-1 rounded">CurrentUser\My</code>.
-                </p>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
-                  <p className="text-xs font-medium text-slate-700">Opción 1 — doble clic:</p>
-                  <code className="block text-xs break-all">scripts\start-cert-bridge.bat</code>
-                  <p className="text-xs font-medium text-slate-700 pt-2">Opción 2 — PowerShell:</p>
-                  <code className="block text-xs break-all">
-                    powershell -ExecutionPolicy Bypass -File scripts/windows-cert-bridge.ps1
-                  </code>
-                </div>
-                <Button className="mt-4" variant="outline" onClick={() => void refreshWindowsStore()}>
-                  Reintentar conexión
-                </Button>
-              </Card>
+              <WindowsBridgeSetup onRetry={() => void refreshWindowsStore()} loading={bridgeLoading} />
             ) : (
               <WindowsCertTable
                 rows={filteredWindows}
