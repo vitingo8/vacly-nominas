@@ -14,6 +14,7 @@ import {
   type Modelo111Perceptor,
   type Modelo190Perceptor,
 } from '@/lib/generadores'
+import { signSubmission } from '@/lib/admin-integrations'
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
@@ -222,7 +223,36 @@ export async function POST(request: NextRequest) {
       console.warn('[filing] No se pudo persistir filing_submissions:', persistErr)
     }
 
-    return NextResponse.json({ success: true, submissionId, result, fileName })
+    // Firma opcional con certificado digital (AEAT).
+    let signature: Awaited<ReturnType<typeof signSubmission>> | null = null
+    if (body.certificateId && typeof result?.csv === 'string') {
+      signature = await signSubmission(supabase, {
+        companyId,
+        provider: 'aeat',
+        procedureCode: kind === 'modelo_190' ? `190_${year}` : `111_${year}_${periodLabel}`,
+        certificateId: body.certificateId,
+        content: Buffer.from(result.csv, 'utf8'),
+        subjectType: 'filing_submission',
+        subjectId: submissionId ?? undefined,
+        actorUserId: body.actorUserId,
+      })
+    }
+
+    return NextResponse.json({
+      success: true,
+      submissionId,
+      result,
+      fileName,
+      signature: signature
+        ? {
+            transactionId: signature.transactionId,
+            format: signature.format,
+            mock: signature.mock,
+            contentSha256: signature.contentSha256,
+            signedAt: signature.signedAt,
+          }
+        : null,
+    })
   } catch (err) {
     console.error('[POST /api/filing] Error:', err)
     return NextResponse.json(

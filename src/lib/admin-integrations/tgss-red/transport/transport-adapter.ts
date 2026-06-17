@@ -1,5 +1,5 @@
-import type { TransportPollResult, TransportSubmissionResult } from './afi-types'
-import { AdminIntegrationError } from '../errors'
+import type { TransportPollResult, TransportSubmissionResult } from '../afi-types'
+import { AdminIntegrationError } from '../../errors'
 
 export interface TgssTransportAdapter {
   submitFile(transactionId: string, filePath: string): Promise<TransportSubmissionResult>

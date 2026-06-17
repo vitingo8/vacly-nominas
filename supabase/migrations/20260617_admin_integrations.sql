@@ -61,6 +61,23 @@ CREATE INDEX IF NOT EXISTS idx_admin_tx_company ON public.administrative_transac
 CREATE INDEX IF NOT EXISTS idx_admin_tx_status ON public.administrative_transactions (company_id, status);
 CREATE INDEX IF NOT EXISTS idx_admin_tx_subject ON public.administrative_transactions (subject_type, subject_id);
 
+-- CHECK de estado alineado con la máquina de estados (idempotente).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.administrative_transactions'::regclass
+       AND conname = 'administrative_transactions_status_check'
+  ) THEN
+    ALTER TABLE public.administrative_transactions
+      ADD CONSTRAINT administrative_transactions_status_check
+      CHECK (status IN (
+        'created', 'validated', 'file_generated', 'queued',
+        'submitted', 'response_received', 'accepted', 'rejected', 'failed'
+      ));
+  END IF;
+END $$;
+
 -- ── 4. Ficheros generados ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.administrative_files (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -190,6 +207,36 @@ EXCEPTION WHEN undefined_function THEN
   RAISE NOTICE 'RLS helpers no disponibles; políticas admin_integrations omitidas.';
 END $$;
 
--- ── 10. Storage bucket (crear manualmente si no existe) ───────────────────────
--- INSERT INTO storage.buckets (id, name, public) VALUES ('admin-integrations', 'admin-integrations', false)
--- ON CONFLICT (id) DO NOTHING;
+-- ── 10. Triggers updated_at ───────────────────────────────────────────────────
+-- Reutiliza public.set_updated_at() (NEW.updated_at = now()).
+DO $$
+DECLARE
+  tbl text;
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY[
+    'administrative_authorizations',
+    'administrative_certificates',
+    'administrative_transactions'
+  ] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger
+       WHERE tgname = 'trg_' || tbl || '_updated_at'
+         AND tgrelid = ('public.' || tbl)::regclass
+    ) THEN
+      EXECUTE format(
+        'CREATE TRIGGER %I BEFORE UPDATE ON public.%I
+           FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()',
+        'trg_' || tbl || '_updated_at', tbl
+      );
+    END IF;
+  END LOOP;
+EXCEPTION WHEN undefined_function THEN
+  RAISE NOTICE 'public.set_updated_at() no disponible; triggers updated_at omitidos.';
+END $$;
+
+-- ── 11. Storage bucket privado para ficheros administrativos ──────────────────
+-- El módulo accede con service_role (omite RLS), por lo que el bucket permanece
+-- privado y SIN políticas permisivas para usuarios anon/authenticated.
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('admin-integrations', 'admin-integrations', false)
+ON CONFLICT (id) DO NOTHING;

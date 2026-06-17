@@ -7,5 +7,6 @@ export async function GET() {
     enabled: config.enabled,
     tgssMode: config.tgssMode,
     aeatMode: config.aeatMode,
+    dehuMode: config.dehuMode,
   })
 }

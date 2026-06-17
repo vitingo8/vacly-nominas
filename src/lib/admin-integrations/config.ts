@@ -1,5 +1,6 @@
 export type TgssMode = 'mock' | 'siltra'
 export type AeatMode = 'mock' | 'soap' | 'file'
+export type DehuMode = 'mock' | 'api'
 
 export interface AdminIntegrationsConfig {
   enabled: boolean
@@ -9,6 +10,7 @@ export interface AdminIntegrationsConfig {
   tgssSiltraExecutablePath: string
   tgssCertificateId?: string
   aeatMode: AeatMode
+  dehuMode: DehuMode
   encryptionKey?: string
   cronSecret?: string
   storageBucket: string
@@ -23,6 +25,7 @@ export function getAdminConfig(): AdminIntegrationsConfig {
     tgssSiltraExecutablePath: process.env.TGSS_SILTRA_EXECUTABLE_PATH || '',
     tgssCertificateId: process.env.TGSS_CERTIFICATE_ID,
     aeatMode: (process.env.AEAT_MODE as AeatMode) || 'mock',
+    dehuMode: (process.env.DEHU_MODE as DehuMode) || 'mock',
     encryptionKey: process.env.ADMIN_ENCRYPTION_KEY,
     cronSecret: process.env.CRON_SECRET,
     storageBucket: process.env.ADMIN_STORAGE_BUCKET || 'admin-integrations',

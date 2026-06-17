@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import { generateREDFile } from '@/lib/generadores'
 import type { REDFileData, REDEmployeeRecord, REDCompanyInfo } from '@/lib/generadores'
+import { signSubmission } from '@/lib/admin-integrations'
 
 // ─── POST: Generate RED file for Social Security ─────────────────────
 export async function POST(request: NextRequest) {
@@ -227,13 +228,30 @@ export async function POST(request: NextRequest) {
     // Return as downloadable file
     const filename = `RED_${companyData.ccc}_${year}${String(month).padStart(2, '0')}.txt`
 
+    const responseHeaders: Record<string, string> = {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': String(Buffer.byteLength(redContent, 'utf8')),
+    }
+
+    // Firma opcional con certificado digital (TGSS/RED).
+    if (body.certificateId) {
+      const signature = await signSubmission(supabase, {
+        companyId,
+        provider: 'tgss',
+        procedureCode: `RED_${year}${String(month).padStart(2, '0')}`,
+        certificateId: body.certificateId,
+        content: Buffer.from(redContent, 'utf8'),
+        actorUserId: body.actorUserId,
+      })
+      responseHeaders['x-vacly-signature-tx'] = signature.transactionId
+      responseHeaders['x-vacly-signature-format'] = signature.format
+      responseHeaders['x-vacly-signature-sha256'] = signature.contentSha256
+    }
+
     return new NextResponse(redContent, {
       status: 200,
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length': String(Buffer.byteLength(redContent, 'utf8')),
-      },
+      headers: responseHeaders,
     })
   } catch (error) {
     console.error('POST /api/red error:', error)
