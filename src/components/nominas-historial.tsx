@@ -675,14 +675,14 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                 className="min-w-[12rem] max-w-[18rem] flex-[1.5_1_14rem] sm:min-w-[14rem] sm:max-w-[20rem]"
               />
 
-              <div className="relative min-w-[4.25rem] max-w-[5.5rem] shrink-0 flex-[0_1_5rem] sm:max-w-[6.5rem]">
+              <div className="relative min-w-[9rem] max-w-[12rem] shrink-0 flex-[1_1_10rem] sm:min-w-[10rem] sm:max-w-[14rem]">
                 <MagnifyingGlassIcon className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <Input
                   value={filterDni}
                   onChange={(e) => setFilterDni(e.target.value)}
-                  placeholder="DNI"
+                  placeholder="DNI / nombre"
                   title="Buscar por DNI o nombre"
-                  className="h-8 w-full min-w-0 pl-7 text-xs"
+                  className="h-8 w-full min-w-0 pl-7 text-xs sm:pl-8 sm:text-sm"
                 />
               </div>
 
