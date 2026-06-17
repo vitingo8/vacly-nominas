@@ -564,11 +564,14 @@ export async function listAgencyNotifications(
     ),
   ]
 
-  const certCompanyById = new Map<string, string>()
+  const certInfoById = new Map<
+    string,
+    { companyId: string; holderNif: string | null; holderName: string | null }
+  >()
   if (certIds.length > 0) {
     const { data: certs, error: certsError } = await supabase
       .from('administrative_certificates')
-      .select('id, company_id')
+      .select('id, company_id, holder_nif, holder_name')
       .in('id', certIds)
 
     if (certsError) {
@@ -580,18 +583,42 @@ export async function listAgencyNotifications(
     }
 
     for (const cert of certs || []) {
-      certCompanyById.set((cert as { id: string; company_id: string }).id, (cert as { id: string; company_id: string }).company_id)
+      const c = cert as { id: string; company_id: string; holder_nif?: string; holder_name?: string }
+      certInfoById.set(c.id, {
+        companyId: c.company_id,
+        holderNif: c.holder_nif ?? null,
+        holderName: c.holder_name ?? null,
+      })
     }
   }
 
   return (data || []).map((row) => {
     const n = rowToNotification(row)
-    const certCompanyId = row.certificate_id ? certCompanyById.get(row.certificate_id) : null
+    const cert = row.certificate_id ? certInfoById.get(row.certificate_id) : null
     const metadata = (row.metadata || {}) as Record<string, unknown>
-    const titularNif = normalizeNif(String(metadata.nifTitular || metadata.nifDestinatario || ''))
-    const titularCompanyId = titularNif ? companyIdByCif.get(titularNif) : null
-    const displayCompanyId = certCompanyId || titularCompanyId || n.companyId
-    n.companyName = nameById.get(displayCompanyId) ?? null
+
+    // La empresa real de la notificación es la TITULAR del certificado, no la
+    // empresa (gestoría) bajo la que se cargó. Los certificados se suben de forma
+    // centralizada con company_id de la gestoría, por eso priorizamos el NIF
+    // titular del certificado (== CIF de la empresa cliente).
+    const certHolderNif = normalizeNif(cert?.holderNif || '')
+    const metaNif = normalizeNif(String(metadata.nifTitular || metadata.nifDestinatario || ''))
+    const matchedByNif =
+      (certHolderNif && companyIdByCif.get(certHolderNif)) ||
+      (metaNif && companyIdByCif.get(metaNif)) ||
+      null
+
+    // Si el certificado pertenece a una empresa real (no la gestoría), úsala.
+    const certCompanyId =
+      cert?.companyId && cert.companyId !== agencyCompanyId ? cert.companyId : null
+
+    const displayCompanyId = matchedByNif || certCompanyId
+    n.companyName =
+      (displayCompanyId ? nameById.get(displayCompanyId) : null) ||
+      cert?.holderName ||
+      cert?.holderNif ||
+      nameById.get(n.companyId) ||
+      'Empresa'
     return n
   })
 }

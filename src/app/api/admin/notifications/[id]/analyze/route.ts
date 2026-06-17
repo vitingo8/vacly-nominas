@@ -21,6 +21,8 @@ export async function POST(
     const companyId = String(body.company_id || '')
     const certificateId = body.certificate_id ? String(body.certificate_id) : undefined
     const userConfirmed = body.confirm === true || body.confirm === 1 || body.confirm === '1'
+    const language = body.language ? String(body.language) : undefined
+    const regenerate = body.regenerate === true || body.regenerate === 1 || body.regenerate === '1'
 
     assertValidCompanyId(companyId)
     assertCompanyAccess(request, companyId)
@@ -30,6 +32,8 @@ export async function POST(
       actorUserId: getActorUserId(request),
       certificateId,
       userConfirmed,
+      language,
+      regenerate,
     })
 
     return jsonOk({

@@ -11,6 +11,7 @@ export type AdminErrorCode =
   | 'STORAGE_ERROR'
   | 'TRANSPORT_ERROR'
   | 'PROCESSING_ERROR'
+  | 'LANGUAGE_REQUIRED'
   | 'UNAUTHORIZED'
 
 export class AdminIntegrationError extends Error {

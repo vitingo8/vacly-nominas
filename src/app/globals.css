@@ -321,3 +321,38 @@ img {
     background: #94a3b8;
   }
 }
+
+/* Vista previa del correo HTML generado por IA en el módulo de notificaciones. */
+.email-html-preview p {
+  margin: 0 0 0.85rem 0;
+}
+.email-html-preview p:last-child {
+  margin-bottom: 0;
+}
+.email-html-preview strong {
+  font-weight: 600;
+  color: #0f172a;
+}
+.email-html-preview ul,
+.email-html-preview ol {
+  margin: 0 0 0.85rem 1.25rem;
+  padding-left: 0.5rem;
+  list-style: disc;
+}
+.email-html-preview ol {
+  list-style: decimal;
+}
+.email-html-preview li {
+  margin-bottom: 0.35rem;
+}
+.email-html-preview a {
+  color: #1b2a41;
+  text-decoration: underline;
+}
+.email-html-preview h1,
+.email-html-preview h2,
+.email-html-preview h3 {
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 0.5rem 0;
+}

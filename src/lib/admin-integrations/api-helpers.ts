@@ -14,9 +14,11 @@ export function adminErrorResponse(error: unknown) {
           ? 404
           : error.code === 'UNAUTHORIZED'
             ? 401
-            : error.code === 'INTEGRATIONS_DISABLED'
-              ? 503
-              : 500
+            : error.code === 'LANGUAGE_REQUIRED'
+              ? 409
+              : error.code === 'INTEGRATIONS_DISABLED'
+                ? 503
+                : 500
 
     return NextResponse.json({ success: false, ...error.toJSON() }, { status })
   }

@@ -99,11 +99,36 @@ interface EmailAnalysis {
   emailTo: string
   emailSubject: string
   emailBody: string
+  emailBodyHtml: string
   companyName: string
+  clientName: string
+  language: string
   fileName: string
+  cached: boolean
 }
 
 type ConfirmAction = 'open' | 'download' | 'mail'
+
+const EMAIL_LANGUAGES: Array<{ code: string; label: string }> = [
+  { code: 'es', label: 'Español' },
+  { code: 'ca', label: 'Català' },
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'Français' },
+  { code: 'gl', label: 'Galego' },
+  { code: 'eu', label: 'Euskera' },
+  { code: 'pt', label: 'Português' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'it', label: 'Italiano' },
+]
+
+function languageLabel(code: string): string {
+  return EMAIL_LANGUAGES.find((l) => l.code === code)?.label || code
+}
+
+function getSessionToken(): string {
+  if (typeof window === 'undefined') return ''
+  return new URLSearchParams(window.location.search).get('token') || ''
+}
 
 function sanitizeFileName(value: string): string {
   return value.replace(/[^\w\s.-]/g, '').trim().slice(0, 80) || 'notificacion'
@@ -127,7 +152,7 @@ export default function AdminNotificationsPage() {
   const [syncing, setSyncing] = useState(false)
   const [actingId, setActingId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending')
-  const [viewer, setViewer] = useState<{ title: string; blobUrl: string; fileName: string } | null>(null)
+  const [viewer, setViewer] = useState<{ title: string; url: string; blob: Blob; fileName: string } | null>(null)
   const [emailPanel, setEmailPanel] = useState<{
     row: NotifRow
     analysis: EmailAnalysis
@@ -135,10 +160,21 @@ export default function AdminNotificationsPage() {
     pdfBlob: Blob
     fileName: string
   } | null>(null)
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
+  const [regenLanguage, setRegenLanguage] = useState<string>('es')
+  const [languagePrompt, setLanguagePrompt] = useState<{ row: NotifRow; language: string } | null>(null)
   const [confirmOpen, setConfirmOpen] = useState<{
     row: NotifRow
     needsComparecer: boolean
     action: ConfirmAction
+  } | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState<null | 'download' | 'print'>(null)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
+  const [bulkConfirm, setBulkConfirm] = useState<{
+    action: 'download' | 'print'
+    rows: NotifRow[]
+    needsComparecer: boolean
   } | null>(null)
 
   const loadAgency = () => {
@@ -179,14 +215,28 @@ export default function AdminNotificationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
+  // Mantiene la selección coherente con los datos cargados.
   useEffect(() => {
-    return () => {
-      if (viewer?.blobUrl) URL.revokeObjectURL(viewer.blobUrl)
-    }
-  }, [viewer?.blobUrl])
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev
+      const valid = new Set<string>()
+      for (const n of agency) if (prev.has(n.id)) valid.add(n.id)
+      return valid.size === prev.size ? prev : valid
+    })
+  }, [agency])
 
   const closeEmailPanel = () => {
     setEmailPanel(null)
+    setCopyState('idle')
+  }
+
+  const documentUrl = (row: NotifRow, opts?: { download?: boolean }): string => {
+    const params = new URLSearchParams({ company_id: row.companyId })
+    if (row.certificateId) params.set('certificate_id', row.certificateId)
+    const token = getSessionToken()
+    if (token) params.set('token', token)
+    if (opts?.download) params.set('download', '1')
+    return `/api/admin/notifications/${row.id}/document?${params.toString()}`
   }
 
   const fetchNotificationPdf = async (
@@ -228,12 +278,174 @@ export default function AdminNotificationsPage() {
   }
 
   const triggerPdfDownload = (blob: Blob, fileName: string) => {
+    downloadBlob(blob, fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`)
+  }
+
+  const downloadBlob = (blob: Blob, fileName: string) => {
     const blobUrl = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = blobUrl
-    anchor.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`
+    anchor.download = fileName
     anchor.click()
-    URL.revokeObjectURL(blobUrl)
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 4000)
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = (rows: NotifRow[]) => {
+    setSelectedIds((prev) => {
+      const allSelected = rows.length > 0 && rows.every((r) => prev.has(r.id))
+      if (allSelected) {
+        const next = new Set(prev)
+        for (const r of rows) next.delete(r.id)
+        return next
+      }
+      const next = new Set(prev)
+      for (const r of rows) next.add(r.id)
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const requestBulk = (action: 'download' | 'print') => {
+    setError('')
+    const rows = agency.filter((n) => selectedIds.has(n.id))
+    if (rows.length === 0) return
+    // Si alguna no está en bóveda hay que pedirla a AEAT: confirmamos en bloque.
+    const anyFetch = rows.some((r) => !r.hasDocument)
+    if (anyFetch) {
+      const anyComparecer = rows.some((r) => !r.hasDocument && needsComparecer(r))
+      setBulkConfirm({ action, rows, needsComparecer: anyComparecer })
+      return
+    }
+    void runBulk(action, rows)
+  }
+
+  const runBulk = async (action: 'download' | 'print', rows: NotifRow[]) => {
+    setError('')
+    setBulkBusy(action)
+    setBulkProgress({ done: 0, total: rows.length })
+
+    // El popup de impresión debe abrirse dentro del gesto del usuario (este
+    // handler), si no Chrome lo bloquea. Lo abrimos vacío y luego lo poblamos.
+    let printWin: Window | null = null
+    if (action === 'print') {
+      printWin = window.open('', '_blank')
+      if (printWin) {
+        printWin.document.write(
+          '<!doctype html><title>Preparando impresión…</title><body style="font:14px system-ui;padding:24px;color:#334155">Preparando documentos para imprimir…</body>',
+        )
+      }
+    }
+
+    try {
+      const collected: Array<{ name: string; blob: Blob }> = []
+      const failures: string[] = []
+      let done = 0
+      for (const row of rows) {
+        try {
+          const blob = await fetchNotificationPdf(row, { confirm: !row.hasDocument })
+          if (blob) {
+            const base = sanitizeFileName(`${row.externalId || ''} ${row.subject}`.trim())
+            collected.push({ name: `${base}.pdf`, blob })
+          } else {
+            failures.push(row.subject)
+          }
+        } catch {
+          failures.push(row.subject)
+        }
+        done += 1
+        setBulkProgress({ done, total: rows.length })
+      }
+
+      if (collected.length === 0) {
+        setError('No se pudo obtener ningún documento de los seleccionados.')
+        printWin?.close()
+        return
+      }
+
+      if (action === 'download') {
+        if (collected.length === 1) {
+          triggerPdfDownload(collected[0].blob, collected[0].name)
+        } else {
+          const JSZip = (await import('jszip')).default
+          const zip = new JSZip()
+          const used = new Set<string>()
+          collected.forEach(({ name, blob }, i) => {
+            let fileName = name
+            if (used.has(fileName)) fileName = `${i + 1}-${name}`
+            used.add(fileName)
+            zip.file(fileName, blob)
+          })
+          const content = await zip.generateAsync({ type: 'blob' })
+          downloadBlob(content, 'notificaciones.zip')
+        }
+      } else {
+        const { PDFDocument } = await import('pdf-lib')
+        const merged = await PDFDocument.create()
+        for (const { blob } of collected) {
+          try {
+            const src = await PDFDocument.load(await blob.arrayBuffer(), { ignoreEncryption: true })
+            const pages = await merged.copyPages(src, src.getPageIndices())
+            pages.forEach((p) => merged.addPage(p))
+          } catch {
+            /* PDF no combinable, se omite */
+          }
+        }
+        const mergedBytes = await merged.save()
+        const url = URL.createObjectURL(new Blob([mergedBytes as BlobPart], { type: 'application/pdf' }))
+        if (printWin) {
+          printWin.location.href = url
+          const tryPrint = () => {
+            try {
+              printWin?.focus()
+              printWin?.print()
+            } catch {
+              /* el usuario puede imprimir manualmente desde el visor */
+            }
+          }
+          printWin.onload = () => setTimeout(tryPrint, 700)
+          setTimeout(tryPrint, 1800)
+        } else {
+          // Popup bloqueado: descargamos el PDF combinado como alternativa.
+          downloadBlob(new Blob([mergedBytes as BlobPart], { type: 'application/pdf' }), 'notificaciones.pdf')
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 60000)
+      }
+
+      if (failures.length > 0) {
+        setError(`${failures.length} notificación(es) no se pudieron obtener.`)
+      } else {
+        setMessage(
+          action === 'download'
+            ? `${collected.length} notificación(es) descargada(s).`
+            : `${collected.length} notificación(es) enviada(s) a impresión.`,
+        )
+      }
+      clearSelection()
+      loadAgency()
+    } catch {
+      setError('Error procesando las notificaciones seleccionadas.')
+      printWin?.close()
+    } finally {
+      setBulkBusy(null)
+      setBulkProgress(null)
+    }
+  }
+
+  const executeBulkConfirm = () => {
+    if (!bulkConfirm) return
+    const { action, rows } = bulkConfirm
+    setBulkConfirm(null)
+    void runBulk(action, rows)
   }
 
   const sync = async () => {
@@ -273,8 +485,10 @@ export default function AdminNotificationsPage() {
   }
 
   const requestAction = (action: ConfirmAction, row: NotifRow) => {
-    if (needsComparecer(row)) {
-      setConfirmOpen({ row, needsComparecer: true, action })
+    // Si no tenemos el PDF en bóveda, hay que pedirlo a AEAT: siempre pedimos
+    // confirmación explícita al usuario antes de abrir/comparecer.
+    if (!row.hasDocument) {
+      setConfirmOpen({ row, needsComparecer: needsComparecer(row), action })
       return
     }
 
@@ -291,12 +505,15 @@ export default function AdminNotificationsPage() {
     setActingId(row.id)
     setError('')
     try {
+      // El fetch comparece (si procede) y guarda el PDF en bóveda. Después
+      // mostramos el documento desde la URL directa de la API (no blob): Chrome
+      // bloquea los blob: en iframes anidados, pero sí renderiza una URL real.
       const blob = await fetchNotificationPdf(row, { confirm: withConfirm })
       if (!blob) return
-      const blobUrl = URL.createObjectURL(blob)
       setViewer({
         title: row.subject,
-        blobUrl,
+        url: documentUrl(row),
+        blob,
         fileName: sanitizeFileName(row.subject),
       })
       loadAgency()
@@ -322,12 +539,13 @@ export default function AdminNotificationsPage() {
     }
   }
 
-  const runMailAnalysis = async (row: NotifRow, withConfirm: boolean) => {
+  const runMailAnalysis = async (
+    row: NotifRow,
+    withConfirm: boolean,
+    language?: string,
+    regenerate?: boolean,
+  ) => {
     if (!row.companyId) return
-    if (withConfirm && !row.certificateId) {
-      setError('Esta notificación no tiene certificado asociado.')
-      return
-    }
 
     setActingId(row.id)
     setError('')
@@ -339,10 +557,19 @@ export default function AdminNotificationsPage() {
           company_id: row.companyId,
           confirm: withConfirm ? 1 : 0,
           ...(row.certificateId ? { certificate_id: row.certificateId } : {}),
+          ...(language ? { language } : {}),
+          ...(regenerate ? { regenerate: 1 } : {}),
         }),
       })
       const data = await res.json()
       if (!data.success) {
+        // El cliente no tiene idioma de referencia: pedimos a la gestoría que elija.
+        if (data.code === 'LANGUAGE_REQUIRED') {
+          const suggested = (data.details?.suggestedLanguage as string) || 'es'
+          setRegenLanguage(suggested)
+          setLanguagePrompt({ row, language: suggested })
+          return
+        }
         setError(data.message || 'No se pudo analizar la notificación')
         return
       }
@@ -353,6 +580,8 @@ export default function AdminNotificationsPage() {
       const analysis = data.analysis as EmailAnalysis
       const mailto = buildMailtoLink(analysis.emailTo, analysis.emailSubject, analysis.emailBody)
 
+      setRegenLanguage(analysis.language || 'es')
+      setLanguagePrompt(null)
       setEmailPanel({
         row,
         analysis,
@@ -365,6 +594,26 @@ export default function AdminNotificationsPage() {
       setError('Error de conexion al preparar el correo')
     } finally {
       setActingId(null)
+    }
+  }
+
+  const copyEmailToClipboard = async () => {
+    if (!emailPanel) return
+    const { analysis } = emailPanel
+    try {
+      if (navigator.clipboard && 'write' in navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+        const item = new ClipboardItem({
+          'text/html': new Blob([analysis.emailBodyHtml], { type: 'text/html' }),
+          'text/plain': new Blob([analysis.emailBody], { type: 'text/plain' }),
+        })
+        await navigator.clipboard.write([item])
+      } else {
+        await navigator.clipboard.writeText(analysis.emailBody)
+      }
+      setCopyState('copied')
+      setTimeout(() => setCopyState('idle'), 2000)
+    } catch {
+      setError('No se pudo copiar el correo al portapapeles')
     }
   }
 
@@ -383,10 +632,7 @@ export default function AdminNotificationsPage() {
   }
 
   const closeViewer = () => {
-    setViewer((prev) => {
-      if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl)
-      return null
-    })
+    setViewer(null)
   }
 
   return (
@@ -437,12 +683,49 @@ export default function AdminNotificationsPage() {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="sticky top-0 z-20 mb-3 flex flex-wrap items-center gap-3 rounded-md border border-[#1B2A41]/20 bg-[#1B2A41]/5 px-4 py-2.5">
+          <span className="text-sm font-medium text-slate-700">
+            {selectedIds.size} seleccionada{selectedIds.size > 1 ? 's' : ''}
+          </span>
+          {bulkProgress && (
+            <span className="text-xs text-slate-500">
+              Procesando {bulkProgress.done}/{bulkProgress.total}…
+            </span>
+          )}
+          <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!!bulkBusy}
+              onClick={() => requestBulk('download')}
+            >
+              {bulkBusy === 'download' ? 'Descargando…' : 'Descargar (ZIP)'}
+            </Button>
+            <Button
+              size="sm"
+              className="bg-[#1B2A41] text-white hover:bg-[#152036]"
+              disabled={!!bulkBusy}
+              onClick={() => requestBulk('print')}
+            >
+              {bulkBusy === 'print' ? 'Preparando…' : 'Imprimir todas'}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={!!bulkBusy} onClick={clearSelection}>
+              Limpiar
+            </Button>
+          </div>
+        </div>
+      )}
+
       <NotifTable
         rows={filterNotifications(agency, statusFilter)}
         totalCount={agency.length}
         statusFilter={statusFilter}
         onRequestAction={requestAction}
         actingId={actingId}
+        selectedIds={selectedIds}
+        onToggleSelect={toggleSelect}
+        onToggleSelectAll={toggleSelectAll}
       />
 
       {confirmOpen && (
@@ -494,69 +777,182 @@ export default function AdminNotificationsPage() {
 
       {emailPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 border-slate-200 shadow-xl">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="font-semibold text-slate-800">Correo al cliente</h3>
-                <p className="text-xs text-slate-500 mt-1">{emailPanel.analysis.companyName}</p>
-              </div>
-              <Button variant="outline" size="sm" onClick={closeEmailPanel}>
-                Cerrar
-              </Button>
-            </div>
-
-            <div className="rounded-md bg-slate-50 border border-slate-200 p-3 mb-4">
-              <p className="text-xs font-medium text-slate-500 mb-1">Resumen (IA)</p>
-              <p className="text-sm text-slate-700 whitespace-pre-wrap">{emailPanel.analysis.summary}</p>
-            </div>
-
-            <div className="space-y-3 mb-4">
-              <div>
-                <label className="text-xs font-medium text-slate-500">Para</label>
-                <p className="text-sm text-slate-800">{emailPanel.analysis.emailTo || '— (añade el email del cliente)'}</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-slate-500">Asunto</label>
-                <p className="text-sm text-slate-800">{emailPanel.analysis.emailSubject}</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-slate-500">Cuerpo propuesto</label>
-                <p className="text-sm text-slate-700 whitespace-pre-wrap border border-slate-200 rounded-md p-3 bg-white">
-                  {emailPanel.analysis.emailBody}
+          <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto p-0 border-slate-200 shadow-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 bg-white">
+              <div className="min-w-0">
+                <h3 className="font-semibold text-slate-800 truncate">Correo al cliente</h3>
+                <p className="text-xs text-slate-500 truncate">
+                  {emailPanel.analysis.companyName}
+                  {' · '}
+                  {languageLabel(emailPanel.analysis.language)}
+                  {emailPanel.analysis.cached ? ' · guardado' : ''}
                 </p>
               </div>
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Adjunto: descarga el PDF antes de enviar el correo (mailto no permite adjuntar archivos automáticamente).
+              <div className="flex items-center gap-2 shrink-0">
+                <Button variant="outline" size="sm" onClick={copyEmailToClipboard}>
+                  {copyState === 'copied' ? 'Copiado ✓' : 'Copiar'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => triggerPdfDownload(emailPanel.pdfBlob, emailPanel.fileName)}
+                >
+                  Descargar PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setViewer({
+                      title: emailPanel.row.subject,
+                      url: documentUrl(emailPanel.row),
+                      blob: emailPanel.pdfBlob,
+                      fileName: emailPanel.fileName,
+                    })
+                  }
+                >
+                  Ver PDF
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-[#1B2A41] text-white hover:bg-[#152036]"
+                  onClick={() => {
+                    window.location.href = emailPanel.mailto
+                  }}
+                >
+                  Abrir correo
+                </Button>
+                <button
+                  type="button"
+                  aria-label="Cerrar"
+                  title="Cerrar"
+                  onClick={closeEmailPanel}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <IconClose />
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={() => triggerPdfDownload(emailPanel.pdfBlob, emailPanel.fileName)}
-              >
-                Descargar PDF
+            <div className="p-5 space-y-4">
+              <div className="rounded-md bg-slate-50 border border-slate-200 p-3">
+                <p className="text-xs font-medium text-slate-500 mb-1">Resumen (IA)</p>
+                <p className="text-sm text-slate-700 whitespace-pre-wrap">{emailPanel.analysis.summary}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-[80px_1fr] gap-x-3 gap-y-1 text-sm">
+                <span className="text-xs font-medium text-slate-500 sm:pt-0.5">Para</span>
+                <span className="text-slate-800 break-all">
+                  {emailPanel.analysis.emailTo || '— (añade el email del cliente)'}
+                </span>
+                <span className="text-xs font-medium text-slate-500 sm:pt-0.5">Asunto</span>
+                <span className="text-slate-800">{emailPanel.analysis.emailSubject}</span>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-500">Vista previa del correo</label>
+                <div
+                  className="email-html-preview mt-1 text-sm text-slate-800 leading-relaxed border border-slate-200 rounded-md p-4 bg-white"
+                  dangerouslySetInnerHTML={{ __html: emailPanel.analysis.emailBodyHtml }}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <span className="text-xs text-slate-500">Idioma</span>
+                <select
+                  value={regenLanguage}
+                  onChange={(e) => setRegenLanguage(e.target.value)}
+                  className="h-8 rounded-md border border-slate-300 px-2 text-sm bg-white"
+                >
+                  {EMAIL_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={actingId === emailPanel.row.id}
+                  onClick={() => runMailAnalysis(emailPanel.row, false, regenLanguage, true)}
+                >
+                  {actingId === emailPanel.row.id ? 'Regenerando…' : 'Regenerar en este idioma'}
+                </Button>
+              </div>
+
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                «Copiar» pega el correo con formato en Gmail/Outlook. Recuerda adjuntar el PDF descargado antes de
+                enviar (el cliente de correo no permite adjuntarlo automáticamente).
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {bulkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <Card className="max-w-md w-full p-6 border-slate-200 shadow-xl">
+            <h3 className="font-semibold text-slate-800 mb-2">
+              {bulkConfirm.action === 'download'
+                ? `Descargar ${bulkConfirm.rows.length} notificaciones`
+                : `Imprimir ${bulkConfirm.rows.length} notificaciones`}
+            </h3>
+            <p className="text-sm text-slate-600 mb-4">
+              {bulkConfirm.needsComparecer
+                ? `Algunas notificaciones aún no se han abierto: al ${
+                    bulkConfirm.action === 'download' ? 'descargarlas' : 'imprimirlas'
+                  } se comparecerá ante AEAT y se descargará su contenido. Esta acción tiene efectos legales.`
+                : `Se ${
+                    bulkConfirm.action === 'download' ? 'descargarán' : 'prepararán para imprimir'
+                  } las notificaciones seleccionadas.`}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setBulkConfirm(null)}>
+                Cancelar
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const blobUrl = URL.createObjectURL(emailPanel.pdfBlob)
-                  setViewer({
-                    title: emailPanel.row.subject,
-                    blobUrl,
-                    fileName: emailPanel.fileName,
-                  })
-                }}
-              >
-                Ver documento
+              <Button className="bg-[#1B2A41] text-white hover:bg-[#152036]" onClick={executeBulkConfirm}>
+                {bulkConfirm.needsComparecer
+                  ? bulkConfirm.action === 'download'
+                    ? 'Comparecer y descargar'
+                    : 'Comparecer e imprimir'
+                  : bulkConfirm.action === 'download'
+                    ? 'Descargar'
+                    : 'Imprimir'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {languagePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <Card className="max-w-md w-full p-6 border-slate-200 shadow-xl">
+            <h3 className="font-semibold text-slate-800 mb-2">Idioma del correo</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              No hay un correo anterior de referencia para este cliente. Elige el idioma en el que quieres redactar el
+              correo. Se guardará para próximas notificaciones.
+            </p>
+            <select
+              value={regenLanguage}
+              onChange={(e) => setRegenLanguage(e.target.value)}
+              className="w-full h-10 rounded-md border border-slate-300 px-3 text-sm bg-white mb-4"
+            >
+              {EMAIL_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setLanguagePrompt(null)}>
+                Cancelar
               </Button>
               <Button
                 className="bg-[#1B2A41] text-white hover:bg-[#152036]"
-                onClick={() => {
-                  window.location.href = emailPanel.mailto
-                }}
+                disabled={actingId === languagePrompt.row.id}
+                onClick={() => runMailAnalysis(languagePrompt.row, true, regenLanguage)}
               >
-                Abrir correo
+                {actingId === languagePrompt.row.id ? 'Generando…' : 'Generar correo'}
               </Button>
             </div>
           </Card>
@@ -572,25 +968,24 @@ export default function AdminNotificationsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    const anchor = document.createElement('a')
-                    anchor.href = viewer.blobUrl
-                    anchor.download = viewer.fileName.endsWith('.pdf')
-                      ? viewer.fileName
-                      : `${viewer.fileName}.pdf`
-                    anchor.click()
-                  }}
+                  onClick={() => triggerPdfDownload(viewer.blob, viewer.fileName)}
                 >
                   Descargar
                 </Button>
-                <Button variant="outline" size="sm" onClick={closeViewer}>
-                  Cerrar
-                </Button>
+                <button
+                  type="button"
+                  aria-label="Cerrar"
+                  title="Cerrar"
+                  onClick={closeViewer}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <IconClose />
+                </button>
               </div>
             </div>
             <div className="flex-1 min-h-0 bg-neutral-100">
               <iframe
-                src={`${viewer.blobUrl}#toolbar=1&navpanes=0`}
+                src={`${viewer.url}#toolbar=1&navpanes=0`}
                 title={viewer.title}
                 className="h-full w-full min-h-[70vh] border-0"
               />
@@ -699,20 +1094,36 @@ function IconMail() {
   )
 }
 
+function IconClose() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  )
+}
+
 function NotifTable({
   rows,
   totalCount,
   statusFilter,
   onRequestAction,
   actingId,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
 }: {
   rows: NotifRow[]
   totalCount: number
   statusFilter: StatusFilter
   onRequestAction: (action: ConfirmAction, row: NotifRow) => void
   actingId: string | null
+  selectedIds: Set<string>
+  onToggleSelect: (id: string) => void
+  onToggleSelectAll: (rows: NotifRow[]) => void
 }) {
-  const colCount = 9
+  const colCount = 10
+  const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r.id))
+  const someSelected = rows.some((r) => selectedIds.has(r.id))
   const emptyMessage =
     statusFilter === 'pending'
       ? totalCount === 0
@@ -743,15 +1154,27 @@ function NotifTable({
         <table className="w-full text-sm">
           <thead className="bg-slate-50">
             <tr>
-              <th className="text-left p-3 font-medium text-slate-600 min-w-[120px]">Empresa</th>
-              <th className="text-left p-3 font-medium text-slate-600 min-w-[100px]">Organismo</th>
-              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Código</th>
-              <th className="text-left p-3 font-medium text-slate-600 min-w-[180px]">Asunto</th>
-              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Emisión</th>
-              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Notificación</th>
-              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Caducidad</th>
-              <th className="text-left p-3 font-medium text-slate-600 whitespace-nowrap">Estado</th>
-              <th className="text-right p-3 font-medium text-slate-600 whitespace-nowrap">Acciones</th>
+              <th className="p-3 w-10 text-center">
+                <input
+                  type="checkbox"
+                  aria-label="Seleccionar todas"
+                  className="h-4 w-4 rounded border-slate-300 align-middle"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allSelected && someSelected
+                  }}
+                  onChange={() => onToggleSelectAll(rows)}
+                />
+              </th>
+              <th className="text-center p-3 font-medium text-slate-600 min-w-[120px]">Empresa</th>
+              <th className="text-center p-3 font-medium text-slate-600 min-w-[100px]">Organismo</th>
+              <th className="text-center p-3 font-medium text-slate-600 whitespace-nowrap">Código</th>
+              <th className="text-center p-3 font-medium text-slate-600 min-w-[200px]">Asunto</th>
+              <th className="text-center p-3 font-medium text-slate-600 whitespace-nowrap">Emisión</th>
+              <th className="text-center p-3 font-medium text-slate-600 whitespace-nowrap">Notificación</th>
+              <th className="text-center p-3 font-medium text-slate-600 whitespace-nowrap">Caducidad</th>
+              <th className="text-center p-3 font-medium text-slate-600 whitespace-nowrap">Estado</th>
+              <th className="text-center p-3 font-medium text-slate-600 whitespace-nowrap">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -759,35 +1182,52 @@ function NotifTable({
               const opened = isOpenedNotification(n)
               const busy = actingId === n.id
               const caducidad = computeCaducidad(n)
+              const selected = selectedIds.has(n.id)
               return (
-                <tr key={n.id} className={`border-t border-slate-100 ${!opened ? 'bg-amber-50/40' : ''}`}>
-                  <td className="p-3 text-slate-700 font-medium align-top break-words max-w-[160px]">
+                <tr
+                  key={n.id}
+                  className={`border-t border-slate-100 ${
+                    selected ? 'bg-[#1B2A41]/5' : !opened ? 'bg-amber-50/40' : ''
+                  }`}
+                >
+                  <td className="p-3 w-10 text-center align-middle">
+                    <input
+                      type="checkbox"
+                      aria-label="Seleccionar notificación"
+                      className="h-4 w-4 rounded border-slate-300 align-middle"
+                      checked={selected}
+                      onChange={() => onToggleSelect(n.id)}
+                    />
+                  </td>
+                  <td className="p-3 text-slate-700 font-medium align-middle break-words max-w-[180px]">
                     {n.companyName || 'Empresa'}
                   </td>
-                  <td className="p-3 align-top break-words max-w-[140px]">
+                  <td className="p-3 align-middle">
                     <ProviderBadge provider={n.provider} sender={n.sender} />
                   </td>
-                  <td className="p-3 font-mono text-xs text-slate-600 align-top whitespace-nowrap">{n.externalId || '—'}</td>
-                  <td className="p-3 text-slate-700 align-top break-words">
+                  <td className="p-3 font-mono text-xs text-slate-600 align-middle whitespace-nowrap text-center">
+                    {n.externalId || '—'}
+                  </td>
+                  <td className="p-3 text-slate-700 align-middle break-words max-w-[340px]">
                     <span className="whitespace-normal">{n.subject}</span>
                     {n.concept && n.concept !== n.subject && (
                       <span className="block text-[11px] text-slate-400 mt-0.5 whitespace-normal break-words">{n.concept}</span>
                     )}
                   </td>
-                  <td className="p-3 text-slate-600 align-top whitespace-nowrap">{fmtDate(n.receivedAt)}</td>
-                  <td className="p-3 text-slate-600 align-top whitespace-nowrap">{fmtDate(n.readAt)}</td>
-                  <td className={`p-3 align-top whitespace-nowrap ${deadlineClass(caducidad, opened)}`}>
+                  <td className="p-3 text-slate-600 align-middle whitespace-nowrap text-center">{fmtDate(n.receivedAt)}</td>
+                  <td className="p-3 text-slate-600 align-middle whitespace-nowrap text-center">{fmtDate(n.readAt)}</td>
+                  <td className={`p-3 align-middle whitespace-nowrap text-center ${deadlineClass(caducidad, opened)}`}>
                     {fmtDate(caducidad)}
                   </td>
-                  <td className="p-3 align-top">
+                  <td className="p-3 align-middle text-center">
                     {opened ? (
                       <Badge variant="outline">Abierto</Badge>
                     ) : (
                       <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">Pendiente</Badge>
                     )}
                   </td>
-                  <td className="p-3 align-top">
-                    <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                  <td className="p-3 align-middle">
+                    <div className="flex items-center justify-center gap-1.5 flex-nowrap">
                       <IconButton
                         label="Abrir notificación"
                         disabled={busy}
