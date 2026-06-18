@@ -19,7 +19,6 @@ import {
   NotificationColumnHeader,
   TableToolbarHint,
   useNotificationTableView,
-  type NotifTableRow,
 } from '@/components/admin/notification-table-controls'
 import {
   NOTIFICATION_CATEGORIES,
@@ -1297,7 +1296,6 @@ function NotifTable({
     patch: { vacly_status?: string; category?: string; assigned_user_id?: string | null },
   ) => void
 }) {
-  const tableRows = rows as NotifTableRow[]
   const {
     displayedRows,
     sortColumn,
@@ -1308,7 +1306,7 @@ function NotifTable({
     handleFilterChange,
     clearAllFilters,
     activeFilterCount,
-  } = useNotificationTableView(tableRows)
+  } = useNotificationTableView(rows)
 
   const colCount = 12
   const allSelected = displayedRows.length > 0 && displayedRows.every((r) => selectedIds.has(r.id))
@@ -1365,7 +1363,7 @@ function NotifTable({
                   ref={(el) => {
                     if (el) el.indeterminate = !allSelected && someSelected
                   }}
-                  onChange={() => onToggleSelectAll(displayedRows as NotifRow[])}
+                  onChange={() => onToggleSelectAll(displayedRows)}
                 />
               </th>
               <NotificationColumnHeader

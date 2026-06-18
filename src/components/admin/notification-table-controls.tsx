@@ -73,11 +73,11 @@ function deadlineOf(row: NotifTableRow): string | null {
   return d.toISOString()
 }
 
-export function sortNotificationRows(
-  rows: NotifTableRow[],
+export function sortNotificationRows<T extends NotifTableRow>(
+  rows: T[],
   column: SortColumn | null,
   direction: SortDirection,
-): NotifTableRow[] {
+): T[] {
   if (!column) return rows
   const sorted = [...rows]
   const dir = direction === 'asc' ? 1 : -1
@@ -122,7 +122,7 @@ export function sortNotificationRows(
   return sorted
 }
 
-export function filterNotificationRows(rows: NotifTableRow[], filters: ColumnFilters): NotifTableRow[] {
+export function filterNotificationRows<T extends NotifTableRow>(rows: T[], filters: ColumnFilters): T[] {
   return rows.filter((row) => {
     const companyKey = row.companyName || row.companyId
     if (filters.company?.size && !filters.company.has(companyKey)) return false
@@ -180,7 +180,7 @@ export function buildFilterOptions(rows: NotifTableRow[]): Record<FilterColumn, 
     category: sortOptions(categories),
     adminStatus: sortOptions(adminStatuses),
     vaclyStatus: sortOptions(vaclyStatuses).sort((a, b) => {
-      const order = VACLY_NOTIFICATION_STATUSES.map((s) => s.id)
+      const order: string[] = VACLY_NOTIFICATION_STATUSES.map((s) => s.id)
       return order.indexOf(a.value) - order.indexOf(b.value)
     }),
     assignee: sortOptions(assignees),
@@ -390,7 +390,7 @@ export function NotificationColumnHeader({
   )
 }
 
-export function useNotificationTableView(rows: NotifTableRow[]) {
+export function useNotificationTableView<T extends NotifTableRow>(rows: T[]) {
   const [sortColumn, setSortColumn] = useState<SortColumn | null>('receivedAt')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>({})
