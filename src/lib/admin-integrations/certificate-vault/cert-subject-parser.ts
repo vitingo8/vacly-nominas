@@ -1,3 +1,5 @@
+import { fixCertificateTextEncoding } from './cert-text-encoding'
+
 /** NIF/CIF/NIE español en subject DN o CN. */
 const NIF_REGEX = /\b([0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z]|[A-Z][0-9]{7}[0-9A-J]|[A-HJ-NP-SUVW][0-9]{7}[0-9A-J])\b/i
 
@@ -31,19 +33,21 @@ function extractNif(...candidates: (string | null | undefined)[]): string | null
 
 /** Parsea un subject DN de certificado (formato Windows / X.509). */
 export function parseCertSubject(subject: string, friendlyName?: string | null): ParsedCertSubject {
-  const cn = dnField(subject, 'CN')
-  const organization = dnField(subject, 'O')
-  const organizationalUnit = dnField(subject, 'OU')
-  const serialNumberRaw = dnField(subject, 'SERIALNUMBER') || dnField(subject, 'SN')
+  const normalizedSubject = fixCertificateTextEncoding(subject)
+  const normalizedFriendly = friendlyName ? fixCertificateTextEncoding(friendlyName) : null
+  const cn = dnField(normalizedSubject, 'CN')
+  const organization = dnField(normalizedSubject, 'O')
+  const organizationalUnit = dnField(normalizedSubject, 'OU')
+  const serialNumberRaw = dnField(normalizedSubject, 'SERIALNUMBER') || dnField(normalizedSubject, 'SN')
   const nif = extractNif(serialNumberRaw, cn, organization)
 
-  let displayName = friendlyName?.trim() || cn || organization || 'Certificado'
+  let displayName = normalizedFriendly?.trim() || cn || organization || 'Certificado'
   if (cn && cn.includes(' - ')) {
     const [namePart] = cn.split(' - ')
     if (namePart.trim()) displayName = namePart.trim()
   }
 
-  const searchBlob = [displayName, cn, organization, organizationalUnit, serialNumberRaw, nif, friendlyName, subject]
+  const searchBlob = [displayName, cn, organization, organizationalUnit, serialNumberRaw, nif, normalizedFriendly, normalizedSubject]
     .filter(Boolean)
     .join(' ')
     .toLowerCase()

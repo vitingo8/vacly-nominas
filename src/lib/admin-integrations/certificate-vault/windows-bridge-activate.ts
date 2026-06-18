@@ -3,10 +3,11 @@ export const VACLY_BRIDGE_PROTOCOL = 'vacly-bridge://start'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-function triggerDownload(url: string, filename: string) {
+export function downloadWindowsBridgeInstaller(nominasOrigin: string) {
+  const base = nominasOrigin.replace(/\/$/, '')
   const a = document.createElement('a')
-  a.href = url
-  a.download = filename
+  a.href = `${base}/api/windows-bridge/install?origin=${encodeURIComponent(base)}`
+  a.download = 'VaclyCertBridge.bat'
   a.rel = 'noopener'
   document.body.appendChild(a)
   a.click()
@@ -51,8 +52,7 @@ export async function activateWindowsBridge(
   }
 
   if (options?.downloadIfMissing !== false) {
-    const base = nominasOrigin.replace(/\/$/, '')
-    triggerDownload(`${base}/install-vacly-cert-bridge.bat`, 'VaclyCertBridge.bat')
+    downloadWindowsBridgeInstaller(nominasOrigin)
     return 'install_downloaded'
   }
 

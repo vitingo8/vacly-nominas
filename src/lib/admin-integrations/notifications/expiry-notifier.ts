@@ -1,9 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { deriveCertificateStatus } from '../certificate-vault/certificate-vault-service'
+import {
+  MAX_CERT_EXPIRY_MILESTONE_DAYS,
+  milestoneForDays,
+  normalizeExpiryMilestones,
+} from '../certificate-vault/cert-expiry-milestones'
 import { getCompanyRecipientUserIds } from './recipients'
-
-/** Hitos (en dias) en los que se avisa antes de la caducidad. */
-const MILESTONES = [30, 15, 7] as const
 
 export interface ExpiryNotifierResult {
   scanned: number
@@ -16,16 +18,7 @@ interface CertScanRow {
   alias: string
   holder_nif: string | null
   valid_to: string | null
-}
-
-/** Devuelve el hito aplicable (el mas ajustado alcanzado) o 'expired'. */
-function milestoneFor(daysToExpiry: number | null): string | null {
-  if (daysToExpiry == null) return null
-  if (daysToExpiry < 0) return 'expired'
-  for (const m of [...MILESTONES].sort((a, b) => a - b)) {
-    if (daysToExpiry <= m) return String(m)
-  }
-  return null
+  expiry_notification_milestones: number[] | null
 }
 
 /**
@@ -36,14 +29,14 @@ function milestoneFor(daysToExpiry: number | null): string | null {
 export async function notifyExpiringCertificates(
   supabase: SupabaseClient,
 ): Promise<ExpiryNotifierResult> {
-  // Limite superior: 30 dias en el futuro (mas margen para los ya caducados).
   const horizon = new Date()
-  horizon.setDate(horizon.getDate() + MILESTONES[0])
+  horizon.setDate(horizon.getDate() + MAX_CERT_EXPIRY_MILESTONE_DAYS)
 
   const { data: certs, error } = await supabase
     .from('administrative_certificates')
-    .select('id, company_id, alias, holder_nif, valid_to')
+    .select('id, company_id, alias, holder_nif, valid_to, expiry_notification_milestones')
     .is('revoked_at', null)
+    .eq('expiry_notifications_enabled', true)
     .not('valid_to', 'is', null)
     .lte('valid_to', horizon.toISOString())
 
@@ -54,7 +47,6 @@ export async function notifyExpiringCertificates(
   const rows = (certs || []) as CertScanRow[]
   if (!rows.length) return { scanned: 0, notificationsCreated: 0 }
 
-  // Nombre legible por empresa para el mensaje.
   const companyIds = Array.from(new Set(rows.map((r) => r.company_id)))
   const { data: companies } = await supabase
     .from('companies')
@@ -69,15 +61,17 @@ export async function notifyExpiringCertificates(
     )
   }
 
-  // Cache de destinatarios por empresa.
   const recipientsByCompany = new Map<string, string[]>()
 
   let created = 0
 
   for (const cert of rows) {
+    const milestones = normalizeExpiryMilestones(cert.expiry_notification_milestones)
     const { status, daysToExpiry } = deriveCertificateStatus(cert.valid_to, null)
-    const milestone = milestoneFor(daysToExpiry)
-    if (!milestone) continue
+    const milestoneValue = milestoneForDays(daysToExpiry, milestones)
+    if (milestoneValue == null) continue
+
+    const milestone = daysToExpiry != null && daysToExpiry < 0 ? 'expired' : String(milestoneValue)
 
     let recipients = recipientsByCompany.get(cert.company_id)
     if (!recipients) {
@@ -108,10 +102,9 @@ export async function notifyExpiringCertificates(
         entity_type: 'administrative_certificate',
         entity_id: cert.id,
         dedupe_key: `cert_expiry:${cert.id}:${milestone}`,
-        metadata: { daysToExpiry, validTo: cert.valid_to, status },
+        metadata: { daysToExpiry, validTo: cert.valid_to, status, milestone: milestoneValue },
       })
 
-      // 23505 = clave duplicada (ya notificado este hito) -> idempotente.
       if (insertError) {
         if (insertError.code !== '23505') {
           console.error('[expiry-notifier] insert failed:', insertError.message)

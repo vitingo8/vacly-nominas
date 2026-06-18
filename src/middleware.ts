@@ -73,12 +73,24 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Bloquear si no viene company_id en la URL
-  if (!searchParams.get('company_id')) {
-    return new NextResponse(BLOCKED_HTML, {
-      status: 403,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    })
+  // En desarrollo local, permitir acceso directo (sin iframe desde vacly-app)
+  const isDev = process.env.NODE_ENV === 'development'
+  const companyId = searchParams.get('company_id')
+
+  if (!companyId) {
+    if (isDev) {
+      const devCompanyId = process.env.VACLY_NOMINAS_DEV_COMPANY_ID?.trim()
+      if (devCompanyId) {
+        const url = request.nextUrl.clone()
+        url.searchParams.set('company_id', devCompanyId)
+        return NextResponse.redirect(url)
+      }
+    } else {
+      return new NextResponse(BLOCKED_HTML, {
+        status: 403,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      })
+    }
   }
 
   // Añadir CSP headers para permitir iframes de Supabase y visualización de PDFs

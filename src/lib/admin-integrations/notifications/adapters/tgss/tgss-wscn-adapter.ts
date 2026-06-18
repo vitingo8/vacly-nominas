@@ -1,23 +1,12 @@
 import { getNotificationsConfig } from '../../config'
 import type { AdapterSyncContext, FetchedNotification } from '../../domain/types'
 import type { AdministrativeNotificationsAdapter } from '../../domain/adapter-interface'
-import { AdminIntegrationError } from '../../../errors'
-import { decodeBase64Field, extractBlocks, extractTag, parseIsoOrAeatDate } from '../../soap/xml'
-import { assertSoapOk, buildSoapEnvelope, postSoap } from '../../soap/soap-transport'
-
-const TNS = 'http://ws.wscn.infra.gi.org/'
-
-interface WscnNotificacion {
-  codigo: number
-  destinatario?: string
-  procedimiento?: string
-  nombreAppRazonSocial?: string
-  fechaPuestaDisposicion?: string
-  fechaFinDisponibilidad?: string
-  estado?: number
-  descripcionEstado?: string
-  bucket: 'propias' | 'autorizadoRED' | 'apoderado'
-}
+import {
+  consultarListadoNotificaciones,
+  pickTgssDisplaySubject,
+  type WscnNotificacion,
+} from './tgss-wscn'
+import { parseTgssDatetime } from '../../soap/xml'
 
 export class TgssWscnAdapter implements AdministrativeNotificationsAdapter {
   readonly provider = 'tgss' as const
@@ -26,25 +15,32 @@ export class TgssWscnAdapter implements AdministrativeNotificationsAdapter {
     const config = getNotificationsConfig()
     if (!config.tgssEnabled) return []
 
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - config.syncLookbackDays)
+
     const all: FetchedNotification[] = []
-    // rol=0 consulta propias + autorizado RED + apoderado en una sola petición.
-    const rol = 0
-    {
-      let nextPropia = 0
-      let nextRed = 0
-      let nextApoderado = 0
-      let hayMas = true
+    let nextPropia = -1
+    let nextRed = -1
+    let nextApoderado = -1
+    let hayMas = true
 
-      while (hayMas) {
-        const res = await this.consultarListado(ctx, rol, nextPropia, nextRed, nextApoderado)
-        hayMas = res.hayMas
-        nextPropia = res.nextPropia
-        nextRed = res.nextRed
-        nextApoderado = res.nextApoderado
+    while (hayMas) {
+      const res = await consultarListadoNotificaciones(ctx, {
+        rol: 0,
+        codigoSiguienteNotificacionPropia: nextPropia,
+        codigoSiguienteNotificacionAutorizadoRED: nextRed,
+        codigoSiguienteNotificacionApoderado: nextApoderado,
+      })
 
-        for (const notif of res.notificaciones) {
-          const fetched = await this.fetchNotificationPdf(ctx, rol, notif)
-          all.push(fetched)
+      hayMas = res.hayMas
+      nextPropia = res.nextPropia
+      nextRed = res.nextRed
+      nextApoderado = res.nextApoderado
+
+      for (const notif of res.notificaciones) {
+        const mapped = this.mapNotificacion(notif)
+        if (new Date(mapped.receivedAt) >= cutoff) {
+          all.push(mapped)
         }
       }
     }
@@ -52,118 +48,29 @@ export class TgssWscnAdapter implements AdministrativeNotificationsAdapter {
     return all
   }
 
-  private async consultarListado(
-    ctx: AdapterSyncContext,
-    rol: number,
-    codigoSiguienteNotificacionPropia: number,
-    codigoSiguienteNotificacionAutorizadoRED: number,
-    codigoSiguienteNotificacionApoderado: number,
-  ): Promise<{
-    hayMas: boolean
-    nextPropia: number
-    nextRed: number
-    nextApoderado: number
-    notificaciones: WscnNotificacion[]
-  }> {
-    const config = getNotificationsConfig()
-    const body = `<tns:consultarListadoNotificaciones xmlns:tns="${TNS}">
-  <rol>${rol}</rol>
-  <codigoSiguienteNotificacionPropia>${codigoSiguienteNotificacionPropia}</codigoSiguienteNotificacionPropia>
-  <codigoSiguienteNotificacionAutorizadoRED>${codigoSiguienteNotificacionAutorizadoRED}</codigoSiguienteNotificacionAutorizadoRED>
-  <codigoSiguienteNotificacionApoderado>${codigoSiguienteNotificacionApoderado}</codigoSiguienteNotificacionApoderado>
-</tns:consultarListadoNotificaciones>`
-
-    const res = await postSoap({
-      endpoint: config.endpoints.tgssWscn,
-      soapAction: 'urn:consultarListadoNotificaciones',
-      envelope: buildSoapEnvelope(body),
-      certificate: ctx,
-    })
-    assertSoapOk(res.body, 'TGSS WSCN')
-
-    const errorCode = extractTag(res.body, 'codigo')
-    const errorDesc = extractTag(res.body, 'descripcion')
-    if (errorCode && errorCode !== '0') {
-      throw new AdminIntegrationError('TRANSPORT_ERROR', errorDesc || `TGSS WSCN error ${errorCode}`, {
-        codigo: errorCode,
-      })
-    }
-
-    const parseBucket = (blocks: string[], bucket: WscnNotificacion['bucket']): WscnNotificacion[] => {
-      const out: WscnNotificacion[] = []
-      for (const block of blocks) {
-        const codigo = Number(extractTag(block, 'codigo') || '0')
-        if (!codigo) continue
-        out.push({
-          codigo,
-          destinatario: extractTag(block, 'destinatario') || undefined,
-          procedimiento: extractTag(block, 'procedimiento') || undefined,
-          nombreAppRazonSocial: extractTag(block, 'nombreAppRazonSocial') || undefined,
-          fechaPuestaDisposicion: extractTag(block, 'fechaPuestaDisposicion') || undefined,
-          fechaFinDisponibilidad: extractTag(block, 'fechaFinDisponibilidad') || undefined,
-          estado: Number(extractTag(block, 'estado') || '0') || undefined,
-          descripcionEstado: extractTag(block, 'descripcionEstado') || undefined,
-          bucket,
-        })
-      }
-      return out
-    }
-
-    const notificaciones = [
-      ...parseBucket(extractBlocks(res.body, 'notificacionesPropias'), 'propias'),
-      ...parseBucket(extractBlocks(res.body, 'notificacionesAutorizadoRED'), 'autorizadoRED'),
-      ...parseBucket(extractBlocks(res.body, 'notificacionesApoderado'), 'apoderado'),
-    ]
-
-    return {
-      hayMas: extractTag(res.body, 'hayMas') === 'true',
-      nextPropia: Number(extractTag(res.body, 'codigoSiguienteNotificacionPropia') || '0'),
-      nextRed: Number(extractTag(res.body, 'codigoSiguienteNotificacionAutorizadoRED') || '0'),
-      nextApoderado: Number(extractTag(res.body, 'codigoSiguienteNotificacionApoderado') || '0'),
-      notificaciones,
-    }
-  }
-
-  private async fetchNotificationPdf(
-    ctx: AdapterSyncContext,
-    rol: number,
-    notif: WscnNotificacion,
-  ): Promise<FetchedNotification> {
-    const config = getNotificationsConfig()
-    let documentPdf: Buffer | undefined
-
-    if (notif.estado !== undefined && notif.estado !== 0) {
-      const body = `<tns:verNotificacionAceptada xmlns:tns="${TNS}">
-  <rol>${rol}</rol>
-  <codigoNotificacion>${notif.codigo}</codigoNotificacion>
-</tns:verNotificacionAceptada>`
-
-      const res = await postSoap({
-        endpoint: config.endpoints.tgssWscn,
-        soapAction: 'urn:verNotificacionAceptada',
-        envelope: buildSoapEnvelope(body),
-        certificate: ctx,
-      })
-      assertSoapOk(res.body, 'TGSS verNotificacionAceptada')
-      documentPdf = decodeBase64Field(extractTag(res.body, 'pdfNotificacion'))
-    }
-
+  /**
+   * Solo metadatos en sync (como AEAT). El PDF se obtiene al abrir/comparecer
+   * o con verNotificacionAceptada si ya estaba aceptada en TGSS.
+   */
+  private mapNotificacion(notif: WscnNotificacion): FetchedNotification {
     return {
       provider: 'tgss',
       externalId: `${notif.bucket}:${notif.codigo}`,
-      subject: notif.procedimiento || notif.descripcionEstado || 'Notificación TGSS',
+      subject: pickTgssDisplaySubject(notif),
       sender: notif.nombreAppRazonSocial || 'TGSS',
-      concept: notif.destinatario || undefined,
-      receivedAt: parseIsoOrAeatDate(notif.fechaPuestaDisposicion),
+      concept: notif.destinatario || notif.codDestinatario || undefined,
+      receivedAt: parseTgssDatetime(notif.fechaPuestaDisposicion),
       accessDeadline: notif.fechaFinDisponibilidad
-        ? parseIsoOrAeatDate(notif.fechaFinDisponibilidad)
+        ? parseTgssDatetime(notif.fechaFinDisponibilidad)
         : undefined,
-      documentPdf,
       metadata: {
-        rol,
         bucket: notif.bucket,
         estado: notif.estado,
         descripcionEstado: notif.descripcionEstado,
+        codDestinatario: notif.codDestinatario,
+        identificadorPoderdante: notif.identificadorPoderdante,
+        procedimiento: notif.procedimiento,
+        descripcion: notif.descripcion,
       },
     }
   }

@@ -62,23 +62,18 @@ export function pickAeatDisplaySubject(input: {
   return 'Notificación AEAT'
 }
 
-/** Plazo legal de comparecencia: 10 días hábiles desde la puesta a disposición (notificaciones pendientes). */
+/** Plazo de comparecencia: 10 días naturales desde la puesta a disposición (notificaciones pendientes). */
 export function computeAeatAccessDeadline(receivedAt: string, tipoEnvio: string, estado: string): string | undefined {
   if (tipoEnvio === 'C' || estado !== 'P') return undefined
   const base = new Date(receivedAt)
   if (Number.isNaN(base.getTime())) return undefined
-  const deadline = addBusinessDays(base, 10)
+  const deadline = addCalendarDays(base, 10)
   return deadline.toISOString()
 }
 
-function addBusinessDays(date: Date, days: number): Date {
+function addCalendarDays(date: Date, days: number): Date {
   const result = new Date(date)
-  let added = 0
-  while (added < days) {
-    result.setDate(result.getDate() + 1)
-    const dow = result.getDay()
-    if (dow !== 0 && dow !== 6) added += 1
-  }
+  result.setDate(result.getDate() + days)
   return result
 }
 

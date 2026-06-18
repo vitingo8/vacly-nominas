@@ -1,4 +1,6 @@
 import { parseCertSubject } from './cert-subject-parser'
+import { fixCertificateTextEncoding } from './cert-text-encoding'
+import { filterRealWindowsCertificates } from './windows-cert-filter'
 
 /** Puerto por defecto del puente local Vacly (PowerShell en Windows). */
 export const WINDOWS_CERT_BRIDGE_URL =
@@ -31,9 +33,15 @@ export function isWindowsClient(): boolean {
 }
 
 function enrichWindowsCert(raw: WindowsCertificateEntry): WindowsCertificateEntry {
-  const parsed = parseCertSubject(raw.subject, raw.friendlyName)
+  const subject = fixCertificateTextEncoding(raw.subject)
+  const issuer = fixCertificateTextEncoding(raw.issuer)
+  const friendlyName = raw.friendlyName ? fixCertificateTextEncoding(raw.friendlyName) : raw.friendlyName
+  const parsed = parseCertSubject(subject, friendlyName)
   return {
     ...raw,
+    subject,
+    issuer,
+    friendlyName,
     serialNumber: raw.serialNumber || parsed.serialNumber || undefined,
     displayName: parsed.displayName,
     nif: parsed.nif,
@@ -67,7 +75,9 @@ export async function listWindowsCertificates(baseUrl = WINDOWS_CERT_BRIDGE_URL)
     throw new Error('No se pudo leer el almacén de certificados de Windows')
   }
   const data = await res.json()
-  return ((data?.certificates || []) as WindowsCertificateEntry[]).map(enrichWindowsCert)
+  return filterRealWindowsCertificates(
+    ((data?.certificates || []) as WindowsCertificateEntry[]).map(enrichWindowsCert),
+  )
 }
 
 /** Exporta un certificado del almacén Windows a PKCS#12 (base64). */

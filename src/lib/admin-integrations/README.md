@@ -54,7 +54,7 @@ Tres conectores SOAP independientes con certificado cliente (mTLS):
 | Proveedor | Servicio oficial | Operaciones |
 |---|---|---|
 | **AEAT** | WS Envíos (Consulta / Acceso / Autorizados) | Listado paginado + comparecer/descargar PDF |
-| **TGSS** | WSCN | `consultarListadoNotificaciones`, `verNotificacionAceptada` |
+| **TGSS** | WSCN | `consultarListadoNotificaciones`, `solicitarAcuseNotificacion` + firma XML + `enviarAcuseNotificacion`, `verNotificacionAceptada` |
 | **DEHú** | LEMA (Gran Destinatario) | `Localiza`, `PeticionAcceso` con WS-Security |
 
 `POST /api/admin/notifications/sync` ejecuta los tres adaptadores activos, persiste en

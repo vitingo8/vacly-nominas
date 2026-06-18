@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { activateWindowsBridge } from '@/lib/admin-integrations/certificate-vault/windows-bridge-activate'
+import {
+  activateWindowsBridge,
+  downloadWindowsBridgeInstaller,
+} from '@/lib/admin-integrations/certificate-vault/windows-bridge-activate'
 import { probeWindowsCertBridge } from '@/lib/admin-integrations/certificate-vault/windows-cert-bridge'
 
 type BridgeStatus = 'checking' | 'connected' | 'needs_one_click' | 'offline'
@@ -17,7 +20,6 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
   const triedAuto = useRef(false)
 
   const check = useCallback(async () => {
-    setStatus('checking')
     const ok = await probeWindowsCertBridge()
     if (ok) {
       setStatus('connected')
@@ -56,7 +58,7 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
     if (status !== 'needs_one_click' && status !== 'checking') return
     const id = window.setInterval(() => {
       void check()
-    }, 2500)
+    }, 2000)
     return () => window.clearInterval(id)
   }, [status, check])
 
@@ -64,14 +66,25 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
 
   if (status === 'needs_one_click') {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-wrap items-center justify-between gap-3">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 space-y-3">
         <p>
-          <strong>Un solo paso:</strong> abre el archivo <strong>VaclyCertBridge.bat</strong> que se acaba de
-          descargar (doble clic). Vacly detectará tus certificados automáticamente.
+          <strong>Paso necesario:</strong> ejecuta el archivo <strong>VaclyCertBridge.bat</strong> que
+          se ha descargado (doble clic en Descargas). La ventana de instalación debe completarse; después
+          Vacly detectará tus certificados automáticamente.
         </p>
-        <Button type="button" size="sm" variant="outline" onClick={() => void connect()}>
-          Reintentar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => downloadWindowsBridgeInstaller(nominasOrigin)}
+          >
+            Volver a descargar instalador
+          </Button>
+          <Button type="button" size="sm" className="bg-[#1B2A41] text-white" onClick={() => void connect()}>
+            Reintentar conexión
+          </Button>
+        </div>
       </div>
     )
   }
@@ -85,11 +98,24 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 flex flex-wrap items-center justify-between gap-3">
-      <p>No se pudo conectar con Windows. Puedes subir un .pfx en «Añadir certificado».</p>
-      <Button type="button" size="sm" className="bg-[#1B2A41] text-white" onClick={() => void connect()}>
-        Conectar este PC
-      </Button>
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 space-y-3">
+      <p>
+        No se pudo conectar con el almacén de certificados de Windows. Instala el asistente local o sube
+        un .pfx manualmente.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" className="bg-[#1B2A41] text-white" onClick={() => void connect()}>
+          Conectar este PC
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => downloadWindowsBridgeInstaller(nominasOrigin)}
+        >
+          Descargar instalador
+        </Button>
+      </div>
     </div>
   )
 }

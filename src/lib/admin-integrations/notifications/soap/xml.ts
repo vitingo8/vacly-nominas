@@ -82,6 +82,20 @@ export function parseIsoOrAeatDate(value: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString()
 }
 
+/** TGSS WSCN: dd-mm-yyyy hh:mm[:ss] */
+export function parseTgssDatetime(value: string | null | undefined): string {
+  if (!value) return new Date().toISOString()
+  const trimmed = value.trim()
+  const tgss = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?/)
+  if (tgss) {
+    const parsed = new Date(
+      `${tgss[3]}-${tgss[2]}-${tgss[1]}T${tgss[4]}:${tgss[5]}:${tgss[6] || '00'}`,
+    )
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+  }
+  return parseIsoOrAeatDate(value)
+}
+
 export function decodeBase64Field(value: string | null | undefined): Buffer | undefined {
   if (!value?.trim()) return undefined
   try {

@@ -11,6 +11,8 @@ import {
   listAgencyNotifications,
   listCompanyNotifications,
   markNotificationRead,
+  getAgencyNotificationSyncSummary,
+  countPendingAgencyNotifications,
 } from '@/lib/admin-integrations/notifications/notification-service'
 
 export async function GET(request: NextRequest) {
@@ -25,6 +27,14 @@ export async function GET(request: NextRequest) {
       scope === 'agency'
         ? await listAgencyNotifications(supabase, companyId!)
         : await listCompanyNotifications(supabase, companyId!)
+
+    if (scope === 'agency') {
+      const [syncSummary, pendingCount] = await Promise.all([
+        getAgencyNotificationSyncSummary(supabase, companyId!),
+        countPendingAgencyNotifications(supabase, companyId!),
+      ])
+      return jsonOk({ notifications, syncSummary, pendingCount })
+    }
 
     return jsonOk({ notifications })
   } catch (error) {

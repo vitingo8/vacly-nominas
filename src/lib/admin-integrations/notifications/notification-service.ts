@@ -7,6 +7,12 @@ import { getNotificationsConfig } from './config'
 import { createNotificationAdapters } from './adapters'
 import { storeNotificationDocument } from './notification-document-storage'
 import { accesoEnvio, pickAeatDisplaySubject } from './adapters/aeat/aeat-ws-envios'
+import {
+  aceptarNotificacionTgss,
+  parseWscnExternalId,
+  verNotificacionAceptada,
+  wscnBucketToRol,
+} from './adapters/tgss/tgss-wscn'
 import { getAdminConfig } from '../config'
 import { parseIsoOrAeatDate, normalizeNif } from './soap/xml'
 import type {
@@ -14,6 +20,16 @@ import type {
   NotificationSyncResult,
   ProviderSyncResult,
 } from './domain/types'
+import {
+  categoryLabel,
+  classifyNotificationCategory,
+  isNotificationCategory,
+  isVaclyStatus,
+  resolveAdminStatus,
+  vaclyStatusLabel,
+  type NotificationCategory,
+  type VaclyNotificationStatus,
+} from './notification-workflow'
 
 export interface AdminNotificationRow {
   id: string
@@ -30,6 +46,15 @@ export interface AdminNotificationRow {
   readAt: string | null
   hasDocument: boolean
   aeatEstado?: string | null
+  tgssEstado?: number | null
+  adminStatus: { code: string; label: string; tone: 'neutral' | 'warning' | 'success' | 'danger' }
+  vaclyStatus: VaclyNotificationStatus
+  vaclyStatusLabel: string
+  category: NotificationCategory | null
+  categoryLabel: string
+  assignedUserId: string | null
+  assignedUserName: string | null
+  assignedUserAvatar: string | null
 }
 
 export interface SyncResult {
@@ -46,7 +71,88 @@ export interface SyncResult {
 }
 
 const NOTIF_COLUMNS =
-  'id, company_id, provider, external_id, subject, sender, concept, received_at, access_deadline, read_at, document_path, certificate_id, metadata'
+  'id, company_id, provider, external_id, subject, sender, concept, received_at, access_deadline, read_at, document_path, certificate_id, metadata, vacly_status, category, assigned_user_id'
+
+interface AssigneeInfo {
+  name: string
+  avatar: string | null
+}
+
+function rowToNotification(
+  row: Record<string, any>,
+  assigneesById?: Map<string, AssigneeInfo>,
+): AdminNotificationRow {
+  const metadata = (row.metadata || {}) as Record<string, unknown>
+  const category = (row.category as NotificationCategory | null) || null
+  const assignedUserId = (row.assigned_user_id as string | null) || null
+  const assignee = assignedUserId ? assigneesById?.get(assignedUserId) : undefined
+  const vaclyStatus = (row.vacly_status as VaclyNotificationStatus) || 'pendiente'
+
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    certificateId: row.certificate_id ?? null,
+    provider: row.provider,
+    externalId: row.external_id,
+    subject: resolveNotificationSubject(row),
+    sender: row.sender ?? null,
+    concept: row.concept ?? null,
+    receivedAt: row.received_at,
+    accessDeadline: row.access_deadline ?? null,
+    readAt: row.read_at ?? null,
+    hasDocument: !!row.document_path,
+    aeatEstado: typeof metadata.estado === 'string' ? metadata.estado : null,
+    tgssEstado:
+      row.provider === 'tgss' && metadata.estado != null && metadata.estado !== ''
+        ? Number(metadata.estado)
+        : null,
+    adminStatus: resolveAdminStatus(row.provider, metadata),
+    vaclyStatus,
+    vaclyStatusLabel: vaclyStatusLabel(vaclyStatus),
+    category,
+    categoryLabel: categoryLabel(category),
+    assignedUserId,
+    assignedUserName: assignee?.name ?? null,
+    assignedUserAvatar: assignee?.avatar ?? null,
+  }
+}
+
+async function loadAssigneesMap(
+  supabase: SupabaseClient,
+  userIds: string[],
+): Promise<Map<string, AssigneeInfo>> {
+  const unique = [...new Set(userIds.filter(Boolean))]
+  const map = new Map<string, AssigneeInfo>()
+  if (unique.length === 0) return map
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, nombre, apellidos, avatar')
+    .in('id', unique)
+
+  if (error) {
+    console.warn('[notification-service] assignees lookup failed:', error.message)
+    return map
+  }
+
+  for (const user of data || []) {
+    const u = user as { id: string; nombre?: string; apellidos?: string; avatar?: string }
+    const name = `${String(u.nombre || '').trim()} ${String(u.apellidos || '').trim()}`.trim() || 'Usuario'
+    map.set(u.id, { name, avatar: u.avatar || null })
+  }
+  return map
+}
+
+async function mapNotificationRows(
+  supabase: SupabaseClient,
+  rows: Record<string, unknown>[],
+): Promise<AdminNotificationRow[]> {
+  const assigneeIds = rows
+    .map((row) => row.assigned_user_id as string | null)
+    .filter((id): id is string => !!id)
+  const assigneesById = await loadAssigneesMap(supabase, assigneeIds)
+  return rows.map((row) => rowToNotification(row, assigneesById))
+}
 
 function resolveNotificationSubject(row: Record<string, any>): string {
   const metadata = (row.metadata || {}) as Record<string, unknown>
@@ -77,25 +183,6 @@ function mergeNotificationSubject(existing: string | null | undefined, incoming:
   if (generic.has(next.toLowerCase()) && prev && !generic.has(prev.toLowerCase())) return prev
   if (!prev || generic.has(prev.toLowerCase())) return next
   return next
-}
-
-function rowToNotification(row: Record<string, any>): AdminNotificationRow {
-  const metadata = (row.metadata || {}) as Record<string, unknown>
-  return {
-    id: row.id,
-    companyId: row.company_id,
-    certificateId: row.certificate_id ?? null,
-    provider: row.provider,
-    externalId: row.external_id,
-    subject: resolveNotificationSubject(row),
-    sender: row.sender ?? null,
-    concept: row.concept ?? null,
-    receivedAt: row.received_at,
-    accessDeadline: row.access_deadline ?? null,
-    readAt: row.read_at ?? null,
-    hasDocument: !!row.document_path,
-    aeatEstado: typeof metadata.estado === 'string' ? metadata.estado : null,
-  }
 }
 
 async function startSyncRun(
@@ -147,7 +234,7 @@ async function persistNotification(
 ): Promise<boolean> {
   const { data: existing } = await supabase
     .from('admin_notifications')
-    .select('id, subject, concept, read_at, document_path, metadata')
+    .select('id, subject, concept, read_at, document_path, metadata, category')
     .eq('company_id', companyId)
     .eq('provider', notification.provider)
     .eq('external_id', notification.externalId)
@@ -157,6 +244,14 @@ async function persistNotification(
     await updateExistingNotification(supabase, existing.id, companyId, certificateId, notification, existing)
     return false
   }
+
+  const category = classifyNotificationCategory({
+    provider: notification.provider,
+    subject: notification.subject,
+    sender: notification.sender,
+    concept: notification.concept,
+    metadata: notification.metadata,
+  })
 
   const { data, error } = await supabase
     .from('admin_notifications')
@@ -172,6 +267,8 @@ async function persistNotification(
       read_at: null,
       certificate_id: certificateId,
       metadata: notification.metadata ?? {},
+      vacly_status: 'pendiente',
+      category,
     })
     .select('id')
     .maybeSingle()
@@ -199,11 +296,21 @@ async function updateExistingNotification(
     read_at?: string | null
     document_path?: string | null
     metadata?: Record<string, unknown>
+    category?: string | null
   },
 ): Promise<void> {
   const mergedMetadata = { ...(existing.metadata || {}), ...(notification.metadata || {}) }
   // No sobrescribir read_at en sync: solo se establece al comparecer/abrir desde el frontend.
   const readAt = existing.read_at ?? null
+  const category =
+    existing.category ||
+    classifyNotificationCategory({
+      provider: notification.provider,
+      subject: notification.subject,
+      sender: notification.sender,
+      concept: notification.concept,
+      metadata: mergedMetadata,
+    })
 
   await supabase
     .from('admin_notifications')
@@ -215,6 +322,7 @@ async function updateExistingNotification(
       read_at: readAt,
       certificate_id: certificateId,
       metadata: mergedMetadata,
+      category,
     })
     .eq('id', notificationId)
     .eq('company_id', companyId)
@@ -309,11 +417,16 @@ async function markNotificationOpened(
   notificationId: string,
   companyId: string,
   readAt?: string | null,
+  vaclyStatus?: string | null,
 ): Promise<void> {
-  if (readAt) return
+  const patch: Record<string, unknown> = {}
+  if (!readAt) patch.read_at = new Date().toISOString()
+  if (!vaclyStatus || vaclyStatus === 'pendiente') patch.vacly_status = 'abierta'
+  if (Object.keys(patch).length === 0) return
+
   await supabase
     .from('admin_notifications')
-    .update({ read_at: new Date().toISOString() })
+    .update(patch)
     .eq('id', notificationId)
     .eq('company_id', companyId)
 }
@@ -493,6 +606,117 @@ export async function syncMultipleCompanyNotifications(
   }
 }
 
+export async function listNotificationTeamMembers(
+  supabase: SupabaseClient,
+  agencyCompanyId: string,
+): Promise<Array<{ id: string; name: string; avatar: string | null; email: string | null }>> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, nombre, apellidos, avatar, email')
+    .eq('company_id', agencyCompanyId)
+    .eq('state', true)
+    .order('nombre')
+
+  if (error) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando equipo de la gestoría', error)
+  }
+
+  return (data || []).map((row) => {
+    const u = row as { id: string; nombre?: string; apellidos?: string; avatar?: string; email?: string }
+    return {
+      id: u.id,
+      name: `${String(u.nombre || '').trim()} ${String(u.apellidos || '').trim()}`.trim() || 'Usuario',
+      avatar: u.avatar || null,
+      email: u.email || null,
+    }
+  })
+}
+
+export async function updateNotificationWorkflow(
+  supabase: SupabaseClient,
+  input: {
+    companyId: string
+    notificationId: string
+    agencyCompanyId: string
+    vaclyStatus?: VaclyNotificationStatus
+    category?: NotificationCategory
+    assignedUserId?: string | null
+  },
+): Promise<AdminNotificationRow> {
+  const { data: row, error: loadError } = await supabase
+    .from('admin_notifications')
+    .select(NOTIF_COLUMNS)
+    .eq('id', input.notificationId)
+    .eq('company_id', input.companyId)
+    .maybeSingle()
+
+  if (loadError || !row) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Notificación no encontrada', loadError)
+  }
+
+  if (input.assignedUserId) {
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', input.assignedUserId)
+      .eq('company_id', input.agencyCompanyId)
+      .eq('state', true)
+      .maybeSingle()
+
+    if (userError || !user) {
+      throw new AdminIntegrationError('VALIDATION_ERROR', 'Responsable no válido para la gestoría')
+    }
+  }
+
+  const patch: Record<string, unknown> = {}
+  if (input.vaclyStatus !== undefined) {
+    if (!isVaclyStatus(input.vaclyStatus)) {
+      throw new AdminIntegrationError('VALIDATION_ERROR', 'Estado Vacly no válido')
+    }
+    patch.vacly_status = input.vaclyStatus
+  }
+  if (input.category !== undefined) {
+    if (!isNotificationCategory(input.category)) {
+      throw new AdminIntegrationError('VALIDATION_ERROR', 'Categoría no válida')
+    }
+    patch.category = input.category
+  }
+  if (input.assignedUserId !== undefined) {
+    patch.assigned_user_id = input.assignedUserId
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new AdminIntegrationError('VALIDATION_ERROR', 'No hay cambios que guardar')
+  }
+
+  const { data: updated, error } = await supabase
+    .from('admin_notifications')
+    .update(patch)
+    .eq('id', input.notificationId)
+    .eq('company_id', input.companyId)
+    .select(NOTIF_COLUMNS)
+    .single()
+
+  if (error || !updated) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error actualizando notificación', error)
+  }
+
+  const assigneesById = await loadAssigneesMap(
+    supabase,
+    updated.assigned_user_id ? [updated.assigned_user_id as string] : [],
+  )
+  return rowToNotification(updated, assigneesById)
+}
+
+async function markVaclyOpened(
+  supabase: SupabaseClient,
+  notificationId: string,
+  companyId: string,
+  currentVaclyStatus?: string | null,
+): Promise<void> {
+  await markNotificationOpened(supabase, notificationId, companyId, undefined, currentVaclyStatus)
+}
+
 export async function listCompanyNotifications(
   supabase: SupabaseClient,
   companyId: string,
@@ -506,7 +730,7 @@ export async function listCompanyNotifications(
   if (error) {
     throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando notificaciones', error)
   }
-  return (data || []).map(rowToNotification)
+  return mapNotificationRows(supabase, data || [])
 }
 
 export async function listAgencyNotifications(
@@ -556,44 +780,55 @@ export async function listAgencyNotifications(
     throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando notificaciones de la cartera', error)
   }
 
-  const certIds = [
-    ...new Set(
-      (data || [])
-        .map((row) => row.certificate_id as string | null)
-        .filter((id): id is string => !!id),
-    ),
-  ]
-
+  const aliasByCertId = new Map<string, string>()
+  const aliasByHolderNif = new Map<string, string>()
   const certInfoById = new Map<
     string,
-    { companyId: string; holderNif: string | null; holderName: string | null }
+    { companyId: string; holderNif: string | null; holderName: string | null; alias: string | null }
   >()
-  if (certIds.length > 0) {
-    const { data: certs, error: certsError } = await supabase
-      .from('administrative_certificates')
-      .select('id, company_id, holder_nif, holder_name')
-      .in('id', certIds)
 
-    if (certsError) {
-      throw new AdminIntegrationError(
-        'PROCESSING_ERROR',
-        'Error resolviendo empresas de certificados',
-        certsError,
-      )
-    }
+  const { data: portfolioCerts, error: portfolioCertsError } = await supabase
+    .from('administrative_certificates')
+    .select('id, company_id, holder_nif, holder_name, alias')
+    .in('company_id', companyIds)
+    .is('revoked_at', null)
 
-    for (const cert of certs || []) {
-      const c = cert as { id: string; company_id: string; holder_nif?: string; holder_name?: string }
-      certInfoById.set(c.id, {
-        companyId: c.company_id,
-        holderNif: c.holder_nif ?? null,
-        holderName: c.holder_name ?? null,
-      })
-    }
+  if (portfolioCertsError) {
+    throw new AdminIntegrationError(
+      'PROCESSING_ERROR',
+      'Error resolviendo certificados de la cartera',
+      portfolioCertsError,
+    )
   }
 
+  for (const cert of portfolioCerts || []) {
+    const c = cert as {
+      id: string
+      company_id: string
+      holder_nif?: string
+      holder_name?: string
+      alias?: string
+    }
+    const alias = c.alias?.trim() || null
+    certInfoById.set(c.id, {
+      companyId: c.company_id,
+      holderNif: c.holder_nif ?? null,
+      holderName: c.holder_name ?? null,
+      alias,
+    })
+    if (alias) {
+      aliasByCertId.set(c.id, alias)
+      const nif = normalizeNif(c.holder_nif)
+      if (nif && !aliasByHolderNif.has(nif)) aliasByHolderNif.set(nif, alias)
+    }
+  }
+  const assigneeIds = (data || [])
+    .map((row) => row.assigned_user_id as string | null)
+    .filter((id): id is string => !!id)
+  const assigneesById = await loadAssigneesMap(supabase, assigneeIds)
+
   return (data || []).map((row) => {
-    const n = rowToNotification(row)
+    const n = rowToNotification(row, assigneesById)
     const cert = row.certificate_id ? certInfoById.get(row.certificate_id) : null
     const metadata = (row.metadata || {}) as Record<string, unknown>
 
@@ -613,10 +848,16 @@ export async function listAgencyNotifications(
       cert?.companyId && cert.companyId !== agencyCompanyId ? cert.companyId : null
 
     const displayCompanyId = matchedByNif || certCompanyId
+    const certAlias =
+      (row.certificate_id ? aliasByCertId.get(row.certificate_id as string) : null) ||
+      (certHolderNif ? aliasByHolderNif.get(certHolderNif) : null) ||
+      (metaNif ? aliasByHolderNif.get(metaNif) : null) ||
+      cert?.alias?.trim() ||
+      null
+
     n.companyName =
+      certAlias ||
       (displayCompanyId ? nameById.get(displayCompanyId) : null) ||
-      cert?.holderName ||
-      cert?.holderNif ||
       nameById.get(n.companyId) ||
       'Empresa'
     return n
@@ -639,6 +880,137 @@ export async function listNotificationSyncRuns(
     throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando sync runs', error)
   }
   return data || []
+}
+
+/** Horas programadas (Europe/Madrid) para sincronización automática vía pg_cron. */
+export const NOTIFICATION_AUTO_SYNC_HOURS_MADRID = [4, 11, 16, 19] as const
+export const NOTIFICATION_AUTO_SYNC_LABEL = '04:00, 11:00, 16:00 y 19:00 h'
+
+export interface NotificationSyncSummary {
+  lastUpdatedAt: string | null
+  lastStatus: string | null
+  lastStored: number | null
+  lastFetched: number | null
+  autoSyncLabel: string
+}
+
+async function agencyPortfolioCompanyIds(
+  supabase: SupabaseClient,
+  agencyCompanyId: string,
+): Promise<string[]> {
+  const { data: companies, error } = await supabase
+    .from('companies')
+    .select('company_id')
+    .eq('agency_id', agencyCompanyId)
+
+  if (error) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando cartera', error)
+  }
+  return [agencyCompanyId, ...(companies || []).map((c: { company_id: string }) => c.company_id)]
+}
+
+export async function getAgencyNotificationSyncSummary(
+  supabase: SupabaseClient,
+  agencyCompanyId: string,
+): Promise<NotificationSyncSummary> {
+  const companyIds = await agencyPortfolioCompanyIds(supabase, agencyCompanyId)
+  const { data, error } = await supabase
+    .from('admin_notification_sync_runs')
+    .select('finished_at, stored, fetched, status')
+    .in('company_id', companyIds)
+    .not('finished_at', 'is', null)
+    .order('finished_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error leyendo última sincronización', error)
+  }
+
+  return {
+    lastUpdatedAt: (data as { finished_at?: string } | null)?.finished_at ?? null,
+    lastStatus: (data as { status?: string } | null)?.status ?? null,
+    lastStored: (data as { stored?: number } | null)?.stored ?? null,
+    lastFetched: (data as { fetched?: number } | null)?.fetched ?? null,
+    autoSyncLabel: NOTIFICATION_AUTO_SYNC_LABEL,
+  }
+}
+
+export interface CronAgencySyncResult {
+  agenciesProcessed: number
+  totalStored: number
+  totalFetched: number
+  errors: Array<{ companyId: string; message: string }>
+}
+
+/** Sincroniza notificaciones de todas las gestorías (cron). */
+export async function syncAllAgencyNotificationsCron(
+  supabase: SupabaseClient,
+): Promise<CronAgencySyncResult> {
+  const { data: agencies, error } = await supabase
+    .from('companies')
+    .select('company_id')
+    .eq('plan', 'agencia')
+
+  if (error) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando gestorías', error)
+  }
+
+  let agenciesProcessed = 0
+  let totalStored = 0
+  let totalFetched = 0
+  const errors: Array<{ companyId: string; message: string }> = []
+
+  for (const row of agencies || []) {
+    const agencyId = (row as { company_id: string }).company_id
+    try {
+      const portfolioIds = await agencyPortfolioCompanyIds(supabase, agencyId)
+      const { data: certs, error: certsError } = await supabase
+        .from('administrative_certificates')
+        .select('id')
+        .in('company_id', portfolioIds)
+        .is('revoked_at', null)
+
+      if (certsError) {
+        errors.push({ companyId: agencyId, message: certsError.message })
+        continue
+      }
+
+      const certificateIds = (certs || []).map((c: { id: string }) => c.id)
+      if (!certificateIds.length) continue
+
+      const result = await syncMultipleCompanyNotifications(supabase, {
+        companyId: agencyId,
+        certificateIds,
+      })
+      agenciesProcessed += 1
+      totalStored += result.stored
+      totalFetched += result.fetched
+    } catch (e) {
+      const message = e instanceof AdminIntegrationError ? e.message : e instanceof Error ? e.message : 'Error'
+      errors.push({ companyId: agencyId, message })
+      console.error(`[notification-cron] agency ${agencyId}:`, message)
+    }
+  }
+
+  return { agenciesProcessed, totalStored, totalFetched, errors }
+}
+
+export async function countPendingAgencyNotifications(
+  supabase: SupabaseClient,
+  agencyCompanyId: string,
+): Promise<number> {
+  const companyIds = await agencyPortfolioCompanyIds(supabase, agencyCompanyId)
+  const { count, error } = await supabase
+    .from('admin_notifications')
+    .select('id', { count: 'exact', head: true })
+    .in('company_id', companyIds)
+    .is('read_at', null)
+
+  if (error) {
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error contando pendientes', error)
+  }
+  return count ?? 0
 }
 
 export async function markNotificationRead(
@@ -706,6 +1078,7 @@ export async function markNotificationRead(
       .from('admin_notifications')
       .update({
         read_at: readAt,
+        vacly_status: 'abierta',
         subject,
         sender: acceso.sender,
         concept: acceso.concepto ?? null,
@@ -732,6 +1105,74 @@ export async function markNotificationRead(
     return
   }
 
+  if (row.provider === 'tgss') {
+    if (!certificateId) {
+      throw new AdminIntegrationError(
+        'VALIDATION_ERROR',
+        'Se requiere certificado para aceptar la notificación en TGSS',
+      )
+    }
+
+    const certOwnerCompanyId = await resolveCertificateOwnerCompanyId(supabase, certificateId)
+    const metadata = (row.metadata || {}) as Record<string, unknown>
+    const { bucket, codigo } = parseWscnExternalId(row.external_id)
+    const estado = Number(metadata.estado ?? 0)
+    const rol = wscnBucketToRol(bucket)
+    const identificadorPoderdante =
+      typeof metadata.identificadorPoderdante === 'string' ? metadata.identificadorPoderdante : undefined
+
+    const audit = new AuditService(supabase)
+    const vault = createCertificateVault(supabase, audit)
+    const decrypted = await vault.useCertificate(
+      certOwnerCompanyId,
+      certificateId,
+      'notifications:comparecer',
+      input?.actorUserId,
+    )
+
+    const ctx = {
+      companyId: certOwnerCompanyId,
+      certificateId,
+      holderNif: decrypted.holderNif,
+      pfx: decrypted.pfx,
+      password: decrypted.password,
+      actorUserId: input?.actorUserId,
+    }
+
+    const params = { rol, codigoNotificacion: codigo, identificadorPoderdante }
+    const result =
+      estado === 0
+        ? await aceptarNotificacionTgss(ctx, params)
+        : await verNotificacionAceptada(ctx, params)
+
+    await supabase
+      .from('admin_notifications')
+      .update({
+        read_at: result.readAt,
+        vacly_status: 'abierta',
+        metadata: {
+          ...metadata,
+          estado: 2,
+          descripcionEstado: 'Notificada por aceptación',
+          selladoTiempoAcuse: result.selladoTiempo,
+        },
+        certificate_id: certificateId,
+      })
+      .eq('id', notificationId)
+      .eq('company_id', companyId)
+
+    if (result.documentPdf?.length) {
+      await storeNotificationPdfs(supabase, companyId, notificationId, {
+        provider: 'tgss',
+        externalId: row.external_id,
+        documentPdf: result.documentPdf,
+        subject: '',
+        receivedAt: result.readAt,
+      })
+    }
+    return
+  }
+
   await supabase
     .from('admin_notifications')
     .update({ read_at: new Date().toISOString() })
@@ -753,7 +1194,7 @@ async function loadNotificationRow(
   const { data: row, error: loadError } = await supabase
     .from('admin_notifications')
     .select(
-      'id, company_id, provider, external_id, subject, sender, concept, access_deadline, read_at, certificate_id, metadata, document_path',
+      'id, company_id, provider, external_id, subject, sender, concept, access_deadline, read_at, certificate_id, metadata, document_path, vacly_status',
     )
     .eq('id', notificationId)
     .eq('company_id', companyId)
@@ -780,7 +1221,13 @@ export async function loadNotificationDocumentBuffer(
     if (error || !data) {
       throw new AdminIntegrationError('STORAGE_ERROR', 'No se pudo descargar el documento', error)
     }
-    await markNotificationOpened(supabase, notificationId, companyId, row.read_at)
+    await markNotificationOpened(
+      supabase,
+      notificationId,
+      companyId,
+      row.read_at,
+      row.vacly_status as string | null,
+    )
     return {
       buffer: Buffer.from(await data.arrayBuffer()),
       fileName: `notificacion-${row.external_id || notificationId}.pdf`,
@@ -795,18 +1242,88 @@ export async function loadNotificationDocumentBuffer(
     )
   }
 
-  if (row.provider !== 'aeat') {
+  if (row.provider !== 'aeat' && row.provider !== 'tgss') {
     throw new AdminIntegrationError('FILE_NOT_FOUND', 'Documento no disponible para esta notificación')
   }
 
   const certificateId = input?.certificateId || row.certificate_id
   if (!certificateId) {
-    throw new AdminIntegrationError('VALIDATION_ERROR', 'Se requiere certificado para descargar desde AEAT')
+    throw new AdminIntegrationError(
+      'VALIDATION_ERROR',
+      `Se requiere certificado para descargar desde ${row.provider.toUpperCase()}`,
+    )
   }
 
   const certOwnerCompanyId = await resolveCertificateOwnerCompanyId(supabase, certificateId)
 
   const metadata = (row.metadata || {}) as Record<string, unknown>
+
+  if (row.provider === 'tgss') {
+    const { bucket, codigo } = parseWscnExternalId(row.external_id)
+    const estado = Number(metadata.estado ?? 0)
+    const rol = wscnBucketToRol(bucket)
+    const identificadorPoderdante =
+      typeof metadata.identificadorPoderdante === 'string' ? metadata.identificadorPoderdante : undefined
+
+    const audit = new AuditService(supabase)
+    const vault = createCertificateVault(supabase, audit)
+    const decrypted = await vault.useCertificate(
+      certOwnerCompanyId,
+      certificateId,
+      'notifications:open',
+      input?.actorUserId,
+    )
+
+    const ctx = {
+      companyId: certOwnerCompanyId,
+      certificateId,
+      holderNif: decrypted.holderNif,
+      pfx: decrypted.pfx,
+      password: decrypted.password,
+      actorUserId: input?.actorUserId,
+    }
+
+    const params = { rol, codigoNotificacion: codigo, identificadorPoderdante }
+    const comparecida = estado === 0
+    const result = comparecida
+      ? await aceptarNotificacionTgss(ctx, params)
+      : await verNotificacionAceptada(ctx, params)
+
+    if (!result.documentPdf?.length) {
+      throw new AdminIntegrationError('FILE_NOT_FOUND', 'TGSS no devolvió el PDF de la notificación')
+    }
+
+    await supabase
+      .from('admin_notifications')
+      .update({
+        read_at: result.readAt,
+        vacly_status: 'abierta',
+        metadata: {
+          ...metadata,
+          estado: comparecida ? 2 : metadata.estado,
+          descripcionEstado: comparecida ? 'Notificada por aceptación' : metadata.descripcionEstado,
+          selladoTiempoAcuse: result.selladoTiempo,
+        },
+        certificate_id: certificateId,
+      })
+      .eq('id', notificationId)
+      .eq('company_id', companyId)
+
+    await storeNotificationPdfs(supabase, companyId, notificationId, {
+      provider: 'tgss',
+      externalId: row.external_id,
+      documentPdf: result.documentPdf,
+      subject: '',
+      receivedAt: result.readAt,
+    })
+
+    return {
+      buffer: result.documentPdf,
+      fileName: `notificacion-${row.external_id}.pdf`,
+      comparecida,
+    }
+  }
+
   const operacion: 'C' | 'D' = metadata.estado === 'A' || row.read_at ? 'D' : 'C'
 
   const audit = new AuditService(supabase)
@@ -853,6 +1370,7 @@ export async function loadNotificationDocumentBuffer(
     .from('admin_notifications')
     .update({
       read_at: readAt,
+      vacly_status: 'abierta',
       subject,
       sender: acceso.sender,
       concept: acceso.concepto ?? null,
