@@ -145,8 +145,12 @@ function adminStatusBadgeClass(tone: NotifRow['adminStatus']['tone']): string {
   }
 }
 
+function countAdminPendingNotifications(rows: NotifRow[]): number {
+  return rows.filter((n) => n.adminStatus.tone === 'warning').length
+}
+
 const compactSelectClass =
-  'h-8 w-full min-w-[7.5rem] rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]/30'
+  'h-9 w-full max-w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]/30'
 
 function needsComparecer(row: NotifRow): boolean {
   if (row.readAt) return false
@@ -265,11 +269,12 @@ export default function AdminNotificationsPage() {
             lastFetched: d.syncSummary.lastFetched ?? null,
           })
         }
-        const pending = typeof d.pendingCount === 'number' ? d.pendingCount : rows.filter(isPendingNotification).length
+        const pending =
+          typeof d.pendingCount === 'number' ? d.pendingCount : countAdminPendingNotifications(rows)
         setPendingCount(pending)
 
-        const pendingRows = rows.filter(isPendingNotification)
-        const latestReceived = pendingRows.reduce<string | null>((max, row) => {
+        const adminPendingRows = rows.filter((n) => n.adminStatus.tone === 'warning')
+        const latestReceived = adminPendingRows.reduce<string | null>((max, row) => {
           if (!row.receivedAt) return max
           if (!max || new Date(row.receivedAt) > new Date(max)) return row.receivedAt
           return max
@@ -823,7 +828,10 @@ export default function AdminNotificationsPage() {
           <p className="text-slate-500">
             Sincronización automática programada a las {NOTIFICATION_AUTO_SYNC_LABEL} (hora peninsular).
             {pendingCount > 0 && (
-              <span className="text-amber-700 font-medium"> · {pendingCount} pendiente{pendingCount === 1 ? '' : 's'} sin abrir</span>
+              <span className="text-amber-700 font-medium">
+                {' '}
+                · {pendingCount} pendiente{pendingCount === 1 ? '' : 's'} ante la administración
+              </span>
             )}
           </p>
         </div>
@@ -1193,9 +1201,9 @@ function AeatLogo() {
 function ProviderBadge({ provider, sender }: { provider: string; sender: string | null }) {
   if (provider === 'aeat') {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-center gap-2">
         <AeatLogo />
-        <div>
+        <div className="text-left">
           <span className="text-xs font-medium text-slate-700">AEAT</span>
           {sender && <span className="block text-[11px] text-slate-400 leading-tight">{sender}</span>}
         </div>
@@ -1203,7 +1211,7 @@ function ProviderBadge({ provider, sender }: { provider: string; sender: string 
     )
   }
   return (
-    <div>
+    <div className="text-center">
       <Badge variant="secondary">{PROVIDER_LABEL[provider] || provider}</Badge>
       {sender && <span className="block text-[11px] text-slate-400 mt-0.5">{sender}</span>}
     </div>
@@ -1325,7 +1333,7 @@ function NotifTable({
         : 'Sin notificaciones'
 
   return (
-    <Card className="border-slate-200 overflow-hidden w-full">
+    <Card className="border-slate-200 w-full max-w-full overflow-hidden">
       <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/80">
         <TableToolbarHint
           shown={displayedRows.length}
@@ -1350,11 +1358,45 @@ function NotifTable({
           )}
         </TableToolbarHint>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 sticky top-0 z-10">
+
+      {/* Vista móvil / tablet: tarjetas apiladas, sin scroll horizontal */}
+      <div className="lg:hidden divide-y divide-slate-100">
+        {displayedRows.map((n) => (
+          <NotifMobileCard
+            key={n.id}
+            row={n}
+            busy={actingId === n.id}
+            selected={selectedIds.has(n.id)}
+            onToggleSelect={onToggleSelect}
+            onRequestAction={onRequestAction}
+            onWorkflowChange={onWorkflowChange}
+            team={team}
+          />
+        ))}
+        {displayedRows.length === 0 && (
+          <p className="p-6 text-center text-sm text-slate-500">{emptyMessage}</p>
+        )}
+      </div>
+
+      {/* Vista escritorio: tabla fluida dentro del ancho del iframe */}
+      <div className="hidden lg:block">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col className="w-10" />
+            <col className="w-[11%]" />
+            <col className="w-[10%]" />
+            <col />
+            <col className="w-[9%]" />
+            <col className="w-[8%]" />
+            <col className="w-[8%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[5.5rem]" />
+          </colgroup>
+          <thead className="bg-slate-50">
             <tr>
-              <th className="p-3 w-10 text-center">
+              <th className="p-2 w-10 text-center align-middle">
                 <input
                   type="checkbox"
                   aria-label="Seleccionar todas visibles"
@@ -1376,7 +1418,6 @@ function NotifTable({
                 filterOptions={filterOptions.company}
                 columnFilters={columnFilters}
                 onFilterChange={handleFilterChange}
-                className="min-w-[120px]"
               />
               <NotificationColumnHeader
                 label="Organismo"
@@ -1388,7 +1429,6 @@ function NotifTable({
                 filterOptions={filterOptions.provider}
                 columnFilters={columnFilters}
                 onFilterChange={handleFilterChange}
-                className="min-w-[100px]"
               />
               <NotificationColumnHeader
                 label="Asunto"
@@ -1399,7 +1439,6 @@ function NotifTable({
                 filterOptions={[]}
                 columnFilters={columnFilters}
                 onFilterChange={handleFilterChange}
-                className="min-w-[260px]"
               />
               <NotificationColumnHeader
                 label="Tipo"
@@ -1442,7 +1481,6 @@ function NotifTable({
                 filterOptions={filterOptions.adminStatus}
                 columnFilters={columnFilters}
                 onFilterChange={handleFilterChange}
-                className="min-w-[110px]"
               />
               <NotificationColumnHeader
                 label="Estado Vacly"
@@ -1454,7 +1492,6 @@ function NotifTable({
                 filterOptions={filterOptions.vaclyStatus}
                 columnFilters={columnFilters}
                 onFilterChange={handleFilterChange}
-                className="min-w-[120px]"
               />
               <NotificationColumnHeader
                 label="Responsable"
@@ -1466,123 +1503,23 @@ function NotifTable({
                 filterOptions={filterOptions.assignee}
                 columnFilters={columnFilters}
                 onFilterChange={handleFilterChange}
-                className="min-w-[9rem]"
               />
-              <th className="text-center p-3 font-medium text-slate-600 whitespace-nowrap text-xs">Acciones</th>
+              <th className="p-2 text-center font-medium text-slate-600 text-xs align-middle">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {displayedRows.map((n) => {
-              const pendingVacly = n.vaclyStatus === 'pendiente'
-              const busy = actingId === n.id
-              const caducidad = computeCaducidad(n)
-              const selected = selectedIds.has(n.id)
-              return (
-                <tr
-                  key={n.id}
-                  className={`border-t border-slate-100 ${
-                    selected ? 'bg-[#1B2A41]/5' : pendingVacly ? 'bg-amber-50/40' : ''
-                  }`}
-                >
-                  <td className="p-3 w-10 text-center align-middle">
-                    <input
-                      type="checkbox"
-                      aria-label="Seleccionar notificación"
-                      className="h-4 w-4 rounded border-slate-300 align-middle"
-                      checked={selected}
-                      onChange={() => onToggleSelect(n.id)}
-                    />
-                  </td>
-                  <td className="p-3 text-slate-700 font-medium align-middle break-words max-w-[140px]">
-                    {n.companyName || '—'}
-                  </td>
-                  <td className="p-3 align-middle">
-                    <ProviderBadge provider={n.provider} sender={n.sender} />
-                  </td>
-                  <td className="p-3 text-slate-700 align-middle break-words max-w-[380px]">
-                    {n.externalId && (
-                      <span className="block font-mono text-[11px] text-slate-500 mb-0.5">{n.externalId}</span>
-                    )}
-                    <span className="whitespace-normal">{n.subject}</span>
-                    {n.concept && n.concept !== n.subject && (
-                      <span className="block text-[11px] text-slate-400 mt-0.5 whitespace-normal break-words">
-                        {n.concept}
-                      </span>
-                    )}
-                  </td>
-                  <td className="p-3 align-middle text-center">
-                    <select
-                      className={compactSelectClass}
-                      value={n.category || 'otro'}
-                      disabled={busy}
-                      onChange={(e) => onWorkflowChange(n, { category: e.target.value })}
-                    >
-                      {NOTIFICATION_CATEGORIES.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="p-3 text-slate-600 align-middle whitespace-nowrap text-center">{fmtDate(n.receivedAt)}</td>
-                  <td className={`p-3 align-middle whitespace-nowrap text-center ${deadlineClass(caducidad, !pendingVacly)}`}>
-                    {fmtDate(caducidad)}
-                  </td>
-                  <td className="p-3 align-middle text-center">
-                    <Badge className={adminStatusBadgeClass(n.adminStatus.tone)} title={`Código: ${n.adminStatus.code}`}>
-                      {n.adminStatus.label}
-                    </Badge>
-                  </td>
-                  <td className="p-3 align-middle text-center">
-                    <select
-                      className={compactSelectClass}
-                      value={n.vaclyStatus}
-                      disabled={busy}
-                      onChange={(e) => onWorkflowChange(n, { vacly_status: e.target.value })}
-                    >
-                      {VACLY_NOTIFICATION_STATUSES.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="p-3 align-middle text-center">
-                    <NotificationAssigneeSelect
-                      value={n.assignedUserId}
-                      members={team}
-                      disabled={busy}
-                      onChange={(userId) => onWorkflowChange(n, { assigned_user_id: userId })}
-                    />
-                  </td>
-                  <td className="p-3 align-middle">
-                    <div className="flex items-center justify-center gap-1.5 flex-nowrap">
-                      <IconButton
-                        label="Abrir notificación"
-                        disabled={busy}
-                        onClick={() => onRequestAction('open', n)}
-                      >
-                        <IconOpen />
-                      </IconButton>
-                      <IconButton
-                        label="Descargar PDF"
-                        disabled={busy}
-                        onClick={() => onRequestAction('download', n)}
-                      >
-                        <IconDocument />
-                      </IconButton>
-                      <IconButton
-                        label="Correo con IA"
-                        disabled={busy}
-                        onClick={() => onRequestAction('mail', n)}
-                      >
-                        <IconMail />
-                      </IconButton>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
+            {displayedRows.map((n) => (
+              <NotifDesktopRow
+                key={n.id}
+                row={n}
+                busy={actingId === n.id}
+                selected={selectedIds.has(n.id)}
+                onToggleSelect={onToggleSelect}
+                onRequestAction={onRequestAction}
+                onWorkflowChange={onWorkflowChange}
+                team={team}
+              />
+            ))}
             {displayedRows.length === 0 && (
               <tr>
                 <td colSpan={colCount} className="p-6 text-center text-slate-500">
@@ -1594,5 +1531,226 @@ function NotifTable({
         </table>
       </div>
     </Card>
+  )
+}
+
+type NotifRowHandlers = {
+  row: NotifRow
+  busy: boolean
+  selected: boolean
+  onToggleSelect: (id: string) => void
+  onRequestAction: (action: ConfirmAction, row: NotifRow) => void
+  onWorkflowChange: (
+    row: NotifRow,
+    patch: { vacly_status?: string; category?: string; assigned_user_id?: string | null },
+  ) => void
+  team: NotificationTeamMember[]
+}
+
+function NotifActionButtons({
+  row,
+  busy,
+  onRequestAction,
+}: Pick<NotifRowHandlers, 'row' | 'busy' | 'onRequestAction'>) {
+  return (
+    <div className="flex items-center justify-center gap-1 flex-wrap">
+      <IconButton label="Abrir notificación" disabled={busy} onClick={() => onRequestAction('open', row)}>
+        <IconOpen />
+      </IconButton>
+      <IconButton label="Descargar PDF" disabled={busy} onClick={() => onRequestAction('download', row)}>
+        <IconDocument />
+      </IconButton>
+      <IconButton label="Correo con IA" disabled={busy} onClick={() => onRequestAction('mail', row)}>
+        <IconMail />
+      </IconButton>
+    </div>
+  )
+}
+
+function NotifDesktopRow({
+  row: n,
+  busy,
+  selected,
+  onToggleSelect,
+  onRequestAction,
+  onWorkflowChange,
+  team,
+}: NotifRowHandlers) {
+  const pendingVacly = n.vaclyStatus === 'pendiente'
+  const caducidad = computeCaducidad(n)
+
+  return (
+    <tr
+      className={`border-t border-slate-100 ${
+        selected ? 'bg-[#1B2A41]/5' : pendingVacly ? 'bg-amber-50/40' : ''
+      }`}
+    >
+      <td className="p-2 w-10 text-center align-middle">
+        <input
+          type="checkbox"
+          aria-label="Seleccionar notificación"
+          className="h-4 w-4 rounded border-slate-300 align-middle"
+          checked={selected}
+          onChange={() => onToggleSelect(n.id)}
+        />
+      </td>
+      <td className="p-2 text-slate-700 font-medium align-middle break-words text-center text-xs">
+        {n.companyName || '—'}
+      </td>
+      <td className="p-2 align-middle text-center">
+        <ProviderBadge provider={n.provider} sender={n.sender} />
+      </td>
+      <td className="p-2 text-slate-700 align-middle break-words text-xs">
+        {n.externalId && (
+          <span className="block font-mono text-[11px] text-slate-500 mb-0.5">{n.externalId}</span>
+        )}
+        <span className="whitespace-normal">{n.subject}</span>
+        {n.concept && n.concept !== n.subject && (
+          <span className="block text-[11px] text-slate-400 mt-0.5 whitespace-normal break-words">{n.concept}</span>
+        )}
+      </td>
+      <td className="p-2 align-middle text-center">
+        <select
+          className={compactSelectClass}
+          value={n.category || 'otro'}
+          disabled={busy}
+          onChange={(e) => onWorkflowChange(n, { category: e.target.value })}
+        >
+          {NOTIFICATION_CATEGORIES.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="p-2 text-slate-600 align-middle whitespace-normal text-center text-xs">{fmtDate(n.receivedAt)}</td>
+      <td className={`p-2 align-middle whitespace-normal text-center text-xs ${deadlineClass(caducidad, !pendingVacly)}`}>
+        {fmtDate(caducidad)}
+      </td>
+      <td className="p-2 align-middle text-center">
+        <Badge className={adminStatusBadgeClass(n.adminStatus.tone)} title={`Código: ${n.adminStatus.code}`}>
+          {n.adminStatus.label}
+        </Badge>
+      </td>
+      <td className="p-2 align-middle text-center">
+        <select
+          className={compactSelectClass}
+          value={n.vaclyStatus}
+          disabled={busy}
+          onChange={(e) => onWorkflowChange(n, { vacly_status: e.target.value })}
+        >
+          {VACLY_NOTIFICATION_STATUSES.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="p-2 align-middle text-center">
+        <NotificationAssigneeSelect
+          value={n.assignedUserId}
+          members={team}
+          disabled={busy}
+          onChange={(userId) => onWorkflowChange(n, { assigned_user_id: userId })}
+        />
+      </td>
+      <td className="p-2 align-middle">
+        <NotifActionButtons row={n} busy={busy} onRequestAction={onRequestAction} />
+      </td>
+    </tr>
+  )
+}
+
+function NotifMobileCard({
+  row: n,
+  busy,
+  selected,
+  onToggleSelect,
+  onRequestAction,
+  onWorkflowChange,
+  team,
+}: NotifRowHandlers) {
+  const pendingVacly = n.vaclyStatus === 'pendiente'
+  const caducidad = computeCaducidad(n)
+
+  return (
+    <article
+      className={`p-4 space-y-3 ${selected ? 'bg-[#1B2A41]/5' : pendingVacly ? 'bg-amber-50/40' : 'bg-white'}`}
+    >
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          aria-label="Seleccionar notificación"
+          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300"
+          checked={selected}
+          onChange={() => onToggleSelect(n.id)}
+        />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-slate-800">{n.companyName || '—'}</span>
+            <ProviderBadge provider={n.provider} sender={null} />
+          </div>
+          {n.externalId && <p className="font-mono text-[11px] text-slate-500 break-all">{n.externalId}</p>}
+          <p className="text-sm text-slate-800 break-words">{n.subject}</p>
+          {n.concept && n.concept !== n.subject && (
+            <p className="text-xs text-slate-500 break-words">{n.concept}</p>
+          )}
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600">
+            <span>Emisión: {fmtDate(n.receivedAt)}</span>
+            <span className={deadlineClass(caducidad, !pendingVacly)}>Caducidad: {fmtDate(caducidad)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <label className="space-y-1">
+          <span className="text-[11px] font-medium text-slate-500">Tipo</span>
+          <select
+            className={compactSelectClass}
+            value={n.category || 'otro'}
+            disabled={busy}
+            onChange={(e) => onWorkflowChange(n, { category: e.target.value })}
+          >
+            {NOTIFICATION_CATEGORIES.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] font-medium text-slate-500">Estado Vacly</span>
+          <select
+            className={compactSelectClass}
+            value={n.vaclyStatus}
+            disabled={busy}
+            onChange={(e) => onWorkflowChange(n, { vacly_status: e.target.value })}
+          >
+            {VACLY_NOTIFICATION_STATUSES.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 sm:col-span-2">
+          <span className="text-[11px] font-medium text-slate-500">Responsable</span>
+          <NotificationAssigneeSelect
+            value={n.assignedUserId}
+            members={team}
+            disabled={busy}
+            onChange={(userId) => onWorkflowChange(n, { assigned_user_id: userId })}
+          />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge className={adminStatusBadgeClass(n.adminStatus.tone)} title={`Código: ${n.adminStatus.code}`}>
+          {n.adminStatus.label}
+        </Badge>
+      </div>
+
+      <NotifActionButtons row={n} busy={busy} onRequestAction={onRequestAction} />
+    </article>
   )
 }

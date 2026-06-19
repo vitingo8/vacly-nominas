@@ -57,9 +57,10 @@ export function AdminNewNotificationsBanner({ alert, onDismiss }: AdminNewNotifi
           Notificaciones administrativas pendientes
         </h2>
         <p className="text-sm text-slate-600 mb-6 leading-relaxed">
-          Hay <strong>{alert.pendingCount}</strong> notificación{alert.pendingCount === 1 ? '' : 'es'} sin
-          abrir en <strong>{alert.providersLabel}</strong>. Revísalas y comparece cuando corresponda para no
-          perder plazos.
+          Hay <strong>{alert.pendingCount}</strong> notificación{alert.pendingCount === 1 ? '' : 'es'}{' '}
+          pendiente{alert.pendingCount === 1 ? '' : 's'} ante la administración en{' '}
+          <strong>{alert.providersLabel}</strong>. Revísalas y comparece cuando corresponda para no perder
+          plazos.
         </p>
         <Button
           type="button"

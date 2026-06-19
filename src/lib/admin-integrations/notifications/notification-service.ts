@@ -25,6 +25,7 @@ import {
   classifyNotificationCategory,
   isNotificationCategory,
   isVaclyStatus,
+  isAdminStatusPending,
   resolveAdminStatus,
   vaclyStatusLabel,
   type NotificationCategory,
@@ -1001,16 +1002,20 @@ export async function countPendingAgencyNotifications(
   agencyCompanyId: string,
 ): Promise<number> {
   const companyIds = await agencyPortfolioCompanyIds(supabase, agencyCompanyId)
-  const { count, error } = await supabase
+  const { data, error } = await supabase
     .from('admin_notifications')
-    .select('id', { count: 'exact', head: true })
+    .select('id, provider, metadata')
     .in('company_id', companyIds)
-    .is('read_at', null)
 
   if (error) {
     throw new AdminIntegrationError('PROCESSING_ERROR', 'Error contando pendientes', error)
   }
-  return count ?? 0
+  return (data || []).filter((row) =>
+    isAdminStatusPending(
+      String(row.provider),
+      (row.metadata as Record<string, unknown> | null) ?? undefined,
+    ),
+  ).length
 }
 
 export async function markNotificationRead(

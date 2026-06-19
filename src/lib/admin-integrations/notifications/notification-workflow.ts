@@ -132,3 +132,8 @@ export function isNotificationCategory(value: string): value is NotificationCate
 export function isVaclyWorkflowOpen(status: string | null | undefined): boolean {
   return status !== 'cerrada'
 }
+
+/** Pendiente ante el organismo (AEAT P, TGSS sin acuse, DEHú…), no el workflow Vacly. */
+export function isAdminStatusPending(provider: string, metadata?: Record<string, unknown>): boolean {
+  return resolveAdminStatus(provider, metadata).tone === 'warning'
+}

@@ -127,14 +127,14 @@ export function NotificationAssigneeSelect({
 
   return (
     <>
-      <div ref={rootRef} className={cn('relative min-w-[9rem]', className)}>
+      <div ref={rootRef} className={cn('relative w-full max-w-full', className)}>
         <button
           ref={triggerRef}
           type="button"
           disabled={disabled}
           onClick={() => setOpen((v) => !v)}
           className={cn(
-            'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white px-1.5 shadow-sm',
+            'flex h-9 w-full min-w-0 items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white px-2 shadow-sm',
             'transition-colors hover:border-[#C6A664]/40 focus:outline-none focus:ring-2 focus:ring-[#C6A664]/30',
             value && 'border-[#C6A664]/35',
             disabled && 'opacity-50 cursor-not-allowed',
@@ -145,7 +145,7 @@ export function NotificationAssigneeSelect({
             imageUrl={selected?.avatar}
             size="xs"
           />
-          <span className="min-w-0 flex-1 truncate text-left text-[11px] font-medium text-slate-800">
+          <span className="min-w-0 flex-1 truncate text-left text-xs font-medium text-slate-800">
             {selected ? selected.name.split(' ')[0] : 'Asignar'}
           </span>
           <ChevronDownIcon
