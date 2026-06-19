@@ -3,6 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useSearchParam } from '@/lib/embedded-mode'
 import type { StoreItem } from '@/lib/store/store-catalog'
+import {
+  resolveStoreItemPricing,
+  type ResolvedStorePricing,
+  type StorePricingRule,
+} from '@/lib/store/store-pricing'
 
 export interface StoreCompanyState {
   companyId: string
@@ -30,6 +35,10 @@ interface StoreCompanyContextValue {
   hasActiveSubscription: boolean
   /** true si la empresa ya tiene contratado / instalado el item. */
   isInstalled: (item: StoreItem) => boolean
+  /** Tarifas activas de `pricing_rules` (misma fuente que facturación). */
+  pricingRules: StorePricingRule[]
+  /** Precio del item según el nº de empleados/licencias de la empresa. */
+  resolveItemPricing: (item: StoreItem) => ResolvedStorePricing
 }
 
 const StoreCompanyContext = createContext<StoreCompanyContextValue>({
@@ -40,12 +49,30 @@ const StoreCompanyContext = createContext<StoreCompanyContextValue>({
   solesBalance: 0,
   hasActiveSubscription: false,
   isInstalled: () => false,
+  pricingRules: [],
+  resolveItemPricing: (item) => ({
+    priceAmount: item.priceAmount ?? 0,
+    priceLabel: item.priceLabel,
+    priceNote: item.priceNote,
+    pricingModel: item.details?.pricingModel,
+  }),
 })
 
 export function StoreCompanyProvider({ children }: { children: React.ReactNode }) {
   const companyId = useSearchParam('company_id')
   const [state, setState] = useState<StoreCompanyState | null>(null)
+  const [pricingRules, setPricingRules] = useState<StorePricingRule[]>([])
   const [loading, setLoading] = useState(false)
+
+  const loadPricingRules = useCallback(async () => {
+    try {
+      const res = await fetch('/api/store/pricing-rules')
+      const data = res.ok ? await res.json() : null
+      setPricingRules(data?.success && Array.isArray(data.rules) ? data.rules : [])
+    } catch {
+      setPricingRules([])
+    }
+  }, [])
 
   const load = useCallback(async () => {
     if (!companyId) {
@@ -65,6 +92,10 @@ export function StoreCompanyProvider({ children }: { children: React.ReactNode }
   }, [companyId])
 
   useEffect(() => {
+    void loadPricingRules()
+  }, [loadPricingRules])
+
+  useEffect(() => {
     void load()
   }, [load])
 
@@ -79,6 +110,9 @@ export function StoreCompanyProvider({ children }: { children: React.ReactNode }
 
   const value = useMemo<StoreCompanyContextValue>(() => {
     const seats = Math.max(1, state?.seats || state?.employeeCount || 1)
+
+    const resolveItemPricing = (item: StoreItem): ResolvedStorePricing =>
+      resolveStoreItemPricing(item, seats, pricingRules)
 
     const isInstalled = (item: StoreItem): boolean => {
       const ent = item.entitlement
@@ -111,8 +145,10 @@ export function StoreCompanyProvider({ children }: { children: React.ReactNode }
       solesBalance: state?.solesBalance ?? 0,
       hasActiveSubscription: state?.hasActiveSubscription ?? false,
       isInstalled,
+      pricingRules,
+      resolveItemPricing,
     }
-  }, [companyId, state, loading])
+  }, [companyId, state, loading, pricingRules])
 
   return <StoreCompanyContext.Provider value={value}>{children}</StoreCompanyContext.Provider>
 }

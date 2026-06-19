@@ -495,17 +495,17 @@ function SolesBalancePill() {
   const { solesBalance } = useStoreCompany()
   return (
     <span
-      className="inline-flex items-center gap-2.5 rounded-2xl border border-[#C6A664]/40 bg-[#FBF6EC] px-3.5 py-2.5 shadow-sm"
+      className="inline-flex items-center gap-3 rounded-2xl border border-[#C6A664]/40 bg-[#FBF6EC] px-4 py-3 shadow-sm"
       title="Saldo de Soles de tu empresa"
     >
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#C6A664]/20 text-lg leading-none">
+      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#C6A664]/20 text-xl leading-none">
         <span aria-hidden>☀️</span>
       </span>
       <span className="hidden flex-col items-start leading-tight sm:flex">
-        <span className="text-[13px] font-semibold text-[#8A6D2F]">
+        <span className="text-sm font-semibold text-[#8A6D2F]">
           {solesBalance.toLocaleString('es-ES')}
         </span>
-        <span className="text-[11px] font-medium text-[#A98B4F]">Soles</span>
+        <span className="text-xs font-medium text-[#A98B4F]">Soles</span>
       </span>
     </span>
   )

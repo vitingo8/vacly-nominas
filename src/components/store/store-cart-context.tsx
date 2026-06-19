@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { StoreItem } from '@/lib/store/store-catalog'
+import { isSolesPackItem, optimizeSolesCartLines } from '@/lib/store/soles-cart'
 import { useStoreCompany } from '@/components/store/store-company-context'
 
 export interface CartLine {
@@ -34,8 +35,13 @@ interface CartContextValue {
 const CartContext = createContext<CartContextValue | null>(null)
 
 /** Importe de una línea según su unidad de precio y el nº de licencias. */
-export function lineAmount(item: StoreItem, quantity: number, seats: number): number {
-  const price = item.priceAmount ?? 0
+export function lineAmount(
+  item: StoreItem,
+  quantity: number,
+  seats: number,
+  unitPrice = item.priceAmount ?? 0,
+): number {
+  const price = unitPrice
   switch (item.priceUnit) {
     case 'per_seat_month':
       return price * Math.max(1, seats)
@@ -50,7 +56,7 @@ export function lineAmount(item: StoreItem, quantity: number, seats: number): nu
 }
 
 export function StoreCartProvider({ children }: { children: React.ReactNode }) {
-  const { seats } = useStoreCompany()
+  const { seats, resolveItemPricing } = useStoreCompany()
   const [lines, setLines] = useState<CartLine[]>([])
   const [isOpen, setIsOpen] = useState(false)
 
@@ -63,16 +69,20 @@ export function StoreCartProvider({ children }: { children: React.ReactNode }) {
   const add = useCallback((item: StoreItem) => {
     setLines((prev) => {
       const existing = prev.find((l) => l.item.id === item.id)
+      let next: CartLine[]
       if (existing) {
         // Solo los packs de Soles (pago único) acumulan cantidad.
         if (item.priceUnit === 'once') {
-          return prev.map((l) =>
+          next = prev.map((l) =>
             l.item.id === item.id ? { ...l, quantity: l.quantity + 1 } : l,
           )
+        } else {
+          return prev
         }
-        return prev
+      } else {
+        next = [...prev, { item, quantity: 1 }]
       }
-      return [...prev, { item, quantity: 1 }]
+      return isSolesPackItem(item) ? optimizeSolesCartLines(next) : next
     })
     setIsOpen(true)
   }, [])
@@ -82,11 +92,13 @@ export function StoreCartProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const setQuantity = useCallback((id: string, quantity: number) => {
-    setLines((prev) =>
-      prev
+    setLines((prev) => {
+      const line = prev.find((l) => l.item.id === id)
+      const next = prev
         .map((l) => (l.item.id === id ? { ...l, quantity: Math.max(0, quantity) } : l))
-        .filter((l) => l.quantity > 0),
-    )
+        .filter((l) => l.quantity > 0)
+      return line && isSolesPackItem(line.item) ? optimizeSolesCartLines(next) : next
+    })
   }, [])
 
   const clear = useCallback(() => setLines([]), [])
@@ -106,14 +118,15 @@ export function StoreCartProvider({ children }: { children: React.ReactNode }) {
   const totals = useMemo<CartTotals>(() => {
     return lines.reduce<CartTotals>(
       (acc, l) => {
-        const amount = lineAmount(l.item, l.quantity, seats)
+        const unitPrice = resolveItemPricing(l.item).priceAmount
+        const amount = lineAmount(l.item, l.quantity, seats, unitPrice)
         if (l.item.priceUnit === 'once') acc.once += amount
         else acc.monthly += amount
         return acc
       },
       { monthly: 0, once: 0 },
     )
-  }, [lines, seats])
+  }, [lines, seats, resolveItemPricing])
 
   const count = useMemo(
     () => lines.reduce((acc, l) => acc + (l.item.priceUnit === 'once' ? l.quantity : 1), 0),

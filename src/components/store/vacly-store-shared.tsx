@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { StoreItemIcon } from '@/components/store/store-item-icon'
 import { StoreHeaderBackground } from '@/components/store/store-header-background'
 import { StoreTitleTypewriter } from '@/components/store/store-title-typewriter'
+import { useStoreCompany } from '@/components/store/store-company-context'
 import {
   STORE_FILTERS,
   STORE_ITEMS,
@@ -168,6 +169,9 @@ export function StorePrice({
   className?: string
   align?: 'left' | 'right' | 'center'
 }) {
+  const { resolveItemPricing } = useStoreCompany()
+  const pricing = useMemo(() => resolveItemPricing(item), [item, resolveItemPricing])
+
   return (
     <div
       className={cn(
@@ -177,9 +181,9 @@ export function StorePrice({
         className,
       )}
     >
-      <p className="text-sm font-bold leading-tight text-[#1B2A41]">{item.priceLabel}</p>
-      {item.priceNote && (
-        <p className="mt-0.5 text-[10px] leading-tight text-slate-400">{item.priceNote}</p>
+      <p className="text-sm font-bold leading-tight text-[#1B2A41]">{pricing.priceLabel}</p>
+      {pricing.priceNote && (
+        <p className="mt-0.5 text-[10px] leading-tight text-slate-400">{pricing.priceNote}</p>
       )}
     </div>
   )

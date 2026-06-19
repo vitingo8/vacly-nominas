@@ -30,12 +30,28 @@ export interface StoreEntitlement {
 }
 
 /** Información ampliada que se muestra en el panel inferior de detalle. */
+export interface StoreDetailFeature {
+  label: string
+  imageUrl?: string
+}
+
+export interface StoreIncludesSection {
+  title: string
+  imageUrl?: string
+  description: string
+}
+
 export interface StoreItemDetails {
   longDescription: string
-  features?: string[]
-  includes?: string[]
+  features?: (string | StoreDetailFeature)[]
+  includes?: (string | StoreDetailFeature)[]
+  includesSection?: StoreIncludesSection
   requires?: string[]
   pricingModel?: string
+}
+
+function storeFeature(label: string, logoFile?: string): StoreDetailFeature {
+  return logoFile ? { label, imageUrl: storeModuleLogo(logoFile) } : { label }
 }
 
 export interface StoreItem {
@@ -61,14 +77,30 @@ export interface StoreItem {
   details?: StoreItemDetails
 }
 
-const SOLES_PACK_AMOUNTS = [5, 50, 500, 1000, 5000] as const
+export const SOLES_PACK_AMOUNTS = [5, 50, 500, 1000, 5000] as const
 
-const SOLES_PRICE_BY_AMOUNT: Record<(typeof SOLES_PACK_AMOUNTS)[number], number> = {
-  5: 1,
-  50: 5,
-  500: 39,
-  1000: 69,
-  5000: 299,
+export const SOLES_PRICE_BY_AMOUNT: Record<(typeof SOLES_PACK_AMOUNTS)[number], number> = {
+  5: 4.99,
+  50: 29,
+  500: 199,
+  1000: 249,
+  5000: 599,
+}
+
+const SOLES_TAGLINE_BY_AMOUNT: Record<(typeof SOLES_PACK_AMOUNTS)[number], string> = {
+  5: 'Para probar Vacly',
+  50: 'Ideal para empezar',
+  500: 'Para uso frecuente',
+  1000: 'Mejor elección',
+  5000: 'Mejor precio por Sol',
+}
+
+function formatSolesPackPrice(price: number): string {
+  const formatted =
+    price % 1 === 0
+      ? price.toLocaleString('es-ES')
+      : price.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return `${formatted} €`
 }
 
 /** Paquetes de Soles del bucket `admin/logos`. */
@@ -77,18 +109,13 @@ export const SOLES_PACK_ITEMS: StoreItem[] = SOLES_PACK_AMOUNTS.map((amount) => 
   return {
     id: `soles-${amount}`,
     title: `Pack ${amount.toLocaleString('es-ES')} Soles`,
-    description:
-      amount <= 50
-        ? 'Recarga rápida para probar funciones premium y consultas con IA.'
-        : amount <= 500
-          ? 'Créditos para procesamiento de documentos, OCR y automatizaciones.'
-          : 'Gran volumen de Soles con mejor precio por unidad para equipos exigentes.',
+    description: SOLES_TAGLINE_BY_AMOUNT[amount],
     category: 'paquetes',
     icon: 'coins',
     iconBg: amount >= 1000 ? '#B45309' : '#C6A664',
     imageUrl: storeSolesLogo(amount),
-    badge: amount === 500 ? 'popular' : amount === 5000 ? 'pro' : undefined,
-    priceLabel: `${price.toLocaleString('es-ES')} €`,
+    badge: amount === 1000 ? 'popular' : amount === 5000 ? 'pro' : undefined,
+    priceLabel: formatSolesPackPrice(price),
     priceNote: 'pago único · IVA incl.',
     priceAmount: price,
     priceUnit: 'once',
@@ -283,7 +310,7 @@ export const STORE_ITEMS: Record<StoreTab, StoreItem[]> = {
       imageUrl: storeModuleLogo('tiempo.png'),
       badge: 'instalado',
       priceLabel: '11,89 €',
-      priceNote: 'por empleado/mes · IVA incl. (hasta 25 empleados)',
+      priceNote: 'por empleado/mes · + IVA 21% (hasta 5 empleados)',
       priceAmount: 11.89,
       priceUnit: 'per_seat_month',
       entitlement: { type: 'module', key: 'tiempo' },
@@ -293,31 +320,27 @@ export const STORE_ITEMS: Record<StoreTab, StoreItem[]> = {
           'vacaciones, ausencias y un potente módulo de informes. Incluye organigrama, departamentos, ' +
           'gestión de empleados y notificaciones.',
         features: [
-          'Dashboard / Inicio',
-          'Mis Fichajes (web)',
-          'Fichaje desde la app móvil',
-          'Control horario (vista manager)',
-          'Cuadrantes y turnos',
-          'Vacaciones y políticas',
-          'Ausencias y tipos configurables',
-          'Cola de validaciones (fichajes, vacaciones, ausencias)',
-          'Organigrama y departamentos',
-          'Gestión de empleados',
-          'Horarios, jornadas y convenios colectivos',
-          'Notificaciones push / in-app',
+          storeFeature('Fichaje Geolocalizado', 'location.png'),
+          storeFeature('Fichaje Whatsapp', 'whatsapp.png'),
+          storeFeature('Vacaciones', 'vacaciones.png'),
+          storeFeature('Ausencias', 'ausencias.png'),
+          storeFeature('Turnos', 'calendar.png'),
+          storeFeature('Validaciones', 'proyectos.png'),
+          storeFeature('Organigrama', 'proyectos.png'),
+          storeFeature('Departamentos', 'departamento.png'),
+          storeFeature('Empleados', 'empleados.png'),
+          storeFeature('Notificaciones', 'notificaciones.png'),
+          storeFeature('Control Horario', 'control_horario.png'),
         ],
-        includes: [
-          'Informes: Resumen',
-          'Fichajes',
-          'Horas trabajadas',
-          'Planificado vs Real',
-          'Capacidad',
-          'Ausencias',
-          'Productividad',
-          'Alertas',
-        ],
+        includesSection: {
+          title: 'Informes Incluidos',
+          imageUrl: storeModuleLogo('chart.png'),
+          description:
+            'Ocho grupos de informes para analizar el tiempo de tu equipo: Resumen ejecutivo, Fichajes, ' +
+            'Horas trabajadas, Planificado vs Real, Capacidad, Ausencias, Productividad y Alertas.',
+        },
         pricingModel:
-          'Suscripción por empleado/mes: 11,89 € hasta 25 empleados; 10,27 € a partir de 26.',
+          'Suscripción por empleado/mes: 11,89 € (hasta 5); 10,27 € (6–25); 8,89 € (26+). Precios base + IVA 21% salvo tramo 26+.',
       },
     },
     {
@@ -328,7 +351,7 @@ export const STORE_ITEMS: Record<StoreTab, StoreItem[]> = {
       category: 'proyectos',
       icon: 'cube',
       iconBg: '#D97706',
-      imageUrl: storeModuleLogo('proyectos.png'),
+      imageUrl: storeModuleLogo('proyecto.png'),
       priceLabel: '9,90 €',
       priceNote: '/mes · IVA incl.',
       priceAmount: 9.9,

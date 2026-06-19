@@ -1,27 +1,41 @@
 'use client'
 
+import Image from 'next/image'
 import { useState } from 'react'
 import {
   MinusIcon,
   PlusIcon,
-  ShoppingCartIcon,
   TrashIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
-import type { StoreItem } from '@/lib/store/store-catalog'
+import { storeModuleLogo, type StoreItem } from '@/lib/store/store-catalog'
+import { solesAmountFromPackId, formatSolesCount, isSolesPackItem, solesInPackLine, totalSolesInLines } from '@/lib/store/soles-cart'
 import { lineAmount, useStoreCart } from '@/components/store/store-cart-context'
 import { useStoreCompany } from '@/components/store/store-company-context'
 
 const STORE_CHECKOUT_MESSAGE = 'vacly-store-checkout'
 const STORE_ADDONS_MESSAGE = 'vacly-store-addons'
 const STORE_SOLES_MESSAGE = 'vacly-store-soles'
+const CESTA_LOGO_URL = storeModuleLogo('cesta.png')
+const CESTA_BTN_ICON = 'h-11 w-11'
+const CESTA_BTN_ICON_PX = 44
 
-/** Extrae la cantidad de Soles de un item del catálogo (id `soles-<amount>`). */
-const SOLES_PACK_VALUES = [5, 50, 500, 1000, 5000]
+function CartCestaIcon({ className, size = CESTA_BTN_ICON_PX }: { className?: string; size?: number }) {
+  return (
+    <Image
+      src={CESTA_LOGO_URL}
+      alt=""
+      width={size}
+      height={size}
+      unoptimized
+      className={cn('object-contain', className)}
+    />
+  )
+}
+
 function solesAmountFromItem(item: StoreItem): number {
-  const fromId = Number(item.id.replace('soles-', ''))
-  return SOLES_PACK_VALUES.includes(fromId) ? fromId : 0
+  return solesAmountFromPackId(item.id)
 }
 
 function formatEuro(amount: number): string {
@@ -33,7 +47,7 @@ function formatEuro(amount: number): string {
   })
 }
 
-/** Botón "Mi Carrito" arriba a la derecha. */
+/** Botón "Mi Cesta" arriba a la derecha. */
 export function CartButton({ className }: { className?: string }) {
   const { count, toggle, totals } = useStoreCart()
   const recurring = totals.monthly + totals.once
@@ -43,22 +57,22 @@ export function CartButton({ className }: { className?: string }) {
       type="button"
       onClick={toggle}
       className={cn(
-        'inline-flex items-center gap-2.5 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm transition-all hover:border-[#1B2A41]/25 hover:shadow-md active:scale-[0.98]',
+        'inline-flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-all hover:border-[#1B2A41]/25 hover:shadow-md active:scale-[0.98]',
         className,
       )}
-      aria-label="Abrir Mi Carrito"
+      aria-label="Abrir Mi Cesta"
     >
-      <span className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#1B2A41] text-white">
-        <ShoppingCartIcon className="h-5 w-5" strokeWidth={1.9} />
+      <span className={cn('relative inline-flex items-center justify-center', CESTA_BTN_ICON)}>
+        <CartCestaIcon className={CESTA_BTN_ICON} size={CESTA_BTN_ICON_PX} />
         {count > 0 && (
-          <span className="absolute -right-1.5 -top-1.5 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-[#C6A664] px-1 text-[11px] font-bold text-white ring-2 ring-white">
+          <span className="absolute -right-2 -top-2 inline-flex h-5 min-w-[1.35rem] items-center justify-center rounded-full bg-[#C6A664] px-1 text-[11px] font-bold text-white ring-2 ring-white">
             {count}
           </span>
         )}
       </span>
       <span className="hidden flex-col items-start leading-tight sm:flex">
-        <span className="text-[13px] font-semibold text-[#1B2A41]">Mi Carrito</span>
-        <span className="text-[11px] text-slate-500">
+        <span className="text-sm font-semibold text-[#1B2A41]">Mi Cesta</span>
+        <span className="text-xs text-slate-500">
           {count === 0 ? 'Vacío' : formatEuro(recurring)}
         </span>
       </span>
@@ -67,12 +81,15 @@ export function CartButton({ className }: { className?: string }) {
 }
 
 function CartLineRow({ item, quantity }: { item: StoreItem; quantity: number }) {
-  const { seats } = useStoreCompany()
+  const { seats, resolveItemPricing } = useStoreCompany()
   const { remove, setQuantity } = useStoreCart()
-  const amount = lineAmount(item, quantity, seats)
+  const pricing = resolveItemPricing(item)
+  const amount = lineAmount(item, quantity, seats, pricing.priceAmount)
   const isOnce = item.priceUnit === 'once'
+  const isSolesPack = isOnce && isSolesPackItem(item)
   const isPerSeat = item.priceUnit === 'per_seat_month'
   const isIncluded = item.priceUnit === 'included'
+  const lineSoles = isSolesPack ? solesInPackLine(item, quantity) : 0
 
   return (
     <div className="flex items-start gap-3 border-b border-slate-100 py-3.5 last:border-b-0">
@@ -88,32 +105,39 @@ function CartLineRow({ item, quantity }: { item: StoreItem; quantity: number }) 
           {isIncluded
             ? 'Incluido'
             : isPerSeat
-              ? `${formatEuro(item.priceAmount ?? 0)} × ${seats} empl./mes`
+              ? `${formatEuro(pricing.priceAmount)} × ${seats} empl./mes`
               : isOnce
-                ? `${formatEuro(item.priceAmount ?? 0)} · pago único`
-                : `${formatEuro(item.priceAmount ?? 0)} /mes`}
+                ? `${formatEuro(pricing.priceAmount)} · pago único`
+                : `${formatEuro(pricing.priceAmount)} /mes`}
         </p>
         {isOnce && (
-          <div className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-200 p-0.5">
-            <button
-              type="button"
-              onClick={() => setQuantity(item.id, quantity - 1)}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100"
-              aria-label="Reducir cantidad"
-            >
-              <MinusIcon className="h-3.5 w-3.5" />
-            </button>
-            <span className="min-w-[1.5rem] text-center text-xs font-semibold text-[#1B2A41]">
-              {quantity}
-            </span>
-            <button
-              type="button"
-              onClick={() => setQuantity(item.id, quantity + 1)}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100"
-              aria-label="Aumentar cantidad"
-            >
-              <PlusIcon className="h-3.5 w-3.5" />
-            </button>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200 p-0.5">
+              <button
+                type="button"
+                onClick={() => setQuantity(item.id, quantity - 1)}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100"
+                aria-label="Reducir cantidad"
+              >
+                <MinusIcon className="h-3.5 w-3.5" />
+              </button>
+              <span className="min-w-[1.5rem] text-center text-xs font-semibold text-[#1B2A41]">
+                {quantity}
+              </span>
+              <button
+                type="button"
+                onClick={() => setQuantity(item.id, quantity + 1)}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100"
+                aria-label="Aumentar cantidad"
+              >
+                <PlusIcon className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {isSolesPack && (
+              <span className="text-[11px] font-semibold text-[#B45309]">
+                {formatSolesCount(lineSoles)}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -148,6 +172,7 @@ export function CartDrawer() {
   )
   const solesLines = lines.filter((l) => l.item.priceUnit === 'once')
   const includedOnly = lines.filter((l) => l.item.priceUnit === 'included')
+  const totalSoles = totalSolesInLines(solesLines)
 
   const postToParent = (type: string, payload: unknown): boolean => {
     if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
@@ -240,15 +265,15 @@ export function CartDrawer() {
         )}
         role="dialog"
         aria-modal="true"
-        aria-label="Mi Carrito"
+        aria-label="Mi Cesta"
       >
         <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div className="flex items-center gap-2.5">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#1B2A41] text-white">
-              <ShoppingCartIcon className="h-5 w-5" strokeWidth={1.9} />
+            <span className={cn('inline-flex items-center justify-center', CESTA_BTN_ICON)}>
+              <CartCestaIcon className={CESTA_BTN_ICON} size={CESTA_BTN_ICON_PX} />
             </span>
             <div>
-              <p className="text-base font-bold text-[#1B2A41]">Mi Carrito</p>
+              <p className="text-base font-bold text-[#1B2A41]">Mi Cesta</p>
               <p className="text-[11px] text-slate-500">{count} elemento{count === 1 ? '' : 's'}</p>
             </div>
           </div>
@@ -256,7 +281,7 @@ export function CartDrawer() {
             type="button"
             onClick={close}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-[#1B2A41]"
-            aria-label="Cerrar carrito"
+            aria-label="Cerrar Mi Cesta"
           >
             <XMarkIcon className="h-5 w-5" />
           </button>
@@ -265,8 +290,8 @@ export function CartDrawer() {
         <div className="flex-1 overflow-y-auto px-5">
           {lines.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center py-20 text-center">
-              <ShoppingCartIcon className="h-12 w-12 text-slate-300" strokeWidth={1.25} />
-              <p className="mt-4 text-sm font-semibold text-[#1B2A41]">Tu carrito está vacío</p>
+              <CartCestaIcon className="h-12 w-12 opacity-40" />
+              <p className="mt-4 text-sm font-semibold text-[#1B2A41]">Tu cesta está vacía</p>
               <p className="mt-1 max-w-[16rem] text-xs text-slate-500">
                 Añade módulos, agentes o integraciones para verlos aquí.
               </p>
@@ -300,9 +325,14 @@ export function CartDrawer() {
               )}
               {solesLines.length > 0 && (
                 <section className="pt-4">
-                  <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Paquetes de Soles (pago único)
-                  </h3>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      Paquetes de Soles (pago único)
+                    </h3>
+                    <span className="text-[11px] font-semibold text-[#B45309]">
+                      {formatSolesCount(totalSoles)}
+                    </span>
+                  </div>
                   {solesLines.map((l) => (
                     <CartLineRow key={l.item.id} item={l.item} quantity={l.quantity} />
                   ))}
@@ -333,7 +363,9 @@ export function CartDrawer() {
               )}
               {totals.once > 0 && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Pago único (Soles)</span>
+                  <span className="text-slate-500">
+                    Pago único (Soles){totalSoles > 0 ? ` · ${formatSolesCount(totalSoles)}` : ''}
+                  </span>
                   <span className="font-bold text-[#1B2A41]">{formatEuro(totals.once)}</span>
                 </div>
               )}
@@ -382,7 +414,9 @@ export function CartDrawer() {
                     submitting && 'cursor-not-allowed opacity-50',
                   )}
                 >
-                  {submitting ? 'Procesando...' : `Comprar Soles (${formatEuro(totals.once)})`}
+                  {submitting
+                    ? 'Procesando...'
+                    : `Comprar ${formatSolesCount(totalSoles)} (${formatEuro(totals.once)})`}
                 </button>
               )}
             </div>
