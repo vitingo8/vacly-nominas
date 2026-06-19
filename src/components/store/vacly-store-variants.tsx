@@ -1,7 +1,9 @@
 'use client'
 
 import Image from 'next/image'
+import { useState } from 'react'
 import {
+  CheckIcon,
   DocumentTextIcon,
   MagnifyingGlassIcon,
   ShoppingCartIcon,
@@ -15,7 +17,6 @@ import { StoreItemIcon } from '@/components/store/store-item-icon'
 import { STORE_FILTERS, STORE_TABS, type StoreItem, type StoreTab } from '@/lib/store/store-catalog'
 import {
   CATEGORY_LABELS,
-  CtaButton,
   EmptyResults,
   ItemBadge,
   StoreLogoTitle,
@@ -23,6 +24,10 @@ import {
   type StoreViewMode,
   useStoreCatalog,
 } from '@/components/store/vacly-store-shared'
+import { StoreCompanyProvider, useStoreCompany } from '@/components/store/store-company-context'
+import { StoreCartProvider, useStoreCart } from '@/components/store/store-cart-context'
+import { CartButton, CartDrawer } from '@/components/store/store-cart'
+import { StoreItemDetail } from '@/components/store/store-item-detail'
 
 const FULL_GRID =
   'grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'
@@ -252,15 +257,30 @@ function StoreFiltersBar({
   )
 }
 
-function CardSolesGrid({ item }: { item: StoreItem }) {
+function EffectiveBadge({ item }: { item: StoreItem }) {
+  const { isInstalled } = useStoreCompany()
+  if (isInstalled(item)) return <ItemBadge badge="instalado" />
+  if (item.badge && item.badge !== 'instalado') return <ItemBadge badge={item.badge} />
+  if (item.badge === 'instalado') return null
+  return null
+}
+
+function CardSolesGrid({
+  item,
+  onOpenDetail,
+}: {
+  item: StoreItem
+  onOpenDetail: (item: StoreItem) => void
+}) {
   return (
-    <article className="group relative flex h-full min-h-[15.5rem] flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/75 bg-white transition-all duration-200 hover:-translate-y-1 hover:border-[#C6A664]/45 hover:shadow-[0_18px_40px_rgba(198,166,100,0.2)]">
+    <article
+      onClick={() => onOpenDetail(item)}
+      className="group relative flex h-full min-h-[15.5rem] cursor-pointer flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/75 bg-white transition-all duration-200 hover:-translate-y-1 hover:border-[#C6A664]/45 hover:shadow-[0_18px_40px_rgba(198,166,100,0.2)]"
+    >
       <div className="relative flex h-[9.5rem] items-center justify-center border-b border-slate-100 bg-white sm:h-[10.5rem]">
-        {item.badge && (
-          <div className="absolute right-3 top-3 z-10">
-            <ItemBadge badge={item.badge} />
-          </div>
-        )}
+        <div className="absolute right-3 top-3 z-10">
+          <EffectiveBadge item={item} />
+        </div>
         {item.imageUrl && (
           <Image
             key={item.imageUrl}
@@ -278,19 +298,28 @@ function CardSolesGrid({ item }: { item: StoreItem }) {
         <p className="mt-1.5 line-clamp-2 flex-1 text-xs leading-snug text-slate-500">{item.description}</p>
         <div className="mt-3 flex items-end justify-between gap-3 border-t border-slate-100 pt-2.5">
           <StorePrice item={item} />
-          <CtaButton item={item} className="shrink-0 px-2.5 py-1.5 text-xs" />
+          <StoreItemActions item={item} onOpenDetail={onOpenDetail} />
         </div>
       </div>
     </article>
   )
 }
 
-function CardGrid({ item }: { item: StoreItem }) {
+function CardGrid({
+  item,
+  onOpenDetail,
+}: {
+  item: StoreItem
+  onOpenDetail: (item: StoreItem) => void
+}) {
   return (
-    <article className="group relative flex h-full min-h-[11.75rem] flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/75 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#3B9EDE]/30 hover:shadow-[0_14px_30px_rgba(27,42,65,0.07)]">
+    <article
+      onClick={() => onOpenDetail(item)}
+      className="group relative flex h-full min-h-[11.75rem] cursor-pointer flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/75 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#3B9EDE]/30 hover:shadow-[0_14px_30px_rgba(27,42,65,0.07)]"
+    >
       <div className="flex items-center justify-between gap-2">
         <CategoryChip item={item} />
-        {item.badge && <ItemBadge badge={item.badge} />}
+        <EffectiveBadge item={item} />
       </div>
 
       <div className="mt-3 flex items-center gap-2.5">
@@ -304,14 +333,23 @@ function CardGrid({ item }: { item: StoreItem }) {
       </p>
       <div className="mt-3 flex items-end justify-between gap-3 border-t border-slate-100 pt-2.5">
         <StorePrice item={item} />
-        <CtaButton item={item} className="shrink-0 px-2.5 py-1.5 text-xs" />
+        <StoreItemActions item={item} onOpenDetail={onOpenDetail} />
       </div>
     </article>
   )
 }
 
-function StoreTableActions({ item }: { item: StoreItem }) {
-  const subscribed = item.badge === 'instalado'
+function StoreItemActions({
+  item,
+  onOpenDetail,
+}: {
+  item: StoreItem
+  onOpenDetail?: (item: StoreItem) => void
+}) {
+  const { add, has, remove } = useStoreCart()
+  const { isInstalled } = useStoreCompany()
+  const subscribed = isInstalled(item)
+  const inCart = has(item.id)
 
   return (
     <div className="flex shrink-0 items-center justify-center gap-2">
@@ -320,14 +358,30 @@ function StoreTableActions({ item }: { item: StoreItem }) {
         title="Más información"
         aria-label={`Más información sobre ${item.title}`}
         className={TABLE_ACTION_BTN}
+        onClick={(e) => {
+          e.stopPropagation()
+          onOpenDetail?.(item)
+        }}
       >
         <DocumentTextIcon className="h-5 w-5" strokeWidth={1.75} />
       </button>
       {subscribed ? (
+        <span
+          title="Ya contratado"
+          aria-label={`${item.title} ya contratado`}
+          className={cn(TABLE_ACTION_BTN, 'cursor-default text-emerald-600')}
+        >
+          <CheckIcon className="h-5 w-5" strokeWidth={2} />
+        </span>
+      ) : inCart ? (
         <button
           type="button"
-          title="Quitar suscripción"
-          aria-label={`Quitar suscripción de ${item.title}`}
+          title="Quitar del carrito"
+          aria-label={`Quitar ${item.title} del carrito`}
+          onClick={(e) => {
+            e.stopPropagation()
+            remove(item.id)
+          }}
           className={cn(
             TABLE_ACTION_BTN,
             'text-red-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700',
@@ -340,6 +394,10 @@ function StoreTableActions({ item }: { item: StoreItem }) {
           type="button"
           title="Añadir al carrito"
           aria-label={`Añadir ${item.title} al carrito`}
+          onClick={(e) => {
+            e.stopPropagation()
+            add(item)
+          }}
           className={cn(TABLE_ACTION_BTN, 'text-[#1B2A41] hover:border-[#1B2A41]/25 hover:bg-[#1B2A41]/5')}
         >
           <ShoppingCartIcon className="h-5 w-5" strokeWidth={1.75} />
@@ -349,12 +407,25 @@ function StoreTableActions({ item }: { item: StoreItem }) {
   )
 }
 
-function RowCompact({ item, largeVisual = false }: { item: StoreItem; largeVisual?: boolean }) {
+function RowCompact({
+  item,
+  largeVisual = false,
+  onOpenDetail,
+}: {
+  item: StoreItem
+  largeVisual?: boolean
+  onOpenDetail: (item: StoreItem) => void
+}) {
+  const { isInstalled } = useStoreCompany()
+  const installed = isInstalled(item)
+  const effectiveBadge = installed ? 'instalado' : item.badge && item.badge !== 'instalado' ? item.badge : null
+
   return (
     <div
+      onClick={() => onOpenDetail(item)}
       className={cn(
         largeVisual ? TABLE_ROW_GRID_SOLES : TABLE_ROW_GRID,
-        'min-h-[3.25rem] border-b border-slate-100 bg-white px-3 py-3.5 transition-colors last:border-b-0 hover:bg-slate-50/60 sm:px-5',
+        'min-h-[3.25rem] cursor-pointer border-b border-slate-100 bg-white px-3 py-3.5 transition-colors last:border-b-0 hover:bg-slate-50/60 sm:px-5',
         largeVisual && 'min-h-[4.5rem] py-4',
       )}
     >
@@ -368,18 +439,26 @@ function RowCompact({ item, largeVisual = false }: { item: StoreItem; largeVisua
         <CategoryChip item={item} className="max-w-full" />
       </div>
       <div className="flex justify-center">
-        {item.badge ? (
-          <ItemBadge badge={item.badge} />
+        {effectiveBadge ? (
+          <ItemBadge badge={effectiveBadge} />
         ) : (
           <span className="text-xs text-slate-300">—</span>
         )}
       </div>
-      <StoreTableActions item={item} />
+      <StoreItemActions item={item} onOpenDetail={onOpenDetail} />
     </div>
   )
 }
 
-function StoreTable({ items, largeVisual = false }: { items: StoreItem[]; largeVisual?: boolean }) {
+function StoreTable({
+  items,
+  largeVisual = false,
+  onOpenDetail,
+}: {
+  items: StoreItem[]
+  largeVisual?: boolean
+  onOpenDetail: (item: StoreItem) => void
+}) {
   const rowGrid = largeVisual ? TABLE_ROW_GRID_SOLES : TABLE_ROW_GRID
   return (
     <div className="w-full overflow-x-auto rounded-[1.25rem] border border-slate-200/75 bg-white">
@@ -399,7 +478,12 @@ function StoreTable({ items, largeVisual = false }: { items: StoreItem[]; largeV
           <span className="text-center">Acciones</span>
         </div>
         {items.map((item) => (
-          <RowCompact key={item.id} item={item} largeVisual={largeVisual} />
+          <RowCompact
+            key={item.id}
+            item={item}
+            largeVisual={largeVisual}
+            onOpenDetail={onOpenDetail}
+          />
         ))}
       </div>
     </div>
@@ -407,12 +491,18 @@ function StoreTable({ items, largeVisual = false }: { items: StoreItem[]; largeV
 }
 
 /** Store principal — grid o tabla */
-export function VaclyStoreView() {
+function VaclyStoreInner() {
   const catalog = useStoreCatalog()
   const isSolesTab = catalog.activeTab === 'soles'
+  const [selectedItem, setSelectedItem] = useState<StoreItem | null>(null)
 
   return (
     <StoreShell className="bg-[#F5F5F7]">
+      <div className="pointer-events-none sticky top-3 z-40 mb-2 flex justify-end px-1">
+        <div className="pointer-events-auto">
+          <CartButton />
+        </div>
+      </div>
       <StoreLogoTitle />
       <div className="mb-6">
         <StoreTabs activeTab={catalog.activeTab} onChange={catalog.handleTabChange} />
@@ -433,18 +523,35 @@ export function VaclyStoreView() {
           <div className={isSolesTab ? SOLES_GRID : FULL_GRID}>
             {catalog.visibleItems.map((item) =>
               isSolesTab ? (
-                <CardSolesGrid key={item.id} item={item} />
+                <CardSolesGrid key={item.id} item={item} onOpenDetail={setSelectedItem} />
               ) : (
-                <CardGrid key={item.id} item={item} />
+                <CardGrid key={item.id} item={item} onOpenDetail={setSelectedItem} />
               ),
             )}
           </div>
         ) : (
-          <StoreTable items={catalog.visibleItems} largeVisual={isSolesTab} />
+          <StoreTable
+            items={catalog.visibleItems}
+            largeVisual={isSolesTab}
+            onOpenDetail={setSelectedItem}
+          />
         )
       ) : (
         <EmptyResults />
       )}
+
+      <StoreItemDetail item={selectedItem} onClose={() => setSelectedItem(null)} />
+      <CartDrawer />
     </StoreShell>
+  )
+}
+
+export function VaclyStoreView() {
+  return (
+    <StoreCompanyProvider>
+      <StoreCartProvider>
+        <VaclyStoreInner />
+      </StoreCartProvider>
+    </StoreCompanyProvider>
   )
 }

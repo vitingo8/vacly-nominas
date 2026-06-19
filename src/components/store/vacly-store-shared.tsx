@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 import { ArrowRightIcon } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
 import { StoreItemIcon } from '@/components/store/store-item-icon'
+import { StoreHeaderBackground } from '@/components/store/store-header-background'
 import { StoreTitleTypewriter } from '@/components/store/store-title-typewriter'
 import {
   STORE_FILTERS,
@@ -39,6 +40,11 @@ export const CATEGORY_LABELS: Record<string, string> = {
   erp: 'ERP',
   tgss: 'TGSS',
   firmas: 'Firmas',
+  correo: 'Correo',
+  banca: 'Banca',
+  pagos: 'Pagos',
+  comunicacion: 'Comunicación',
+  ia: 'IA',
 }
 
 export const BADGE_STYLES: Record<NonNullable<StoreItem['badge']>, string> = {
@@ -209,21 +215,24 @@ export function CtaButton({
 
 export function StoreLogoTitle({ subtitle }: { subtitle?: string }) {
   return (
-    <header className="mb-6 flex flex-col items-center gap-2 text-center sm:mb-7 sm:flex-row sm:justify-center sm:gap-4">
-      <Image
-        key={STORE_LOGO_URL}
-        src={STORE_LOGO_URL}
-        alt=""
-        width={320}
-        height={100}
-        priority
-        unoptimized
-        className="h-16 w-auto max-w-[min(100%,16rem)] object-contain sm:h-[4.5rem] sm:max-w-[18rem] lg:h-20 lg:max-w-[20rem]"
-      />
-      <StoreTitleTypewriter className="text-[1.75rem] sm:text-[2.125rem] lg:text-4xl" />
-      {subtitle && (
-        <p className="w-full max-w-md text-sm leading-relaxed text-slate-500 sm:mt-0">{subtitle}</p>
-      )}
+    <header className="relative mb-6 overflow-hidden rounded-2xl border border-[#3DA2E1]/10 bg-gradient-to-br from-white via-[#EBF5FC]/40 to-[#D7EBF9]/60 shadow-sm sm:mb-7">
+      <StoreHeaderBackground />
+      <div className="relative z-10 flex flex-col items-center gap-2 px-4 py-6 text-center sm:flex-row sm:justify-center sm:gap-4 sm:px-6 sm:py-7">
+        <Image
+          key={STORE_LOGO_URL}
+          src={STORE_LOGO_URL}
+          alt=""
+          width={320}
+          height={100}
+          priority
+          unoptimized
+          className="h-16 w-auto max-w-[min(100%,16rem)] object-contain sm:h-[4.5rem] sm:max-w-[18rem] lg:h-20 lg:max-w-[20rem]"
+        />
+        <StoreTitleTypewriter className="text-[1.75rem] sm:text-[2.125rem] lg:text-4xl" />
+        {subtitle && (
+          <p className="w-full max-w-md text-sm leading-relaxed text-slate-500 sm:mt-0">{subtitle}</p>
+        )}
+      </div>
     </header>
   )
 }

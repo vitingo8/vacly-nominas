@@ -356,3 +356,113 @@ img {
   color: #0f172a;
   margin: 0 0 0.5rem 0;
 }
+
+/* Vacly Store header — burbujas y líneas (mismo efecto que vacly-web landing) */
+@keyframes store-float-bounce {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px) scale(1);
+  }
+  25% {
+    transform: translateY(-20px) translateX(8px) scale(1.05);
+  }
+  50% {
+    transform: translateY(-25px) translateX(-5px) scale(0.95);
+  }
+  75% {
+    transform: translateY(-15px) translateX(12px) scale(1.02);
+  }
+}
+
+.animate-float-bounce {
+  animation: store-float-bounce 6s ease-in-out infinite;
+}
+
+@keyframes line-travel {
+  0% {
+    stroke-dashoffset: 1000;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: -1000;
+    opacity: 0;
+  }
+}
+
+.animate-line-travel {
+  animation: line-travel 8s ease-in-out infinite;
+}
+
+.animate-line-travel-delayed {
+  animation: line-travel 10s ease-in-out infinite;
+  animation-delay: 2s;
+}
+
+.animate-line-travel-slow {
+  animation: line-travel 12s ease-in-out infinite;
+  animation-delay: 4s;
+}
+
+.store-bubble-interactive {
+  transition: all 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  will-change: transform, width, height, border-radius, background-color;
+}
+
+.bubble-transform-1:hover {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 0 !important;
+  transform: rotate(15deg) scale(1.3) !important;
+  background-color: rgba(61, 162, 225, 0.8) !important;
+  box-shadow: 0 25px 50px -12px rgba(61, 162, 225, 0.6) !important;
+}
+
+.bubble-transform-2:hover {
+  width: 3.5rem !important;
+  height: 3.5rem !important;
+  border-radius: 0 !important;
+  transform: rotate(-30deg) scale(1.2) !important;
+  background-color: rgba(65, 207, 143, 0.8) !important;
+  box-shadow: 0 25px 50px -12px rgba(65, 207, 143, 0.6) !important;
+}
+
+.bubble-transform-3:hover {
+  width: 2rem !important;
+  height: 2rem !important;
+  border-radius: 0 !important;
+  transform: rotate(45deg) scale(1.6) !important;
+  background-color: rgba(230, 149, 88, 0.8) !important;
+  box-shadow: 0 25px 50px -12px rgba(230, 149, 88, 0.6) !important;
+}
+
+.bubble-transform-4:hover {
+  width: 3rem !important;
+  height: 3rem !important;
+  border-radius: 0 !important;
+  transform: rotate(60deg) scale(1.4) !important;
+  background-color: rgba(61, 162, 225, 0.9) !important;
+  box-shadow: 0 25px 50px -12px rgba(61, 162, 225, 0.7) !important;
+}
+
+.bubble-transform-5:hover {
+  width: 2.25rem !important;
+  height: 2.25rem !important;
+  border-radius: 0 !important;
+  transform: rotate(90deg) scale(1.8) !important;
+  background-color: rgba(65, 207, 143, 0.9) !important;
+  box-shadow: 0 25px 50px -12px rgba(65, 207, 143, 0.7) !important;
+}
+
+.bubble-transform-6:hover {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  border-radius: 0 !important;
+  transform: rotate(-45deg) scale(2) !important;
+  background-color: rgba(246, 198, 103, 0.9) !important;
+  box-shadow: 0 25px 50px -12px rgba(246, 198, 103, 0.7) !important;
+}
