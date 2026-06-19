@@ -114,7 +114,7 @@ export function optimizeSolesCartLines<T extends SolesCartLine>(lines: T[]): T[]
     if (quantity <= 0) continue
     const item = SOLES_ITEM_BY_AMOUNT.get(amount)
     if (!item) continue
-    optimizedLines.push({ item, quantity })
+    optimizedLines.push({ item, quantity } as T)
   }
 
   return [...otherLines, ...optimizedLines]
