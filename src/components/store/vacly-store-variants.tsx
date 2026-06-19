@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CheckIcon,
   DocumentTextIcon,
@@ -275,7 +275,7 @@ function CardSolesGrid({
   return (
     <article
       onClick={() => onOpenDetail(item)}
-      className="group relative flex h-full min-h-[15.5rem] cursor-pointer flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/75 bg-white transition-all duration-200 hover:-translate-y-1 hover:border-[#C6A664]/45 hover:shadow-[0_18px_40px_rgba(198,166,100,0.2)]"
+      className="group relative flex h-full min-h-[17.5rem] cursor-pointer flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/75 bg-white transition-all duration-200 hover:-translate-y-1 hover:border-[#C6A664]/45 hover:shadow-[0_18px_40px_rgba(198,166,100,0.2)]"
     >
       <div className="relative flex h-[9.5rem] items-center justify-center border-b border-slate-100 bg-white sm:h-[10.5rem]">
         <div className="absolute right-3 top-3 z-10">
@@ -293,9 +293,9 @@ function CardSolesGrid({
           />
         )}
       </div>
-      <div className="flex flex-1 flex-col p-4 pt-3">
+      <div className="flex min-h-[7.5rem] flex-1 flex-col p-4 pt-3">
         <h3 className="text-base font-bold leading-tight text-[#1B2A41] sm:text-[17px]">{item.title}</h3>
-        <p className="mt-1.5 line-clamp-2 flex-1 text-xs leading-snug text-slate-500">{item.description}</p>
+        <p className="mt-1.5 line-clamp-3 flex-1 text-xs leading-snug text-slate-500">{item.description}</p>
         <div className="mt-3 flex items-end justify-between gap-3 border-t border-slate-100 pt-2.5">
           <StorePrice item={item} />
           <StoreItemActions item={item} onOpenDetail={onOpenDetail} />
@@ -315,7 +315,7 @@ function CardGrid({
   return (
     <article
       onClick={() => onOpenDetail(item)}
-      className="group relative flex h-full min-h-[11.75rem] cursor-pointer flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/75 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#3B9EDE]/30 hover:shadow-[0_14px_30px_rgba(27,42,65,0.07)]"
+      className="group relative flex h-full min-h-[13.5rem] cursor-pointer flex-col overflow-hidden rounded-[1.25rem] border border-slate-200/75 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#3B9EDE]/30 hover:shadow-[0_14px_30px_rgba(27,42,65,0.07)]"
     >
       <div className="flex items-center justify-between gap-2">
         <CategoryChip item={item} />
@@ -328,7 +328,7 @@ function CardGrid({
           {item.title}
         </h3>
       </div>
-      <p className="mt-1.5 line-clamp-2 flex-1 text-xs leading-snug text-slate-500">
+      <p className="mt-1.5 line-clamp-3 flex-1 text-xs leading-snug text-slate-500">
         {item.description}
       </p>
       <div className="mt-3 flex items-end justify-between gap-3 border-t border-slate-100 pt-2.5">
@@ -490,23 +490,77 @@ function StoreTable({
   )
 }
 
+/** Saldo de Soles de la empresa, junto al carrito (misma altura que CartButton). */
+function SolesBalancePill() {
+  const { solesBalance } = useStoreCompany()
+  return (
+    <span
+      className="inline-flex items-center gap-2.5 rounded-2xl border border-[#C6A664]/40 bg-[#FBF6EC] px-3.5 py-2.5 shadow-sm"
+      title="Saldo de Soles de tu empresa"
+    >
+      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#C6A664]/20 text-lg leading-none">
+        <span aria-hidden>☀️</span>
+      </span>
+      <span className="hidden flex-col items-start leading-tight sm:flex">
+        <span className="text-[13px] font-semibold text-[#8A6D2F]">
+          {solesBalance.toLocaleString('es-ES')}
+        </span>
+        <span className="text-[11px] font-medium text-[#A98B4F]">Soles</span>
+      </span>
+    </span>
+  )
+}
+
 /** Store principal — grid o tabla */
 function VaclyStoreInner() {
   const catalog = useStoreCatalog()
   const isSolesTab = catalog.activeTab === 'soles'
   const [selectedItem, setSelectedItem] = useState<StoreItem | null>(null)
+  const { isOpen: cartOpen, close: closeCart } = useStoreCart()
+  const hasOpenDialog = !!selectedItem || cartOpen
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'vacly-store-dialog', open: hasOpenDialog }, '*')
+    }
+  }, [hasOpenDialog])
+
+  useEffect(() => {
+    if (!hasOpenDialog) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      if (cartOpen) closeCart()
+      else setSelectedItem(null)
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [hasOpenDialog, cartOpen, closeCart])
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'vacly-store-escape') return
+      if (cartOpen) closeCart()
+      else setSelectedItem(null)
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [cartOpen, closeCart])
 
   return (
     <StoreShell className="bg-[#F5F5F7]">
-      <div className="pointer-events-none sticky top-3 z-40 mb-2 flex justify-end px-1">
-        <div className="pointer-events-auto">
-          <CartButton />
-        </div>
-      </div>
-      <StoreLogoTitle />
-      <div className="mb-6">
-        <StoreTabs activeTab={catalog.activeTab} onChange={catalog.handleTabChange} />
-      </div>
+      <StoreLogoTitle
+        actions={
+          <div className="flex items-center gap-2">
+            <SolesBalancePill />
+            <CartButton />
+          </div>
+        }
+        tabs={<StoreTabs activeTab={catalog.activeTab} onChange={catalog.handleTabChange} />}
+      />
       <StoreFiltersBar
         filters={catalog.filters}
         activeFilter={catalog.activeFilter}

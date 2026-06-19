@@ -14,6 +14,15 @@ import { lineAmount, useStoreCart } from '@/components/store/store-cart-context'
 import { useStoreCompany } from '@/components/store/store-company-context'
 
 const STORE_CHECKOUT_MESSAGE = 'vacly-store-checkout'
+const STORE_ADDONS_MESSAGE = 'vacly-store-addons'
+const STORE_SOLES_MESSAGE = 'vacly-store-soles'
+
+/** Extrae la cantidad de Soles de un item del catálogo (id `soles-<amount>`). */
+const SOLES_PACK_VALUES = [5, 50, 500, 1000, 5000]
+function solesAmountFromItem(item: StoreItem): number {
+  const fromId = Number(item.id.replace('soles-', ''))
+  return SOLES_PACK_VALUES.includes(fromId) ? fromId : 0
+}
 
 function formatEuro(amount: number): string {
   return amount.toLocaleString('es-ES', {
@@ -126,20 +135,27 @@ function CartLineRow({ item, quantity }: { item: StoreItem; quantity: number }) 
 /** Panel lateral del carrito. */
 export function CartDrawer() {
   const { lines, isOpen, close, totals, count, clear } = useStoreCart()
-  const { companyId, seats } = useStoreCompany()
+  const { companyId, seats, hasActiveSubscription } = useStoreCompany()
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
   const billableModules = lines.filter(
     (l) => l.item.entitlement?.type === 'module' && l.item.priceUnit !== 'included',
   )
-  const deferred = lines.filter(
+  const addonLines = lines.filter(
     (l) =>
-      l.item.entitlement?.type !== 'module' &&
-      // Soles, agentes e integraciones: checkout en fase posterior
-      l.item.priceUnit !== 'included',
+      l.item.entitlement?.type === 'agent' || l.item.entitlement?.type === 'integration',
   )
+  const solesLines = lines.filter((l) => l.item.priceUnit === 'once')
   const includedOnly = lines.filter((l) => l.item.priceUnit === 'included')
+
+  const postToParent = (type: string, payload: unknown): boolean => {
+    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+      window.parent.postMessage({ type, payload }, '*')
+      return true
+    }
+    return false
+  }
 
   const handleCheckout = () => {
     if (billableModules.length === 0) {
@@ -149,24 +165,58 @@ export function CartDrawer() {
     const moduleKeys = Array.from(
       new Set(billableModules.map((l) => l.item.entitlement!.key)),
     )
-    const payload = {
-      companyId,
-      seats,
-      periodicity: 'monthly' as const,
-      modules: moduleKeys,
-    }
+    const payload = { companyId, seats, periodicity: 'monthly' as const, modules: moduleKeys }
     setSubmitting(true)
     setMessage(null)
     try {
-      if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: STORE_CHECKOUT_MESSAGE, payload }, '*')
+      if (postToParent(STORE_CHECKOUT_MESSAGE, payload)) {
         setMessage('Procesando el pago en una nueva pantalla...')
       } else {
-        setMessage(
-          'Abre el Store desde Vacly para completar el pago con Stripe (módulos: ' +
-            moduleKeys.join(', ') +
-            ').',
-        )
+        setMessage('Abre el Store desde Vacly para completar el pago con Stripe.')
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleAddonsCheckout = () => {
+    if (addonLines.length === 0) return
+    if (!hasActiveSubscription) {
+      setMessage('Necesitas una suscripción activa (un módulo) para activar agentes o integraciones.')
+      return
+    }
+    const addons = addonLines.map((l) => ({
+      type: l.item.entitlement!.type as 'agent' | 'integration',
+      key: l.item.entitlement!.key,
+      title: l.item.title,
+      priceEur: l.item.priceAmount ?? 0,
+    }))
+    setSubmitting(true)
+    setMessage(null)
+    try {
+      if (postToParent(STORE_ADDONS_MESSAGE, { companyId, addons })) {
+        setMessage('Activando agentes e integraciones en tu suscripción...')
+      } else {
+        setMessage('Abre el Store desde Vacly para activar agentes e integraciones.')
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleSolesCheckout = () => {
+    if (solesLines.length === 0) return
+    const packs = solesLines
+      .map((l) => ({ amount: solesAmountFromItem(l.item), quantity: l.quantity }))
+      .filter((p) => p.amount > 0)
+    if (packs.length === 0) return
+    setSubmitting(true)
+    setMessage(null)
+    try {
+      if (postToParent(STORE_SOLES_MESSAGE, { companyId, packs })) {
+        setMessage('Procesando la compra de Soles en una nueva pantalla...')
+      } else {
+        setMessage('Abre el Store desde Vacly para comprar Soles con Stripe.')
       }
     } finally {
       setSubmitting(false)
@@ -233,6 +283,31 @@ export function CartDrawer() {
                   ))}
                 </section>
               )}
+              {addonLines.length > 0 && (
+                <section className="pt-4">
+                  <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Agentes e integraciones (/mes)
+                  </h3>
+                  {addonLines.map((l) => (
+                    <CartLineRow key={l.item.id} item={l.item} quantity={l.quantity} />
+                  ))}
+                  {!hasActiveSubscription && (
+                    <p className="mt-2 text-[11px] leading-relaxed text-amber-600">
+                      Requieren una suscripción activa: contrata primero un módulo.
+                    </p>
+                  )}
+                </section>
+              )}
+              {solesLines.length > 0 && (
+                <section className="pt-4">
+                  <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Paquetes de Soles (pago único)
+                  </h3>
+                  {solesLines.map((l) => (
+                    <CartLineRow key={l.item.id} item={l.item} quantity={l.quantity} />
+                  ))}
+                </section>
+              )}
               {includedOnly.length > 0 && (
                 <section className="pt-4">
                   <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
@@ -241,23 +316,6 @@ export function CartDrawer() {
                   {includedOnly.map((l) => (
                     <CartLineRow key={l.item.id} item={l.item} quantity={l.quantity} />
                   ))}
-                </section>
-              )}
-              {deferred.length > 0 && (
-                <section className="pt-4">
-                  <h3 className="mb-1 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Agentes, integraciones y Soles
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold normal-case tracking-normal text-amber-700">
-                      Pronto
-                    </span>
-                  </h3>
-                  {deferred.map((l) => (
-                    <CartLineRow key={l.item.id} item={l.item} quantity={l.quantity} />
-                  ))}
-                  <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
-                    La compra de agentes, integraciones y paquetes de Soles se habilitará muy pronto.
-                    Por ahora se tramita la suscripción de módulos.
-                  </p>
                 </section>
               )}
             </div>
@@ -287,17 +345,47 @@ export function CartDrawer() {
               </p>
             )}
 
-            <button
-              type="button"
-              onClick={handleCheckout}
-              disabled={submitting || billableModules.length === 0}
-              className={cn(
-                'mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1B2A41] px-4 py-3 text-sm font-semibold text-white transition-all hover:bg-[#152036] active:scale-[0.99]',
-                (submitting || billableModules.length === 0) && 'cursor-not-allowed opacity-50',
+            <div className="mt-3 space-y-2">
+              {billableModules.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleCheckout}
+                  disabled={submitting}
+                  className={cn(
+                    'inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1B2A41] px-4 py-3 text-sm font-semibold text-white transition-all hover:bg-[#152036] active:scale-[0.99]',
+                    submitting && 'cursor-not-allowed opacity-50',
+                  )}
+                >
+                  {submitting ? 'Procesando...' : 'Tramitar suscripción de módulos'}
+                </button>
               )}
-            >
-              {submitting ? 'Procesando...' : 'Tramitar suscripción'}
-            </button>
+              {addonLines.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleAddonsCheckout}
+                  disabled={submitting || !hasActiveSubscription}
+                  className={cn(
+                    'inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#C6A664] px-4 py-3 text-sm font-semibold text-white transition-all hover:bg-[#b3934f] active:scale-[0.99]',
+                    (submitting || !hasActiveSubscription) && 'cursor-not-allowed opacity-50',
+                  )}
+                >
+                  {submitting ? 'Procesando...' : 'Activar agentes e integraciones'}
+                </button>
+              )}
+              {solesLines.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleSolesCheckout}
+                  disabled={submitting}
+                  className={cn(
+                    'inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#1B2A41]/15 bg-white px-4 py-3 text-sm font-semibold text-[#1B2A41] transition-all hover:bg-slate-50 active:scale-[0.99]',
+                    submitting && 'cursor-not-allowed opacity-50',
+                  )}
+                >
+                  {submitting ? 'Procesando...' : `Comprar Soles (${formatEuro(totals.once)})`}
+                </button>
+              )}
+            </div>
             <button
               type="button"
               onClick={clear}

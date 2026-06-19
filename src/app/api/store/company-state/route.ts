@@ -34,6 +34,7 @@ export interface StoreCompanyState {
   seats: number
   seatsAnnual: number
   employeeCount: number
+  solesBalance: number
   modules: {
     tiempo: boolean
     proyectos: boolean
@@ -46,6 +47,10 @@ export interface StoreCompanyState {
     memory: boolean
     soporte_remoto: boolean
   }
+  /** Claves de agentes instalados (company_store_installs) */
+  agents: string[]
+  /** Claves de integraciones instaladas (company_store_installs) */
+  integrations: string[]
 }
 
 export async function GET(request: NextRequest) {
@@ -84,6 +89,24 @@ export async function GET(request: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('company_id', companyId)
 
+    const { data: walletRow } = await supabase
+      .from('company_sole_wallets')
+      .select('balance')
+      .eq('company_id', companyId)
+      .maybeSingle()
+
+    const { data: installRows } = await supabase
+      .from('company_store_installs')
+      .select('item_type, item_key')
+      .eq('company_id', companyId)
+      .eq('status', 'active')
+
+    const installs = (installRows ?? []) as { item_type: string; item_key: string }[]
+    const agents = installs.filter((r) => r.item_type === 'agent').map((r) => r.item_key)
+    const integrations = installs
+      .filter((r) => r.item_type === 'integration')
+      .map((r) => r.item_key)
+
     const isPremium = billing?.plan_type === 'premium'
     const subStatus = (billing?.stripe_subscription_status as string | null) ?? null
     const hasActiveSubscription =
@@ -98,6 +121,7 @@ export async function GET(request: NextRequest) {
       seats: Number(billing?.seats ?? 0) || 0,
       seatsAnnual: Number(billing?.seats_annual ?? 0) || 0,
       employeeCount: employeeCount ?? 0,
+      solesBalance: Number((walletRow as { balance?: number } | null)?.balance ?? 0) || 0,
       modules: {
         tiempo: isPremium && !!billing?.module_tiempo,
         proyectos: isPremium && !!billing?.module_proyectos,
@@ -110,6 +134,8 @@ export async function GET(request: NextRequest) {
         memory: !!billing?.permission_memory,
         soporte_remoto: !!billing?.permission_soporte_remoto,
       },
+      agents,
+      integrations,
     }
 
     return NextResponse.json({ success: true, state })

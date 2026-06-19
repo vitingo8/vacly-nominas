@@ -11,8 +11,11 @@ export interface StoreCompanyState {
   seats: number
   seatsAnnual: number
   employeeCount: number
+  solesBalance: number
   modules: { tiempo: boolean; proyectos: boolean; finanzas: boolean; laboral: boolean }
   permissions: { inbox: boolean; via_chat: boolean; memory: boolean; soporte_remoto: boolean }
+  agents: string[]
+  integrations: string[]
 }
 
 interface StoreCompanyContextValue {
@@ -21,6 +24,10 @@ interface StoreCompanyContextValue {
   loading: boolean
   /** Nº de licencias contratadas (o nº de empleados como mejor estimación). */
   seats: number
+  /** Saldo de Soles de la empresa. */
+  solesBalance: number
+  /** true si la empresa tiene una suscripción activa (necesaria para add-ons). */
+  hasActiveSubscription: boolean
   /** true si la empresa ya tiene contratado / instalado el item. */
   isInstalled: (item: StoreItem) => boolean
 }
@@ -30,6 +37,8 @@ const StoreCompanyContext = createContext<StoreCompanyContextValue>({
   state: null,
   loading: false,
   seats: 1,
+  solesBalance: 0,
+  hasActiveSubscription: false,
   isInstalled: () => false,
 })
 
@@ -85,11 +94,24 @@ export function StoreCompanyProvider({ children }: { children: React.ReactNode }
         const key = ent.key as keyof StoreCompanyState['permissions']
         return !!state.permissions[key]
       }
-      // Agentes / integraciones aún sin backend de instalación: badge estático.
+      if (ent.type === 'agent') {
+        return state.agents.includes(ent.key) || item.badge === 'instalado'
+      }
+      if (ent.type === 'integration') {
+        return state.integrations.includes(ent.key) || item.badge === 'instalado'
+      }
       return item.badge === 'instalado'
     }
 
-    return { companyId, state, loading, seats, isInstalled }
+    return {
+      companyId,
+      state,
+      loading,
+      seats,
+      solesBalance: state?.solesBalance ?? 0,
+      hasActiveSubscription: state?.hasActiveSubscription ?? false,
+      isInstalled,
+    }
   }, [companyId, state, loading])
 
   return <StoreCompanyContext.Provider value={value}>{children}</StoreCompanyContext.Provider>

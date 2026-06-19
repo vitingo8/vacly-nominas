@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowRightIcon } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
 import { StoreItemIcon } from '@/components/store/store-item-icon'
@@ -213,26 +213,42 @@ export function CtaButton({
   )
 }
 
-export function StoreLogoTitle({ subtitle }: { subtitle?: string }) {
+export function StoreLogoTitle({
+  subtitle,
+  actions,
+  tabs,
+}: {
+  subtitle?: string
+  actions?: ReactNode
+  tabs?: ReactNode
+}) {
   return (
-    <header className="relative mb-6 overflow-hidden rounded-2xl border border-[#3DA2E1]/10 bg-gradient-to-br from-white via-[#EBF5FC]/40 to-[#D7EBF9]/60 shadow-sm sm:mb-7">
+    <header className="relative -mx-4 -mt-8 mb-6 overflow-hidden bg-gradient-to-br from-white via-[#EBF5FC]/40 to-[#D7EBF9]/60 sm:-mx-6 sm:mb-7 lg:-mx-8">
       <StoreHeaderBackground />
-      <div className="relative z-10 flex flex-col items-center gap-2 px-4 py-6 text-center sm:flex-row sm:justify-center sm:gap-4 sm:px-6 sm:py-7">
-        <Image
-          key={STORE_LOGO_URL}
-          src={STORE_LOGO_URL}
-          alt=""
-          width={320}
-          height={100}
-          priority
-          unoptimized
-          className="h-16 w-auto max-w-[min(100%,16rem)] object-contain sm:h-[4.5rem] sm:max-w-[18rem] lg:h-20 lg:max-w-[20rem]"
-        />
-        <StoreTitleTypewriter className="text-[1.75rem] sm:text-[2.125rem] lg:text-4xl" />
-        {subtitle && (
-          <p className="w-full max-w-md text-sm leading-relaxed text-slate-500 sm:mt-0">{subtitle}</p>
+      <div className="relative z-10 px-4 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-8">
+        {actions && (
+          <div className="relative z-20 mb-3 flex justify-end sm:absolute sm:right-6 sm:top-5 sm:mb-0">
+            {actions}
+          </div>
         )}
+        <div className="flex flex-col items-center gap-2 pt-1 text-center sm:flex-row sm:justify-center sm:gap-4 sm:pt-2">
+          <Image
+            key={STORE_LOGO_URL}
+            src={STORE_LOGO_URL}
+            alt=""
+            width={320}
+            height={100}
+            priority
+            unoptimized
+            className="h-16 w-auto max-w-[min(100%,16rem)] object-contain sm:h-[4.5rem] sm:max-w-[18rem] lg:h-20 lg:max-w-[20rem]"
+          />
+          <StoreTitleTypewriter className="text-[1.75rem] sm:text-[2.125rem] lg:text-4xl" />
+          {subtitle && (
+            <p className="w-full max-w-md text-sm leading-relaxed text-slate-500 sm:mt-0">{subtitle}</p>
+          )}
+        </div>
       </div>
+      {tabs && <div className="relative z-10">{tabs}</div>}
     </header>
   )
 }
