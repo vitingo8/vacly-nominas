@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { AdminIntegrationError } from '../errors'
 import { AuditService } from '../audit/audit-service'
 import { createCertificateVault } from '../certificate-vault/certificate-vault-service'
-import { getCompanyRecipientUserIds } from './recipients'
+import { getCompanyRecipientUserIds, resolveNotificationTeamCompanyId } from './recipients'
 import { getNotificationsConfig } from './config'
 import { createNotificationAdapters } from './adapters'
 import { storeNotificationDocument } from './notification-document-storage'
@@ -128,7 +128,7 @@ async function loadAssigneesMap(
 
   const { data, error } = await supabase
     .from('users')
-    .select('id, nombre, apellidos, avatar')
+    .select('id, nombre, apellidos')
     .in('id', unique)
 
   if (error) {
@@ -609,17 +609,19 @@ export async function syncMultipleCompanyNotifications(
 
 export async function listNotificationTeamMembers(
   supabase: SupabaseClient,
-  agencyCompanyId: string,
+  notificationCompanyId: string,
 ): Promise<Array<{ id: string; name: string; avatar: string | null; email: string | null }>> {
+  const teamCompanyId = await resolveNotificationTeamCompanyId(supabase, notificationCompanyId)
+
   const { data, error } = await supabase
     .from('users')
-    .select('id, nombre, apellidos, avatar, email')
-    .eq('company_id', agencyCompanyId)
+    .select('id, nombre, apellidos, email')
+    .eq('company_id', teamCompanyId)
     .eq('state', true)
     .order('nombre')
 
   if (error) {
-    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando equipo de la gestoría', error)
+    throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando equipo responsable', error)
   }
 
   return (data || []).map((row) => {
@@ -656,16 +658,17 @@ export async function updateNotificationWorkflow(
   }
 
   if (input.assignedUserId) {
+    const teamCompanyId = await resolveNotificationTeamCompanyId(supabase, input.companyId)
     const { data: user, error: userError } = await supabase
       .from('users')
       .select('id')
       .eq('id', input.assignedUserId)
-      .eq('company_id', input.agencyCompanyId)
+      .eq('company_id', teamCompanyId)
       .eq('state', true)
       .maybeSingle()
 
     if (userError || !user) {
-      throw new AdminIntegrationError('VALIDATION_ERROR', 'Responsable no válido para la gestoría')
+      throw new AdminIntegrationError('VALIDATION_ERROR', 'Responsable no válido para esta notificación')
     }
   }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { readSearchParam, useEmbeddedMode } from '@/lib/embedded-mode'
+import { useEmbeddedMode, useSearchParam } from '@/lib/embedded-mode'
 
 /** Mismo contenedor de ancho que el gestor de nóminas (`src/app/page.tsx`). */
 export const ADMIN_PAGE_SHELL_CLASS =
@@ -16,13 +16,18 @@ interface AdminShellProps {
 }
 
 export function AdminShell({ title, subtitle, embedded, children }: AdminShellProps) {
-  const [companyId, setCompanyId] = useState<string | null>(() => readSearchParam('company_id'))
+  const companyId = useSearchParam('company_id')
+  const [mounted, setMounted] = useState(false)
   const detectedEmbedded = useEmbeddedMode()
   const isEmbedded = embedded ?? detectedEmbedded
 
   useEffect(() => {
-    setCompanyId(readSearchParam('company_id'))
+    setMounted(true)
   }, [])
+
+  if (!mounted) {
+    return <div className="min-h-[40vh] bg-[#f6f8fa]" aria-hidden />
+  }
 
   if (!companyId) {
     return (
@@ -48,11 +53,7 @@ export function AdminShell({ title, subtitle, embedded, children }: AdminShellPr
 }
 
 export function useCompanyId() {
-  const [companyId, setCompanyId] = useState<string | null>(() => readSearchParam('company_id'))
-  useEffect(() => {
-    setCompanyId(readSearchParam('company_id'))
-  }, [])
-  return companyId
+  return useSearchParam('company_id')
 }
 
 export { useEmbeddedMode } from '@/lib/embedded-mode'

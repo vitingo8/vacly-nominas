@@ -94,7 +94,7 @@ export function resolveAdminStatus(
   if (provider === 'aeat') {
     const code = String(meta.estado || 'P').toUpperCase()
     const map: Record<string, AdminStatusInfo> = {
-      P: { code, label: 'Pendiente de acceso', tone: 'warning' },
+      P: { code, label: 'Pendiente', tone: 'warning' },
       A: { code, label: 'Accedida', tone: 'success' },
       N: { code, label: 'Notificada', tone: 'neutral' },
     }

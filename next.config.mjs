@@ -10,6 +10,16 @@ const nextConfig = {
   },
   // Enable production optimizations (SWC minify is default in Next.js 13+)
   compress: true,
+
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
+    ],
+  },
   
   // Disable source maps in production for security
   productionBrowserSourceMaps: false,

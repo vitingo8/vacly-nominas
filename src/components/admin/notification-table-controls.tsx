@@ -353,12 +353,12 @@ export function NotificationColumnHeader({
             disabled={!sortKey}
             onClick={() => sortKey && onSort(sortKey)}
             className={cn(
-              'inline-flex min-w-0 max-w-full items-center justify-center gap-0.5 rounded px-1 py-0.5 text-xs font-medium transition-colors',
+              'inline-flex max-w-full items-center justify-center gap-0.5 rounded px-1 py-0.5 text-xs font-medium transition-colors',
               sortKey ? 'text-slate-600 hover:bg-slate-200/80 hover:text-slate-900' : 'text-slate-600 cursor-default',
               isSorted && 'text-[#1B2A41]',
             )}
           >
-            <span className="truncate text-center">{label}</span>
+            <span className="whitespace-normal text-center leading-tight">{label}</span>
             {isSorted &&
               (sortDirection === 'asc' ? (
                 <ChevronUpIcon className="h-3.5 w-3.5 shrink-0" />

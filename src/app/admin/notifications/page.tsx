@@ -16,6 +16,10 @@ import {
 import { NOTIFICATION_AUTO_SYNC_LABEL } from '@/lib/admin-integrations/notifications/notification-service'
 import { NotificationAssigneeSelect, type NotificationTeamMember } from '@/components/admin/notification-assignee-select'
 import {
+  NotificationViewFilterSelect,
+  type NotificationViewFilter,
+} from '@/components/admin/notification-view-filter'
+import {
   NotificationColumnHeader,
   TableToolbarHint,
   useNotificationTableView,
@@ -109,7 +113,21 @@ function providerLabel(provider: string): string {
   return PROVIDER_LABEL[provider] || provider.toUpperCase()
 }
 
-type StatusFilter = 'pending' | 'all'
+type StatusFilter = NotificationViewFilter
+
+function isAdminPendingAccess(n: NotifRow): boolean {
+  return n.adminStatus.tone === 'warning'
+}
+
+function isPendingNotification(n: NotifRow): boolean {
+  return n.vaclyStatus !== 'cerrada'
+}
+
+function filterNotifications(rows: NotifRow[], statusFilter: StatusFilter): NotifRow[] {
+  if (statusFilter === 'all') return rows
+  if (statusFilter === 'vacly_active') return rows.filter(isPendingNotification)
+  return rows.filter(isAdminPendingAccess)
+}
 
 function addCalendarDays(date: Date, days: number): Date {
   const result = new Date(date)
@@ -126,10 +144,6 @@ function computeCaducidad(n: NotifRow): string | null {
 
 function isOpenedNotification(n: NotifRow): boolean {
   return n.vaclyStatus !== 'pendiente'
-}
-
-function isPendingNotification(n: NotifRow): boolean {
-  return n.vaclyStatus !== 'cerrada'
 }
 
 function adminStatusBadgeClass(tone: NotifRow['adminStatus']['tone']): string {
@@ -157,11 +171,6 @@ function needsComparecer(row: NotifRow): boolean {
   if (row.provider === 'aeat') return row.aeatEstado !== 'A'
   if (row.provider === 'tgss') return row.tgssEstado === 0 || row.tgssEstado == null
   return !row.hasDocument
-}
-
-function filterNotifications(rows: NotifRow[], statusFilter: StatusFilter): NotifRow[] {
-  if (statusFilter === 'all') return rows
-  return rows.filter(isPendingNotification)
 }
 
 interface EmailAnalysis {
@@ -216,13 +225,13 @@ function buildMailtoLink(to: string, subject: string, body: string): string {
 export default function AdminNotificationsPage() {
   const companyId = useCompanyId()
   const [agency, setAgency] = useState<NotifRow[]>([])
-  const [team, setTeam] = useState<NotificationTeamMember[]>([])
+  const [teamsByCompanyId, setTeamsByCompanyId] = useState<Record<string, NotificationTeamMember[]>>({})
   const [certs, setCerts] = useState<CertOption[]>([])
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [actingId, setActingId] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('admin_pending')
   const [viewer, setViewer] = useState<{ title: string; url: string; blob: Blob; fileName: string } | null>(null)
   const [emailPanel, setEmailPanel] = useState<{
     row: NotifRow
@@ -288,17 +297,31 @@ export default function AdminNotificationsPage() {
         } else {
           setNewNotifAlert(null)
         }
+        loadTeamsForRows(rows)
       })
       .catch(() => {})
   }
 
-  const loadTeam = () => {
+  const loadTeamsForRows = (rows: NotifRow[]) => {
     if (!companyId) return
-    fetch(`/api/admin/notifications/team?company_id=${encodeURIComponent(companyId)}`, {
+    const ids = [...new Set(rows.map((r) => r.companyId).filter(Boolean))]
+    if (ids.length === 0) {
+      setTeamsByCompanyId({})
+      return
+    }
+    const params = new URLSearchParams({
+      company_id: companyId,
+      for_companies: ids.join(','),
+    })
+    fetch(`/api/admin/notifications/team?${params.toString()}`, {
       headers: adminHeaders(),
     })
       .then((r) => r.json())
-      .then((d) => d.success && setTeam(d.members || []))
+      .then((d) => {
+        if (d.success && d.teams) {
+          setTeamsByCompanyId(d.teams as Record<string, NotificationTeamMember[]>)
+        }
+      })
       .catch(() => {})
   }
 
@@ -357,7 +380,6 @@ export default function AdminNotificationsPage() {
   useEffect(() => {
     loadAgency()
     loadCerts()
-    loadTeam()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
@@ -795,45 +817,47 @@ export default function AdminNotificationsPage() {
           La sincronización consulta el listado en AEAT y TGSS WSCN con todos los certificados de la cartera (sin abrir ni
           comparecer). El contenido se descarga solo cuando pulsas Abrir y confirmas.
         </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            onClick={sync}
-            disabled={syncing || certs.length === 0}
-            className="bg-[#1B2A41] text-white hover:bg-[#152036] shrink-0"
-          >
-            {syncing
-              ? 'Sincronizando...'
-              : certs.length > 1
-                ? `Sincronizar ${certs.length} certificados`
-                : 'Sincronizar ahora'}
-          </Button>
-          {certs.length > 0 && (
-            <span className="text-xs text-slate-500">
-              {certs.length} certificado{certs.length > 1 ? 's' : ''} de la cartera
-            </span>
-          )}
-        </div>
-        <div className="mt-4 pt-4 border-t border-slate-100 grid gap-1 text-xs text-slate-600">
-          <p>
-            <span className="font-medium text-slate-700">Última actualización:</span>{' '}
-            {syncSummary?.lastUpdatedAt ? fmtDateTime(syncSummary.lastUpdatedAt) : 'Aún no se ha sincronizado'}
-            {syncSummary?.lastUpdatedAt && syncSummary.lastStored != null && (
-              <span className="text-slate-500">
-                {' '}
-                · {syncSummary.lastStored} nueva{syncSummary.lastStored === 1 ? '' : 's'} de{' '}
-                {syncSummary.lastFetched ?? 0} recibidas
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={sync}
+              disabled={syncing || certs.length === 0}
+              className="bg-[#1B2A41] text-white hover:bg-[#152036] shrink-0"
+            >
+              {syncing
+                ? 'Sincronizando...'
+                : certs.length > 1
+                  ? `Sincronizar ${certs.length} certificados`
+                  : 'Sincronizar ahora'}
+            </Button>
+            {certs.length > 0 && (
+              <span className="text-xs text-slate-500">
+                {certs.length} certificado{certs.length > 1 ? 's' : ''} de la cartera
               </span>
             )}
-          </p>
-          <p className="text-slate-500">
-            Sincronización automática programada a las {NOTIFICATION_AUTO_SYNC_LABEL} (hora peninsular).
-            {pendingCount > 0 && (
-              <span className="text-amber-700 font-medium">
-                {' '}
-                · {pendingCount} pendiente{pendingCount === 1 ? '' : 's'} ante la administración
-              </span>
-            )}
-          </p>
+          </div>
+          <div className="flex min-w-0 flex-col items-end gap-0.5 text-right text-xs text-slate-600">
+            <p>
+              <span className="font-medium text-slate-700">Última actualización:</span>{' '}
+              {syncSummary?.lastUpdatedAt ? fmtDateTime(syncSummary.lastUpdatedAt) : 'Aún no se ha sincronizado'}
+              {syncSummary?.lastUpdatedAt && syncSummary.lastStored != null && (
+                <span className="text-slate-500">
+                  {' '}
+                  · {syncSummary.lastStored} nueva{syncSummary.lastStored === 1 ? '' : 's'} de{' '}
+                  {syncSummary.lastFetched ?? 0} recibidas
+                </span>
+              )}
+            </p>
+            <p className="text-slate-500">
+              Sincronización automática programada a las {NOTIFICATION_AUTO_SYNC_LABEL} (hora peninsular).
+              {pendingCount > 0 && (
+                <span className="text-amber-700 font-medium">
+                  {' '}
+                  · {pendingCount} pendiente{pendingCount === 1 ? '' : 's'} ante la administración
+                </span>
+              )}
+            </p>
+          </div>
         </div>
         {message && <p className="text-sm text-emerald-700 mt-3">{message}</p>}
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
@@ -842,18 +866,8 @@ export default function AdminNotificationsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 mt-6">
         <h3 className="font-semibold text-slate-800">Cartera de la gestoría</h3>
         <div className="flex items-center gap-2">
-          <label htmlFor="notif-status-filter" className="text-xs text-slate-500">
-            Mostrar
-          </label>
-          <select
-            id="notif-status-filter"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="h-9 rounded-md border border-slate-300 px-3 text-sm bg-white"
-          >
-            <option value="pending">Activas en Vacly</option>
-            <option value="all">Todas</option>
-          </select>
+          <span className="text-xs font-medium text-slate-500">Mostrar</span>
+          <NotificationViewFilterSelect value={statusFilter} onChange={setStatusFilter} />
         </div>
       </div>
 
@@ -900,7 +914,7 @@ export default function AdminNotificationsPage() {
         selectedIds={selectedIds}
         onToggleSelect={toggleSelect}
         onToggleSelectAll={toggleSelectAll}
-        team={team}
+        teamsByCompanyId={teamsByCompanyId}
         onWorkflowChange={patchWorkflow}
       />
 
@@ -1201,9 +1215,9 @@ function AeatLogo() {
 function ProviderBadge({ provider, sender }: { provider: string; sender: string | null }) {
   if (provider === 'aeat') {
     return (
-      <div className="flex items-center justify-center gap-2">
+      <div className="flex items-center justify-start gap-2 text-left">
         <AeatLogo />
-        <div className="text-left">
+        <div className="min-w-0 text-left">
           <span className="text-xs font-medium text-slate-700">AEAT</span>
           {sender && <span className="block text-[11px] text-slate-400 leading-tight">{sender}</span>}
         </div>
@@ -1211,9 +1225,9 @@ function ProviderBadge({ provider, sender }: { provider: string; sender: string 
     )
   }
   return (
-    <div className="text-center">
+    <div className="text-left">
       <Badge variant="secondary">{PROVIDER_LABEL[provider] || provider}</Badge>
-      {sender && <span className="block text-[11px] text-slate-400 mt-0.5">{sender}</span>}
+      {sender && <span className="block text-[11px] text-slate-400 mt-0.5 text-left">{sender}</span>}
     </div>
   )
 }
@@ -1287,7 +1301,7 @@ function NotifTable({
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
-  team,
+  teamsByCompanyId,
   onWorkflowChange,
 }: {
   rows: NotifRow[]
@@ -1298,7 +1312,7 @@ function NotifTable({
   selectedIds: Set<string>
   onToggleSelect: (id: string) => void
   onToggleSelectAll: (rows: NotifRow[]) => void
-  team: NotificationTeamMember[]
+  teamsByCompanyId: Record<string, NotificationTeamMember[]>
   onWorkflowChange: (
     row: NotifRow,
     patch: { vacly_status?: string; category?: string; assigned_user_id?: string | null },
@@ -1320,17 +1334,23 @@ function NotifTable({
   const allSelected = displayedRows.length > 0 && displayedRows.every((r) => selectedIds.has(r.id))
   const someSelected = displayedRows.some((r) => selectedIds.has(r.id))
   const emptyMessage =
-    statusFilter === 'pending'
+    statusFilter === 'admin_pending'
       ? totalCount === 0
         ? 'Sin notificaciones. Sincroniza con AEAT y TGSS para importarlas.'
         : displayedRows.length === 0
           ? 'Ninguna notificación coincide con los filtros de columna.'
-          : 'Sin notificaciones activas en Vacly. Cambia el filtro a "Todas" para ver las cerradas.'
-      : displayedRows.length === 0
+          : 'Sin notificaciones pendientes. Cambia el filtro para ver el resto.'
+      : statusFilter === 'vacly_active'
         ? totalCount === 0
-          ? 'Sin notificaciones'
-          : 'Ninguna notificación coincide con los filtros de columna.'
-        : 'Sin notificaciones'
+          ? 'Sin notificaciones. Sincroniza con AEAT y TGSS para importarlas.'
+          : displayedRows.length === 0
+            ? 'Ninguna notificación coincide con los filtros de columna.'
+            : 'Sin notificaciones activas en Vacly. Cambia el filtro a "Todas" para ver las cerradas.'
+        : displayedRows.length === 0
+          ? totalCount === 0
+            ? 'Sin notificaciones'
+            : 'Ninguna notificación coincide con los filtros de columna.'
+          : 'Sin notificaciones'
 
   return (
     <Card className="border-slate-200 w-full max-w-full overflow-hidden">
@@ -1341,7 +1361,14 @@ function NotifTable({
           activeFilterCount={activeFilterCount}
           onClearFilters={clearAllFilters}
         >
-          {statusFilter === 'pending' ? (
+          {statusFilter === 'admin_pending' ? (
+            <>
+              <span className="font-medium text-slate-700">{displayedRows.length} pendientes</span>
+              {totalCount > rows.length && (
+                <span>{` · ${totalCount - rows.length} ocultas por vista`}</span>
+              )}
+            </>
+          ) : statusFilter === 'vacly_active' ? (
             <>
               <span className="font-medium text-slate-700">{displayedRows.length} activas visibles</span>
               {totalCount > rows.length && (
@@ -1370,7 +1397,7 @@ function NotifTable({
             onToggleSelect={onToggleSelect}
             onRequestAction={onRequestAction}
             onWorkflowChange={onWorkflowChange}
-            team={team}
+            members={teamsByCompanyId[n.companyId] ?? []}
           />
         ))}
         {displayedRows.length === 0 && (
@@ -1383,16 +1410,16 @@ function NotifTable({
         <table className="w-full table-fixed text-sm">
           <colgroup>
             <col className="w-10" />
+            <col className="w-[8%]" />
             <col className="w-[11%]" />
-            <col className="w-[10%]" />
-            <col />
-            <col className="w-[9%]" />
+            <col className="w-[16%]" />
             <col className="w-[8%]" />
-            <col className="w-[8%]" />
+            <col className="w-[7%]" />
+            <col className="w-[7%]" />
             <col className="w-[10%]" />
             <col className="w-[10%]" />
-            <col className="w-[10%]" />
-            <col className="w-[5.5rem]" />
+            <col className="w-[5.75rem]" />
+            <col className="w-[7.5rem]" />
           </colgroup>
           <thead className="bg-slate-50">
             <tr>
@@ -1472,7 +1499,7 @@ function NotifTable({
                 onFilterChange={handleFilterChange}
               />
               <NotificationColumnHeader
-                label="Estado admin."
+                label="Estado administración"
                 sortKey="adminStatus"
                 filterKey="adminStatus"
                 sortColumn={sortColumn}
@@ -1504,7 +1531,9 @@ function NotifTable({
                 columnFilters={columnFilters}
                 onFilterChange={handleFilterChange}
               />
-              <th className="p-2 text-center font-medium text-slate-600 text-xs align-middle">Acciones</th>
+              <th className="p-2 text-center font-medium text-slate-600 text-xs align-middle whitespace-normal leading-tight">
+                Acciones
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1517,7 +1546,7 @@ function NotifTable({
                 onToggleSelect={onToggleSelect}
                 onRequestAction={onRequestAction}
                 onWorkflowChange={onWorkflowChange}
-                team={team}
+                members={teamsByCompanyId[n.companyId] ?? []}
               />
             ))}
             {displayedRows.length === 0 && (
@@ -1544,7 +1573,7 @@ type NotifRowHandlers = {
     row: NotifRow,
     patch: { vacly_status?: string; category?: string; assigned_user_id?: string | null },
   ) => void
-  team: NotificationTeamMember[]
+  members: NotificationTeamMember[]
 }
 
 function NotifActionButtons({
@@ -1574,7 +1603,7 @@ function NotifDesktopRow({
   onToggleSelect,
   onRequestAction,
   onWorkflowChange,
-  team,
+  members,
 }: NotifRowHandlers) {
   const pendingVacly = n.vaclyStatus === 'pendiente'
   const caducidad = computeCaducidad(n)
@@ -1594,10 +1623,10 @@ function NotifDesktopRow({
           onChange={() => onToggleSelect(n.id)}
         />
       </td>
-      <td className="p-2 text-slate-700 font-medium align-middle break-words text-center text-xs">
-        {n.companyName || '—'}
+      <td className="p-2 text-slate-700 font-medium align-middle text-center text-xs">
+        <span className="block break-words whitespace-normal">{n.companyName || '—'}</span>
       </td>
-      <td className="p-2 align-middle text-center">
+      <td className="p-2 align-middle text-left">
         <ProviderBadge provider={n.provider} sender={n.sender} />
       </td>
       <td className="p-2 text-slate-700 align-middle break-words text-xs">
@@ -1647,12 +1676,14 @@ function NotifDesktopRow({
         </select>
       </td>
       <td className="p-2 align-middle text-center">
-        <NotificationAssigneeSelect
-          value={n.assignedUserId}
-          members={team}
-          disabled={busy}
-          onChange={(userId) => onWorkflowChange(n, { assigned_user_id: userId })}
-        />
+        <div className="flex justify-center">
+          <NotificationAssigneeSelect
+            value={n.assignedUserId}
+            members={members}
+            disabled={busy}
+            onChange={(userId) => onWorkflowChange(n, { assigned_user_id: userId })}
+          />
+        </div>
       </td>
       <td className="p-2 align-middle">
         <NotifActionButtons row={n} busy={busy} onRequestAction={onRequestAction} />
@@ -1668,7 +1699,7 @@ function NotifMobileCard({
   onToggleSelect,
   onRequestAction,
   onWorkflowChange,
-  team,
+  members,
 }: NotifRowHandlers) {
   const pendingVacly = n.vaclyStatus === 'pendiente'
   const caducidad = computeCaducidad(n)
@@ -1733,11 +1764,11 @@ function NotifMobileCard({
             ))}
           </select>
         </label>
-        <label className="space-y-1 sm:col-span-2">
+        <label className="space-y-1">
           <span className="text-[11px] font-medium text-slate-500">Responsable</span>
           <NotificationAssigneeSelect
             value={n.assignedUserId}
-            members={team}
+            members={members}
             disabled={busy}
             onChange={(userId) => onWorkflowChange(n, { assigned_user_id: userId })}
           />

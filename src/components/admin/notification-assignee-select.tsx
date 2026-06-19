@@ -48,7 +48,7 @@ export function NotificationAssigneeSelect({
       setMenuRect({
         top: rect.bottom + 4,
         left: rect.left,
-        width: Math.max(rect.width, 220),
+        width: Math.max(rect.width, 240),
       })
     }
     updatePosition()
@@ -100,6 +100,9 @@ export function NotificationAssigneeSelect({
               <span className="text-sm text-slate-600">Sin asignar</span>
             </button>
             <div className="my-1 border-t border-slate-100" />
+            {members.length === 0 && (
+              <p className="px-3 py-2 text-xs text-slate-400">No hay usuarios disponibles</p>
+            )}
             {members.map((member) => (
               <button
                 key={member.id}
@@ -127,16 +130,18 @@ export function NotificationAssigneeSelect({
 
   return (
     <>
-      <div ref={rootRef} className={cn('relative w-full max-w-full', className)}>
+      <div ref={rootRef} className={cn('relative inline-flex', className)}>
         <button
           ref={triggerRef}
           type="button"
           disabled={disabled}
+          title={selected?.name || 'Asignar responsable'}
+          aria-label={selected ? `Responsable: ${selected.name}` : 'Asignar responsable'}
           onClick={() => setOpen((v) => !v)}
           className={cn(
-            'flex h-9 w-full min-w-0 items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white px-2 shadow-sm',
+            'relative inline-flex h-9 w-9 items-center justify-center rounded-full border bg-white shadow-sm',
             'transition-colors hover:border-[#C6A664]/40 focus:outline-none focus:ring-2 focus:ring-[#C6A664]/30',
-            value && 'border-[#C6A664]/35',
+            value ? 'border-[#C6A664]/45' : 'border-slate-200/80',
             disabled && 'opacity-50 cursor-not-allowed',
           )}
         >
@@ -145,11 +150,11 @@ export function NotificationAssigneeSelect({
             imageUrl={selected?.avatar}
             size="xs"
           />
-          <span className="min-w-0 flex-1 truncate text-left text-xs font-medium text-slate-800">
-            {selected ? selected.name.split(' ')[0] : 'Asignar'}
-          </span>
           <ChevronDownIcon
-            className={cn('h-3 w-3 shrink-0 text-slate-400 transition-transform', open && 'rotate-180')}
+            className={cn(
+              'pointer-events-none absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-white text-slate-400 shadow-sm transition-transform',
+              open && 'rotate-180',
+            )}
           />
         </button>
       </div>
