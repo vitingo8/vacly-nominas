@@ -51,7 +51,7 @@ const GROUP_OPTIONS: Array<{ value: GroupBy; label: string }> = [
 ]
 
 const SHORT_RANGE_LABELS: Record<RangePreset, string> = {
-  all: 'Todo',
+  all: 'Periodo',
   currentYear: 'Año act.',
   lastYear: 'Año ant.',
   currentQuarter: 'Trim. act.',
@@ -60,7 +60,7 @@ const SHORT_RANGE_LABELS: Record<RangePreset, string> = {
 }
 
 const SHORT_GROUP_LABELS: Record<GroupBy, string> = {
-  none: 'Ninguno',
+  none: 'Agrupar',
   month: 'Mes',
   quarter: 'Trim.',
   year: 'Año',
@@ -603,9 +603,9 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
     sortDir !== 'desc'
 
   const activePresetLabel = RANGE_PRESETS.find((p) => p.value === rangePreset)?.label || 'Todo el histórico'
-  const shortPresetLabel = SHORT_RANGE_LABELS[rangePreset] || 'Todo'
+  const shortPresetLabel = SHORT_RANGE_LABELS[rangePreset] || 'Periodo'
   const activeGroupLabel = GROUP_OPTIONS.find((g) => g.value === groupBy)?.label || ''
-  const shortGroupLabel = SHORT_GROUP_LABELS[groupBy] || 'Ninguno'
+  const shortGroupLabel = SHORT_GROUP_LABELS[groupBy] || 'Agrupar'
 
   const groups = useMemo(
     () => (groupBy === 'none' ? [] : buildGroups(groupedNominas, groupBy)),
