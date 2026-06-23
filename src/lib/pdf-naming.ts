@@ -131,7 +131,7 @@ Texto de la nómina:
 ${textContent}`
 
     const response = await anthropic.messages.create({
-      model: "claude-3-haiku-20240307",
+      model: MODEL,
       max_tokens: 4000,
       messages: [
         {
