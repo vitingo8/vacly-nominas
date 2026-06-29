@@ -178,7 +178,8 @@ export default function VaclyNominas() {
       if (uploadQuota && pageCount > uploadQuota.remainingPages) {
         setProgressMessage(
           `Límite mensual alcanzado: este PDF tiene ${pageCount} página(s) y solo quedan ${uploadQuota.remainingPages} ` +
-          `este mes (de ${uploadQuota.maxPages}: ${uploadQuota.employeeCount} empleados × ${uploadQuota.pagesPerEmployee} tandas).`,
+          `este mes (de ${uploadQuota.maxPages}: ${uploadQuota.employeeCount} empleados × ${uploadQuota.pagesPerEmployee} páginas). ` +
+          `Las páginas cuentan al procesar el PDF, aunque no se guarden nóminas.`,
         )
         return
       }
@@ -324,6 +325,7 @@ export default function VaclyNominas() {
     } catch (error) {
       console.error('Upload/processing error:', error)
       setProgressMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      loadUploadQuota()
     } finally {
       setIsUploading(false)
     }
@@ -499,8 +501,8 @@ export default function VaclyNominas() {
                 </p>
                 {uploadQuota && (
                   <p className={`text-sm mt-2 ${uploadQuota.remainingPages === 0 ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
-                    Cuota mensual ({uploadQuota.period}): {uploadQuota.usedPages} / {uploadQuota.maxPages} páginas
-                    ({uploadQuota.employeeCount} empleados × {uploadQuota.pagesPerEmployee} tandas).
+                    Cuota mensual ({uploadQuota.period}): {uploadQuota.usedPages} / {uploadQuota.maxPages} páginas procesadas
+                    ({uploadQuota.employeeCount} empleados × {uploadQuota.pagesPerEmployee} páginas).
                     {uploadQuota.remainingPages > 0
                       ? ` Quedan ${uploadQuota.remainingPages} este mes.`
                       : ' Límite mensual alcanzado.'}

@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
 import { getSupabaseClient } from '@/lib/supabase'
-import { assertUploadQuota } from '@/lib/upload-quota'
+import { reserveUploadQuota } from '@/lib/upload-quota'
 import {
   getTenantCompany,
   validateNominaUpload,
@@ -1030,7 +1030,7 @@ async function processFullPDF(
             console.log('📄 PDF has', pageCount, 'pages')
 
             try {
-              await assertUploadQuota(supabase, companyId, pageCount)
+              await reserveUploadQuota(supabase, companyId, pageCount)
             } catch (quotaError) {
               const message = quotaError instanceof Error ? quotaError.message : 'Límite de subida alcanzado'
               logWithTime(`ERROR cuota de subida: ${message}`, pdfLoadStart)
