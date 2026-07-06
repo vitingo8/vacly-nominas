@@ -50,6 +50,28 @@ html.nominas-embedded [data-vacly-page-header] {
   display: none !important;
 }
 
+/*
+ * Heroicons "outline" pierden nitidez por debajo de 20px: el trazo de 1.5
+ * definido sobre un viewBox de 24 se reescala y genera antialiasing borroso.
+ * Forzamos renderizado geométrico preciso y engrosamos ligeramente el trazo
+ * en los tamaños pequeños (mismo criterio aplicado en vacly-app / dashboard).
+ */
+svg[data-slot='icon'] {
+  shape-rendering: geometricPrecision;
+}
+
+svg[data-slot='icon'].h-3,
+svg[data-slot='icon'].h-3\.5,
+svg[data-slot='icon'].h-4,
+svg[data-slot='icon'].w-3,
+svg[data-slot='icon'].w-3\.5,
+svg[data-slot='icon'].w-4,
+svg[data-slot='icon'].size-3,
+svg[data-slot='icon'].size-3\.5,
+svg[data-slot='icon'].size-4 {
+  stroke-width: 1.75;
+}
+
 /* Disable image context menu */
 img {
   pointer-events: none;

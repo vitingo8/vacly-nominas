@@ -2,7 +2,7 @@
 -- Cuenta intentos al dividir/procesar PDFs, no solo nóminas guardadas en BD.
 
 CREATE TABLE IF NOT EXISTS public.nomina_upload_usage (
-  company_id uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  company_id uuid NOT NULL REFERENCES public.companies(company_id) ON DELETE CASCADE,
   period text NOT NULL CHECK (period ~ '^\d{4}-\d{2}$'),
   pages_attempted integer NOT NULL DEFAULT 0 CHECK (pages_attempted >= 0),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -16,6 +16,8 @@ CREATE INDEX IF NOT EXISTS idx_nomina_upload_usage_period
   ON public.nomina_upload_usage (period);
 
 ALTER TABLE public.nomina_upload_usage ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS nomina_upload_usage_select_company ON public.nomina_upload_usage;
 
 CREATE POLICY nomina_upload_usage_select_company
   ON public.nomina_upload_usage
