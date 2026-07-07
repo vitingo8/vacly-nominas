@@ -10,6 +10,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
+  ArrowPathIcon,
   BellIcon,
   BellSlashIcon,
   CalendarDaysIcon,
@@ -45,6 +46,10 @@ export interface CertDetailData {
   certificateId?: string | null
   /** Empresa propietaria del certificado en Vacly. */
   ownerCompanyId?: string | null
+  /** Certificado anterior en la cadena de renovaciones. */
+  renewedFrom?: { id: string; label: string } | null
+  /** Certificado que sustituyó a éste (si fue renovado). */
+  renewedTo?: { id: string; label: string } | null
 }
 
 interface CertDetailDialogProps {
@@ -54,6 +59,8 @@ interface CertDetailDialogProps {
   typeLabels?: Record<string, string>
   /** Cabeceras de sesión para consultar la actividad (token firmado). */
   adminHeaders?: () => Record<string, string>
+  /** Navegar a otro certificado de la cadena de renovaciones. */
+  onNavigateToCertificate?: (certificateId: string) => void
 }
 
 function Cell({
@@ -129,12 +136,45 @@ function validityProgress(daysToExpiry: number | null | undefined): {
   return { pct, tone: 'ok', label: `Vigente · ${daysToExpiry} días` }
 }
 
+function RenewalLink({
+  direction,
+  target,
+  onNavigate,
+}: {
+  direction: 'from' | 'to'
+  target: { id: string; label: string }
+  onNavigate?: (certificateId: string) => void
+}) {
+  const label = direction === 'from' ? 'Sustituye a' : 'Sustituido por'
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide leading-none mb-1.5">
+        {label}
+      </p>
+      {onNavigate ? (
+        <button
+          type="button"
+          onClick={() => onNavigate(target.id)}
+          className="inline-flex items-center gap-1.5 text-base text-[#1B2A41] font-medium underline decoration-[#C6A664]/60 underline-offset-2 hover:decoration-[#C6A664] text-left break-words leading-snug"
+          title={`Ver ${target.label}`}
+        >
+          <ArrowPathIcon className="h-3.5 w-3.5 shrink-0 text-[#C6A664]" />
+          {target.label}
+        </button>
+      ) : (
+        <p className="text-base text-slate-800 break-words leading-snug">{target.label}</p>
+      )}
+    </div>
+  )
+}
+
 export function CertDetailDialog({
   open,
   onOpenChange,
   cert,
   typeLabels = {},
   adminHeaders,
+  onNavigateToCertificate,
 }: CertDetailDialogProps) {
   const [tab, setTab] = useState<'data' | 'activity'>('data')
 
@@ -268,6 +308,12 @@ export function CertDetailDialog({
               <Cell label="Huella SHA-1" value={cert.thumbprint} mono title={cert.thumbprint} />
             )}
             {cert.organizationalUnit && <Cell label="UO" value={cert.organizationalUnit} />}
+            {cert.renewedFrom && (
+              <RenewalLink direction="from" target={cert.renewedFrom} onNavigate={onNavigateToCertificate} />
+            )}
+            {cert.renewedTo && (
+              <RenewalLink direction="to" target={cert.renewedTo} onNavigate={onNavigateToCertificate} />
+            )}
             {notificationsLabel && (
               <Cell
                 label="Avisos caducidad"

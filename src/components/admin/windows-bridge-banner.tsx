@@ -148,14 +148,14 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
 
   if (status === 'checking') {
     return (
-      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+      <div className="rounded-2xl border border-[#1B2A41]/10 bg-white px-4 py-3 text-sm text-[#5C6B7F] shadow-sm">
         Conectando con los certificados de Windows…
       </div>
     )
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 space-y-3">
+    <div className="space-y-3 rounded-2xl border border-[#1B2A41]/10 bg-white px-4 py-3 text-sm text-[#5C6B7F] shadow-sm">
       <p>
         No se pudo conectar con el almacén de certificados de Windows. Si ya instalaste el asistente,
         pulsa «Conectar este PC» para arrancarlo; si es la primera vez, descarga el instalador (no

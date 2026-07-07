@@ -1,8 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { cn } from '@/lib/utils'
+import { AdminDateFilter } from '@/components/admin/admin-date-filter'
+import { AdminFilterSelect } from '@/components/admin/admin-filter-select'
+import {
+  DASHBOARD_CARD_HEADER,
+  DASHBOARD_EYEBROW,
+  DASHBOARD_OUTLINE_BTN,
+  DASHBOARD_ROW,
+  DASHBOARD_SUBTITLE,
+  DASHBOARD_TABLE_HEAD,
+  DASHBOARD_TITLE,
+} from '@/components/admin/dashboard-styles'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   ArrowDownTrayIcon,
   ArrowPathIcon,
@@ -232,9 +243,14 @@ export function CertActivityLogPanel({
         `/api/admin/config/certificates/audit?${buildQuery({ limit: String(PAGE_SIZE), offset: String(nextOffset) })}`,
         { headers: adminHeaders() },
       )
-        .then((r) => r.json())
+        .then(async (r) => {
+          const d = await r.json()
+          if (!r.ok || !d.success) {
+            throw new Error(d.message || 'Error cargando el registro')
+          }
+          return d
+        })
         .then((d) => {
-          if (!d.success) throw new Error(d.message || 'Error cargando el registro')
           setEvents(d.events || [])
           setTotal(d.total || 0)
           setOffset(nextOffset)
@@ -270,99 +286,142 @@ export function CertActivityLogPanel({
     }
   }
 
-  const selectCls =
-    'h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#1B2A41]'
+  const certOptions = [
+    { value: '', label: 'Todos los certificados' },
+    ...certificates.map((c) => ({ value: c.id, label: c.label })),
+  ]
+
+  const eventOptions = [
+    { value: '', label: 'Todos los eventos' },
+    ...CERT_EVENT_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+  ]
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-medium text-slate-500 uppercase">Certificado</label>
-          <select value={filterCert} onChange={(e) => setFilterCert(e.target.value)} className={selectCls}>
-            <option value="">Todos</option>
-            {certificates.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-medium text-slate-500 uppercase">Evento</label>
-          <select value={filterEvent} onChange={(e) => setFilterEvent(e.target.value)} className={selectCls}>
-            <option value="">Todos</option>
-            {CERT_EVENT_TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-medium text-slate-500 uppercase">Desde</label>
-          <Input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} className="h-9 w-40" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-medium text-slate-500 uppercase">Hasta</label>
-          <Input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} className="h-9 w-40" />
-        </div>
-        <div className="flex gap-2 ml-auto">
-          <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => load(offset)}>
+    <div className="space-y-0">
+      <div className={DASHBOARD_CARD_HEADER}>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <div className="shrink-0">
+            <p className={DASHBOARD_EYEBROW}>Auditoría</p>
+            <h2 className={cn(DASHBOARD_TITLE, 'mt-1')}>Historial de actividad</h2>
+            <p className={cn(DASHBOARD_SUBTITLE, 'mt-1')}>
+              Trazabilidad de certificados: altas, consultas, usos y cambios.
+            </p>
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <AdminFilterSelect
+            value={filterCert}
+            onChange={setFilterCert}
+            options={certOptions}
+            placeholder="Certificado"
+            className="w-52 sm:w-56"
+            minWidth={240}
+          />
+          <AdminFilterSelect
+            value={filterEvent}
+            onChange={setFilterEvent}
+            options={eventOptions}
+            placeholder="Evento"
+            className="w-44 sm:w-48"
+            minWidth={260}
+          />
+          <AdminDateFilter
+            value={filterFrom}
+            onChange={setFilterFrom}
+            label="Desde"
+            className="w-32"
+          />
+          <AdminDateFilter
+            value={filterTo}
+            onChange={setFilterTo}
+            label="Hasta"
+            className="w-32"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={DASHBOARD_OUTLINE_BTN}
+            onClick={() => load(offset)}
+          >
             <ArrowPathIcon className="h-4 w-4" />
             Actualizar
           </Button>
-          <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void downloadCsv()}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={DASHBOARD_OUTLINE_BTN}
+            onClick={() => void downloadCsv()}
+          >
             <ArrowDownTrayIcon className="h-4 w-4" />
             Exportar CSV
           </Button>
         </div>
+        </div>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="px-4 text-sm text-red-600 sm:px-5">{error}</p>}
 
-      <div className="border border-slate-200 rounded-lg overflow-hidden">
+      <div className="overflow-hidden border-t border-[#1B2A41]/8">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50">
+          <thead className={DASHBOARD_TABLE_HEAD}>
             <tr>
-              <th className="text-left px-4 py-2.5 font-medium text-slate-700">Fecha</th>
-              <th className="text-left px-4 py-2.5 font-medium text-slate-700">Evento</th>
-              <th className="text-left px-4 py-2.5 font-medium text-slate-700">Usuario</th>
-              <th className="text-left px-4 py-2.5 font-medium text-slate-700">Certificado</th>
-              <th className="text-left px-4 py-2.5 font-medium text-slate-700">Detalle</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-[#5C6B7F] sm:px-5">
+                Fecha
+              </th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-[#5C6B7F] sm:px-5">
+                Evento
+              </th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-[#5C6B7F] sm:px-5">
+                Usuario
+              </th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-[#5C6B7F] sm:px-5">
+                Certificado
+              </th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-[#5C6B7F] sm:px-5">
+                Detalle
+              </th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-[#5C6B7F] sm:px-5">
                   Cargando…
                 </td>
               </tr>
             )}
             {!loading &&
               events.map((e) => (
-                <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50/50">
-                  <td className="px-4 py-2 whitespace-nowrap text-slate-600">{fmtDateTime(e.createdAt)}</td>
-                  <td className="px-4 py-2">
-                    <span className="inline-flex items-center gap-1.5 text-slate-800">
+                <tr key={e.id} className={DASHBOARD_ROW}>
+                  <td className="whitespace-nowrap px-4 py-2 text-[#5C6B7F] sm:px-5">{fmtDateTime(e.createdAt)}</td>
+                  <td className="px-4 py-2 sm:px-5">
+                    <span className="inline-flex items-center gap-1.5 text-[#1B2A41]">
                       {eventIcon(e.eventType)}
                       {eventLabel(e.eventType)}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-slate-600">
+                  <td className="px-4 py-2 text-[#5C6B7F] sm:px-5">
                     {e.actorName || (e.actorUserId ? 'Usuario' : 'Sistema')}
                   </td>
-                  <td className="px-4 py-2 text-slate-600 max-w-[220px] truncate" title={e.certificateAlias || undefined}>
+                  <td
+                    className="max-w-[220px] truncate px-4 py-2 text-[#5C6B7F] sm:px-5"
+                    title={e.certificateAlias || undefined}
+                  >
                     {e.certificateAlias || '—'}
                   </td>
-                  <td className="px-4 py-2 text-slate-500 text-xs max-w-[260px] truncate" title={eventDetail(e) || undefined}>
+                  <td
+                    className="max-w-[260px] truncate px-4 py-2 text-xs text-[#5C6B7F]/80 sm:px-5"
+                    title={eventDetail(e) || undefined}
+                  >
                     {eventDetail(e) || '—'}
                   </td>
                 </tr>
               ))}
             {!loading && !events.length && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-[#5C6B7F] sm:px-5">
                   Sin eventos que coincidan con los filtros
                 </td>
               </tr>
@@ -371,30 +430,30 @@ export function CertActivityLogPanel({
         </table>
       </div>
 
-      <div className="flex items-center justify-between text-sm text-slate-500">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1B2A41]/8 px-4 py-3 text-sm text-[#5C6B7F] sm:px-5">
         <span>
           {total} evento{total === 1 ? '' : 's'}
         </span>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={loading || offset === 0}
-            onClick={() => load(Math.max(0, offset - PAGE_SIZE))}
-          >
-            Anterior
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={loading || offset + PAGE_SIZE >= total}
-            onClick={() => load(offset + PAGE_SIZE)}
-          >
-            Siguiente
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={DASHBOARD_OUTLINE_BTN}
+          disabled={loading || offset === 0}
+          onClick={() => load(Math.max(0, offset - PAGE_SIZE))}
+        >
+          Anterior
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={DASHBOARD_OUTLINE_BTN}
+          disabled={loading || offset + PAGE_SIZE >= total}
+          onClick={() => load(offset + PAGE_SIZE)}
+        >
+          Siguiente
+        </Button>
       </div>
     </div>
   )

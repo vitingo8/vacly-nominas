@@ -49,6 +49,8 @@ export interface CertificateMetadata {
   linkedCompanyId?: string | null
   accessMode?: CertAccessMode | null
   createdBy?: string | null
+  /** Certificado anterior al que sustituye (cadena de renovaciones). */
+  renewedFromCertificateId?: string | null
 }
 
 export type { AccountCompany }
@@ -180,7 +182,7 @@ export function deriveCertificateStatus(
 }
 
 const LIST_COLUMNS =
-  'id, company_id, alias, holder_nif, holder_name, issuer, serial_number, certificate_type, valid_from, valid_to, status, revoked_at, expiry_notifications_enabled, expiry_notification_milestones, portfolio_scope, linked_company_id, access_mode, created_by'
+  'id, company_id, alias, holder_nif, holder_name, issuer, serial_number, certificate_type, valid_from, valid_to, status, revoked_at, expiry_notifications_enabled, expiry_notification_milestones, portfolio_scope, linked_company_id, access_mode, created_by, renewed_from_certificate_id'
 
 function rowToMetadata(row: Record<string, any>): CertificateMetadata {
   const { status, daysToExpiry } = deriveCertificateStatus(row.valid_to, row.revoked_at)
@@ -205,6 +207,7 @@ function rowToMetadata(row: Record<string, any>): CertificateMetadata {
     linkedCompanyId: row.linked_company_id ?? null,
     accessMode: (row.access_mode as CertAccessMode | null) ?? 'open',
     createdBy: row.created_by ?? null,
+    renewedFromCertificateId: row.renewed_from_certificate_id ?? null,
   }
 }
 
@@ -822,7 +825,8 @@ export class BaseCertificateVault implements CertificateVault {
       throw new AdminIntegrationError('CERTIFICATE_NOT_FOUND', 'Certificado anterior no encontrado')
     }
 
-    // El nuevo hereda alias, clasificacion, avisos y modo de acceso.
+    // El nuevo hereda alias, clasificacion, avisos y modo de acceso, y queda
+    // enlazado a su predecesor (cadena de renovaciones navegable).
     const { error: updateError } = await this.supabase
       .from('administrative_certificates')
       .update({
@@ -832,6 +836,7 @@ export class BaseCertificateVault implements CertificateVault {
         access_mode: oldCert.access_mode || 'open',
         expiry_notifications_enabled: oldCert.expiry_notifications_enabled,
         expiry_notification_milestones: oldCert.expiry_notification_milestones,
+        renewed_from_certificate_id: oldCertificateId,
         updated_at: new Date().toISOString(),
       })
       .eq('id', newCertificateId)

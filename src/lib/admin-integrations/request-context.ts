@@ -17,9 +17,8 @@ export function assertValidCompanyId(companyId: string | null | undefined): asse
 
 /**
  * Usuario actuante segun la cabecera opcional `x-vacly-user-id`. NO esta
- * verificado criptograficamente: usar solo como fallback de trazabilidad
- * cuando no hay token firmado. Para identidad verificada, usar el resultado
- * de `assertCompanyAccess`.
+ * verificado criptograficamente. Preferir `assertCompanyAccess(...).actorUserId`,
+ * que extrae el usuario del token firmado v2 cuando existe.
  */
 export function getActorUserId(request: NextRequest): string | undefined {
   const headerId = request.headers.get('x-vacly-user-id')

@@ -4,7 +4,6 @@ import { adminErrorResponse, jsonOk } from '@/lib/admin-integrations/api-helpers
 import {
   assertValidCompanyId,
   assertCompanyAccess,
-  getActorUserId,
 } from '@/lib/admin-integrations/request-context'
 import { AdminIntegrationError } from '@/lib/admin-integrations/errors'
 import {
@@ -21,7 +20,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const companyId = String(body.company_id || '')
     assertValidCompanyId(companyId)
-    assertCompanyAccess(request, companyId)
+    const ctx = assertCompanyAccess(request, companyId)
 
     const certificateIds = Array.isArray(body.certificate_ids)
       ? body.certificate_ids.map((id: unknown) => String(id)).filter(Boolean)
@@ -34,19 +33,17 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseClient()
-    const actorUserId = getActorUserId(request)
-
     const result =
       certificateIds.length === 1
         ? await syncCompanyNotifications(supabase, {
             companyId,
             certificateId: certificateIds[0],
-            actorUserId,
+            actorUserId: ctx.actorUserId,
           })
         : await syncMultipleCompanyNotifications(supabase, {
             companyId,
             certificateIds,
-            actorUserId,
+            actorUserId: ctx.actorUserId,
           })
 
     return jsonOk({

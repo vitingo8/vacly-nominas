@@ -4,7 +4,6 @@ import { adminErrorResponse, jsonOk } from '@/lib/admin-integrations/api-helpers
 import {
   assertValidCompanyId,
   assertCompanyAccess,
-  getActorUserId,
 } from '@/lib/admin-integrations/request-context'
 import {
   analyzeNotificationForClientEmail,
@@ -25,11 +24,11 @@ export async function POST(
     const regenerate = body.regenerate === true || body.regenerate === 1 || body.regenerate === '1'
 
     assertValidCompanyId(companyId)
-    assertCompanyAccess(request, companyId)
+    const ctx = assertCompanyAccess(request, companyId)
 
     const supabase = getSupabaseClient()
     const proposal = await analyzeNotificationForClientEmail(supabase, companyId, id, {
-      actorUserId: getActorUserId(request),
+      actorUserId: ctx.actorUserId,
       certificateId,
       userConfirmed,
       language,

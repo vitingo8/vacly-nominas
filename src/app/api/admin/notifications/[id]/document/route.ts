@@ -4,7 +4,6 @@ import { adminErrorResponse } from '@/lib/admin-integrations/api-helpers'
 import {
   assertValidCompanyId,
   assertCompanyAccess,
-  getActorUserId,
 } from '@/lib/admin-integrations/request-context'
 import { openNotificationDocument } from '@/lib/admin-integrations/notifications/notification-service'
 
@@ -19,11 +18,11 @@ export async function GET(
     const userConfirmed = request.nextUrl.searchParams.get('confirm') === '1'
     const download = request.nextUrl.searchParams.get('download') === '1'
     assertValidCompanyId(companyId)
-    assertCompanyAccess(request, companyId!)
+    const ctx = assertCompanyAccess(request, companyId!)
 
     const supabase = getSupabaseClient()
     const doc = await openNotificationDocument(supabase, companyId!, id, {
-      actorUserId: getActorUserId(request),
+      actorUserId: ctx.actorUserId,
       certificateId,
       userConfirmed,
     })

@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState, Fragment } from 'react'
 import { AdminShell, useCompanyId } from '@/components/admin/admin-shell'
-import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
+  findVaultMatchForWindows,
+  findWindowsMatchForVault,
   matchesCertSearch,
-  normalizeCertSerial,
   parseCertSubject,
 } from '@/lib/admin-integrations/certificate-vault/cert-subject-parser'
 import { formatCertIssuer } from '@/lib/admin-integrations/certificate-vault/cert-text-encoding'
@@ -40,6 +40,8 @@ import { CertRowActions } from '@/components/admin/cert-row-actions'
 import { CertActivityLogPanel } from '@/components/admin/cert-activity'
 import { CertPermissionsDialog } from '@/components/admin/cert-permissions-dialog'
 import { CertScopePickerDialog } from '@/components/admin/cert-scope-picker-dialog'
+import { useAdminSession } from '@/lib/admin-session-client'
+import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils'
 import { DEFAULT_CORPORATE_BRAND, type CorporateBrand } from '@/lib/corporate-brand'
 import {
@@ -70,6 +72,7 @@ interface CertRow {
   linkedCompanyId?: string | null
   accessMode?: 'open' | 'restricted' | null
   createdBy?: string | null
+  renewedFromCertificateId?: string | null
 }
 
 interface UnifiedRow {
@@ -115,21 +118,24 @@ const TYPE_LABEL: Record<string, string> = {
   sello_empresa: 'Sello de empresa',
 }
 
-const TH_CLASS = 'text-center p-3 font-medium text-slate-700'
-const TD_CLASS = 'text-center p-3 text-slate-600'
-/** Misma caja exacta que el Input h-11 — sin depender de variantes del Button. */
-const TOOLBAR_BTN_BASE =
-  'h-11 box-border inline-flex items-center justify-center rounded-md border px-4 text-sm font-medium leading-none whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#1B2A41] disabled:opacity-50 disabled:pointer-events-none shrink-0'
-const TOOLBAR_BTN_OUTLINE =
-  'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
-const TOOLBAR_BTN_PRIMARY =
-  'border-[#1B2A41] bg-[#1B2A41] text-white hover:bg-[#152036] hover:border-[#152036]'
-
-function adminHeaders(): Record<string, string> {
-  if (typeof window === 'undefined') return {}
-  const token = new URLSearchParams(window.location.search).get('token')
-  return token ? { 'x-vacly-company-token': token } : {}
-}
+import {
+  DASHBOARD_CARD,
+  DASHBOARD_CARD_HEADER,
+  DASHBOARD_EYEBROW,
+  DASHBOARD_ICON_BTN,
+  DASHBOARD_INPUT_LG,
+  DASHBOARD_INPUT_MD,
+  DASHBOARD_OUTLINE_BTN,
+  DASHBOARD_PILL_GROUP,
+  DASHBOARD_PRIMARY_BTN,
+  DASHBOARD_ROW,
+  DASHBOARD_SUBTITLE,
+  DASHBOARD_TABLE_HEAD,
+  DASHBOARD_TD,
+  DASHBOARD_TH,
+  DASHBOARD_TITLE,
+  dashboardPillClass,
+} from '@/components/admin/dashboard-styles'
 
 function fmtDate(value?: string | null): string {
   if (!value) return '—'
@@ -138,23 +144,6 @@ function fmtDate(value?: string | null): string {
   } catch {
     return value
   }
-}
-
-function findVaclyMatch(win: WindowsCertificateEntry, vacly: CertRow[]): CertRow | undefined {
-  const winSerial = normalizeCertSerial(win.serialNumber)
-  if (winSerial) {
-    const bySerial = vacly.find((c) => normalizeCertSerial(c.serialNumber) === winSerial)
-    if (bySerial) return bySerial
-  }
-  if (win.nif) {
-    return vacly.find(
-      (c) =>
-        c.holderNif?.toUpperCase() === win.nif?.toUpperCase() &&
-        c.status !== 'revoked' &&
-        (!c.validTo || !win.notAfter || fmtDate(c.validTo) === fmtDate(win.notAfter)),
-    )
-  }
-  return undefined
 }
 
 function certDisplayCompanyName(
@@ -186,6 +175,7 @@ function findPendingExpiryAlerts(source: CertRow[]): CertExpiryAlertItem[] {
 
 export default function AdminCertificatesPage() {
   const companyId = useCompanyId()
+  const { adminHeaders, sessionReady } = useAdminSession(companyId)
   const [accountCerts, setAccountCerts] = useState<CertRow[]>([])
   const [accountCompanies, setAccountCompanies] = useState<AccountCompany[]>([])
   const [corporateBrand, setCorporateBrand] = useState<CorporateBrand>(DEFAULT_CORPORATE_BRAND)
@@ -216,27 +206,42 @@ export default function AdminCertificatesPage() {
   const [notificationCert, setNotificationCert] = useState<CertRow | null>(null)
   const [notificationSaving, setNotificationSaving] = useState(false)
   const [permissionsCert, setPermissionsCert] = useState<CertRow | null>(null)
-  const [showActivityLog, setShowActivityLog] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [vaultLoaded, setVaultLoaded] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | CertStatus | 'windows'>('all')
 
   useEffect(() => {
     if (typeof window !== 'undefined') setNominasOrigin(window.location.origin)
   }, [])
 
-  const loadAccount = useCallback(() => {
-    if (!companyId) return
-    fetch(`/api/admin/config/certificates?scope=agency&company_id=${encodeURIComponent(companyId)}`, {
+  const loadAccount = useCallback((): Promise<void> => {
+    if (!companyId) return Promise.resolve()
+    return fetch(`/api/admin/config/certificates?scope=agency&company_id=${encodeURIComponent(companyId)}`, {
       headers: adminHeaders(),
     })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.success) {
-          setAccountCerts(d.certificates || [])
-          setAccountCompanies(d.accountCompanies || [])
-          if (d.brand) setCorporateBrand(d.brand)
+      .then(async (r) => {
+        const d = await r.json()
+        if (!r.ok || !d.success) {
+          throw new Error(d.message || 'No se pudo cargar los certificados de la bóveda')
         }
+        return d
       })
-      .catch(() => {})
+      .then((d) => {
+        setAccountCerts(d.certificates || [])
+        setAccountCompanies(d.accountCompanies || [])
+        if (d.brand) setCorporateBrand(d.brand)
+      })
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : 'Error cargando la bóveda de certificados'
+        setError(
+          msg.includes('Token') || msg.includes('sesion')
+            ? `${msg}. En localhost, asegúrate de tener ADMIN_SESSION_SECRET en .env.local.`
+            : msg,
+        )
+      })
+      .finally(() => {
+        setVaultLoaded(true)
+      })
   }, [companyId])
 
   const refreshWindowsStore = useCallback(async () => {
@@ -265,12 +270,26 @@ export default function AdminCertificatesPage() {
     }
   }, [nominasOrigin])
 
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true)
+    setError('')
+    try {
+      const tasks: Promise<void>[] = [loadAccount()]
+      if (isWindowsClient()) tasks.push(refreshWindowsStore())
+      await Promise.all(tasks)
+    } finally {
+      setRefreshing(false)
+    }
+  }, [loadAccount, refreshWindowsStore])
+
   useEffect(() => {
+    setVaultLoaded(false)
     const win = isWindowsClient()
     setIsWindows(win)
+    if (!companyId || !sessionReady) return
     loadAccount()
     if (win) void refreshWindowsStore()
-  }, [companyId, loadAccount, refreshWindowsStore])
+  }, [companyId, sessionReady, loadAccount, refreshWindowsStore])
 
   const onBridgeConnected = useCallback(() => {
     setBridgeReady(true)
@@ -283,6 +302,26 @@ export default function AdminCertificatesPage() {
     setExpiryAlert(findPendingExpiryAlerts(allVaclyCerts)[0] ?? null)
   }, [allVaclyCerts])
 
+  // Cadena de renovaciones: etiqueta corta para enlazar predecesor/sucesor.
+  const renewalChainLabel = (c: CertRow): string => {
+    const name = c.holderName?.trim() || c.alias
+    return c.validTo ? `${name} (hasta ${fmtDate(c.validTo)})` : name
+  }
+
+  const findRenewalLinks = (
+    cert: CertRow | undefined,
+  ): Pick<CertDetailData, 'renewedFrom' | 'renewedTo'> => {
+    if (!cert) return { renewedFrom: null, renewedTo: null }
+    const predecessor = cert.renewedFromCertificateId
+      ? allVaclyCerts.find((c) => c.id === cert.renewedFromCertificateId)
+      : undefined
+    const successor = allVaclyCerts.find((c) => c.renewedFromCertificateId === cert.id)
+    return {
+      renewedFrom: predecessor ? { id: predecessor.id, label: renewalChainLabel(predecessor) } : null,
+      renewedTo: successor ? { id: successor.id, label: renewalChainLabel(successor) } : null,
+    }
+  }
+
   const buildDetailFromRow = (row: UnifiedRow): CertDetailData => {
     const cert = row.vaclyCert
     const wc = row.windowsCert
@@ -291,6 +330,7 @@ export default function AdminCertificatesPage() {
       ? deriveCertificateStatus(validToRaw, cert?.status === 'revoked' ? new Date().toISOString() : null)
       : { daysToExpiry: null as number | null }
     return {
+      ...findRenewalLinks(cert),
       originLabel: row.originLabel,
       companyName: row.companyName,
       titular: row.titular,
@@ -314,6 +354,38 @@ export default function AdminCertificatesPage() {
       certificateId: cert?.id ?? null,
       ownerCompanyId: cert?.companyId ?? companyId ?? null,
     }
+  }
+
+  // Detalle construido solo desde la bóveda (para navegar por la cadena de
+  // renovaciones, donde el predecesor suele estar revocado y fuera de la tabla).
+  const buildDetailFromVaultCert = (cert: CertRow): CertDetailData => ({
+    ...findRenewalLinks(cert),
+    originLabel: 'Vacly',
+    companyName: certDisplayCompanyName(cert, cert.companyName || '—'),
+    titular: cert.holderName?.trim() || cert.alias,
+    alias: cert.alias,
+    nif: cert.holderNif,
+    issuer: formatCertIssuer(cert.issuer ?? null),
+    issuerFull: cert.issuer ?? null,
+    expiry: fmtDate(cert.validTo),
+    validFrom: cert.validFrom ? fmtDate(cert.validFrom) : null,
+    validToRaw: cert.validTo ?? null,
+    serialNumber: cert.serialNumber ?? null,
+    certificateType: cert.certificateType ?? null,
+    statusLabel: STATUS_LABEL[cert.status],
+    statusVariant: STATUS_VARIANT[cert.status],
+    expiryNotificationsEnabled: cert.expiryNotificationsEnabled,
+    expiryNotificationMilestones: cert.expiryNotificationMilestones,
+    daysToExpiry: cert.daysToExpiry,
+    certificateId: cert.id,
+    ownerCompanyId: cert.companyId ?? companyId ?? null,
+  })
+
+  const openDetailForCertId = (certificateId: string) => {
+    const cert = allVaclyCerts.find((c) => c.id === certificateId)
+    if (!cert) return
+    setDetailCert(buildDetailFromVaultCert(cert))
+    setDetailOpen(true)
   }
 
   const openDetail = (row: UnifiedRow) => {
@@ -436,28 +508,14 @@ export default function AdminCertificatesPage() {
     const loggedInName =
       accountCompanies.find((c) => c.companyId === companyId)?.name || 'Esta empresa'
 
-    if (bridgeReady) {
-      for (const wc of filteredWindows) {
-        const match = findVaclyMatch(wc, accountCerts)
-        if (match) continue
-        const notExportable = wc.exportable === false
-        rows.push({
-          key: `win-${wc.thumbprint}`,
-          origin: 'windows',
-          originLabel: ORIGIN_LABEL.windows,
-          companyName: wc.organization || '—',
-          titular: wc.displayName || '—',
-          nif: wc.nif || null,
-          issuer: formatCertIssuer(wc.issuer),
-          expiry: fmtDate(wc.notAfter),
-          statusLabel: notExportable ? 'Solo Windows · no exportable' : 'Solo Windows',
-          statusVariant: 'outline',
-          windowsCert: wc,
-        })
-      }
-    }
+    const matchedWindowsThumbs = new Set<string>()
 
+    // 1. Bóveda Vacly (Supabase) primero — fuente de verdad para estado y acciones.
     for (const c of filteredAccountCerts) {
+      const winMatch =
+        bridgeReady ? findWindowsMatchForVault(c, filteredWindows) : undefined
+      if (winMatch?.thumbprint) matchedWindowsThumbs.add(winMatch.thumbprint)
+
       const resolved = resolveCertificateOrigin(
         {
           holderNif: c.holderNif,
@@ -504,8 +562,31 @@ export default function AdminCertificatesPage() {
         statusLabel: STATUS_LABEL[c.status],
         statusVariant: STATUS_VARIANT[c.status],
         vaclyCert: c,
+        windowsCert: winMatch,
         needsScopeChoice,
       })
+    }
+
+    // 2. Windows solo si no hay registro en la bóveda (tras cargar Supabase).
+    if (bridgeReady && vaultLoaded) {
+      for (const wc of filteredWindows) {
+        if (matchedWindowsThumbs.has(wc.thumbprint)) continue
+        if (findVaultMatchForWindows(wc, accountCerts)) continue
+        const notExportable = wc.exportable === false
+        rows.push({
+          key: `win-${wc.thumbprint}`,
+          origin: 'windows',
+          originLabel: ORIGIN_LABEL.windows,
+          companyName: wc.organization || '—',
+          titular: wc.displayName || '—',
+          nif: wc.nif || null,
+          issuer: formatCertIssuer(wc.issuer),
+          expiry: fmtDate(wc.notAfter),
+          statusLabel: notExportable ? 'Solo Windows · no exportable' : 'Solo Windows',
+          statusVariant: 'outline',
+          windowsCert: wc,
+        })
+      }
     }
 
     return rows
@@ -516,6 +597,7 @@ export default function AdminCertificatesPage() {
     accountCerts,
     accountCompanies,
     companyId,
+    vaultLoaded,
   ])
 
   const rowStatusKey = (row: UnifiedRow): CertStatus | 'windows' =>
@@ -731,65 +813,46 @@ export default function AdminCertificatesPage() {
         cert={detailCert}
         typeLabels={TYPE_LABEL}
         adminHeaders={adminHeaders}
+        onNavigateToCertificate={openDetailForCertId}
       />
 
       {isWindows && !bridgeReady && (
         <WindowsBridgeBanner nominasOrigin={nominasOrigin} onConnected={onBridgeConnected} />
       )}
 
-      <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 w-full">
-        <div className="flex-1 min-w-0 flex">
+      <div className={cn(DASHBOARD_CARD, 'w-full p-4 sm:p-5')}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <Input
             placeholder="Buscar por DNI/NIF, nombre, empresa, emisor…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-11 w-full"
+            className={cn(DASHBOARD_INPUT_LG, 'w-full flex-1')}
           />
-        </div>
-        <div className="flex flex-wrap items-stretch gap-2 shrink-0">
-          {isWindows && (
+          <div className="flex shrink-0 items-center gap-2 self-end lg:self-auto">
+            <div className={DASHBOARD_PILL_GROUP}>
+              <button
+                type="button"
+                onClick={() => void refreshAll()}
+                disabled={refreshing || bridgeLoading}
+                title="Actualizar lista"
+                aria-label="Actualizar lista"
+                className={cn(DASHBOARD_ICON_BTN, refreshing && 'animate-pulse')}
+              >
+                <ArrowPathIcon
+                  className={cn('h-5 w-5', (refreshing || bridgeLoading) && 'animate-spin')}
+                />
+              </button>
+            </div>
             <button
               type="button"
-              onClick={() => void refreshWindowsStore()}
-              disabled={bridgeLoading}
-              className={cn(TOOLBAR_BTN_BASE, TOOLBAR_BTN_OUTLINE)}
+              onClick={() => setShowAddForm((v) => !v)}
+              className={DASHBOARD_PRIMARY_BTN}
             >
-              {bridgeLoading ? 'Sincronizando Windows…' : 'Actualizar desde Windows'}
+              {showAddForm ? 'Cerrar formulario' : 'Añadir certificado'}
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowActivityLog((v) => !v)}
-            className={cn(TOOLBAR_BTN_BASE, TOOLBAR_BTN_OUTLINE)}
-          >
-            {showActivityLog ? 'Ocultar actividad' : 'Registro de actividad'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAddForm((v) => !v)}
-            className={cn(TOOLBAR_BTN_BASE, TOOLBAR_BTN_PRIMARY)}
-          >
-            {showAddForm ? 'Cerrar formulario' : 'Añadir certificado'}
-          </button>
+          </div>
         </div>
       </div>
-
-      {showActivityLog && companyId && (
-        <Card className="p-6 border-slate-200 w-full">
-          <h2 className="font-semibold text-slate-800 mb-1">Registro de actividad</h2>
-          <p className="text-xs text-slate-500 mb-4">
-            Trazabilidad completa: quién ha subido, consultado, usado o modificado cada certificado.
-          </p>
-          <CertActivityLogPanel
-            companyId={companyId}
-            adminHeaders={adminHeaders}
-            certificates={accountCerts.map((c) => ({
-              id: c.id,
-              label: c.alias || c.holderName || c.holderNif || c.id,
-            }))}
-          />
-        </Card>
-      )}
 
       {(message || error) && (
         <div className="space-y-1 w-full">
@@ -799,61 +862,83 @@ export default function AdminCertificatesPage() {
       )}
 
       {showAddForm && (
-        <Card className="p-6 border-slate-200 w-full">
-          <h2 className="font-semibold text-slate-800 mb-1">Añadir certificado (.pfx / .p12)</h2>
-          <p className="text-xs text-slate-500 mb-4">
-            Se guarda cifrado en Vacly. Opcionalmente se instala también en el almacén de Windows de
-            este equipo.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end">
-            <Input placeholder="Alias" value={uploadAlias} onChange={(e) => setUploadAlias(e.target.value)} />
+        <div className={cn(DASHBOARD_CARD, 'w-full')}>
+          <div className={DASHBOARD_CARD_HEADER}>
+            <p className={DASHBOARD_EYEBROW}>Alta manual</p>
+            <h2 className={cn(DASHBOARD_TITLE, 'mt-1')}>Añadir certificado (.pfx / .p12)</h2>
+            <p className={cn(DASHBOARD_SUBTITLE, 'mt-1')}>
+              Se guarda cifrado en Vacly. Opcionalmente se instala también en el almacén de Windows de
+              este equipo.
+            </p>
+          </div>
+          <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4 lg:items-end">
+            <Input
+              placeholder="Alias"
+              value={uploadAlias}
+              onChange={(e) => setUploadAlias(e.target.value)}
+              className={DASHBOARD_INPUT_MD}
+            />
             <Input
               type="password"
               placeholder="Contraseña del certificado"
               value={uploadPassword}
               onChange={(e) => setUploadPassword(e.target.value)}
+              className={DASHBOARD_INPUT_MD}
             />
-            <Input type="file" accept=".pfx,.p12" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+            <Input
+              type="file"
+              accept=".pfx,.p12"
+              onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+              className={cn(DASHBOARD_INPUT_MD, 'file:mr-2 file:rounded-md file:border-0 file:bg-[#F6F8FA] file:px-2 file:text-xs file:font-medium file:text-[#1B2A41]')}
+            />
             <Button
               onClick={() => void uploadNewCert()}
               disabled={uploading}
-              className="bg-[#1B2A41] text-white hover:bg-[#152036]"
+              className={cn(DASHBOARD_PRIMARY_BTN, 'w-full')}
             >
               {uploading ? 'Guardando…' : 'Guardar en Vacly'}
             </Button>
           </div>
           {isWindows && (
-            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-3">
+            <label className="flex cursor-pointer items-center gap-2 border-t border-[#1B2A41]/8 px-4 py-3 text-sm text-[#5C6B7F] sm:px-5">
               <input
                 type="checkbox"
                 checked={installInWindows}
                 onChange={(e) => setInstallInWindows(e.target.checked)}
-                className="rounded border-slate-300"
+                className="rounded border-[#1B2A41]/20 accent-[#1B2A41]"
               />
               Instalar también en Windows (requiere puente activo)
             </label>
           )}
-        </Card>
+        </div>
       )}
 
-      <Card className="border-slate-200 overflow-hidden w-full">
-        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80">
+      <div className={cn(DASHBOARD_CARD, 'w-full')}>
+        <div className={DASHBOARD_CARD_HEADER}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-slate-600">
-              {unifiedRows.length} certificado{unifiedRows.length === 1 ? '' : 's'}
-              {bridgeReady && ` · ${filteredWindows.length} en Windows`}
-              {statusCounts.expiring_soon > 0 && (
-                <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                  {statusCounts.expiring_soon} caduca{statusCounts.expiring_soon === 1 ? '' : 'n'} pronto
-                </span>
-              )}
-              {statusCounts.expired > 0 && (
-                <span className="ml-1.5 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
-                  {statusCounts.expired} caducado{statusCounts.expired === 1 ? '' : 's'}
-                </span>
-              )}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
+            <div>
+              <p className={DASHBOARD_EYEBROW}>Inventario</p>
+              <p className="mt-1 text-sm font-medium text-[#1B2A41]">
+                {unifiedRows.length} certificado{unifiedRows.length === 1 ? '' : 's'}
+                {bridgeReady && (
+                  <span className="font-normal text-[#5C6B7F]">
+                    {' '}
+                    · {filteredWindows.length} en Windows
+                  </span>
+                )}
+                {statusCounts.expiring_soon > 0 && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                    {statusCounts.expiring_soon} caduca{statusCounts.expiring_soon === 1 ? '' : 'n'} pronto
+                  </span>
+                )}
+                {statusCounts.expired > 0 && (
+                  <span className="ml-1.5 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                    {statusCounts.expired} caducado{statusCounts.expired === 1 ? '' : 's'}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className={DASHBOARD_PILL_GROUP}>
               {(
                 [
                   { key: 'all' as const, label: 'Todos' },
@@ -870,11 +955,7 @@ export default function AdminCertificatesPage() {
                     key={f.key}
                     type="button"
                     onClick={() => setStatusFilter(f.key)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
-                      statusFilter === f.key
-                        ? 'border-[#1B2A41] bg-[#1B2A41] text-white'
-                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
+                    className={dashboardPillClass(statusFilter === f.key)}
                   >
                     {f.label}
                     {f.key !== 'all' && ` (${statusCounts[f.key]})`}
@@ -884,17 +965,17 @@ export default function AdminCertificatesPage() {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[960px]">
-            <thead className="bg-slate-50">
+          <table className="w-full min-w-[960px] text-sm">
+            <thead className={DASHBOARD_TABLE_HEAD}>
               <tr>
-                <th className={TH_CLASS}>Origen</th>
-                <th className={TH_CLASS}>Empresa</th>
-                <th className={TH_CLASS}>Titular</th>
-                <th className={TH_CLASS}>DNI/NIF</th>
-                <th className={TH_CLASS}>Emisor</th>
-                <th className={TH_CLASS}>Caducidad</th>
-                <th className={TH_CLASS}>Estado</th>
-                <th className={TH_CLASS}>Acciones</th>
+                <th className={DASHBOARD_TH}>Origen</th>
+                <th className={DASHBOARD_TH}>Empresa</th>
+                <th className={DASHBOARD_TH}>Titular</th>
+                <th className={DASHBOARD_TH}>DNI/NIF</th>
+                <th className={DASHBOARD_TH}>Emisor</th>
+                <th className={DASHBOARD_TH}>Caducidad</th>
+                <th className={DASHBOARD_TH}>Estado</th>
+                <th className={DASHBOARD_TH}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -906,8 +987,8 @@ export default function AdminCertificatesPage() {
 
                 return (
                   <Fragment key={row.key}>
-                    <tr className="border-t border-slate-100 hover:bg-slate-50/50">
-                      <td className={TD_CLASS}>
+                    <tr className={DASHBOARD_ROW}>
+                      <td className={DASHBOARD_TD}>
                         <Badge
                           variant="outline"
                           className={
@@ -919,9 +1000,9 @@ export default function AdminCertificatesPage() {
                           {row.originLabel}
                         </Badge>
                       </td>
-                      <td className={TD_CLASS}>{row.companyName}</td>
-                      <td className={TD_CLASS}>
-                        <p className="font-medium text-slate-800">{row.titular}</p>
+                      <td className={DASHBOARD_TD}>{row.companyName}</td>
+                      <td className={DASHBOARD_TD}>
+                        <p className="font-medium text-[#1B2A41]">{row.titular}</p>
                         {cert?.certificateType && (
                           <p className="text-[11px] text-slate-400">
                             {TYPE_LABEL[cert.certificateType] || cert.certificateType}
@@ -939,15 +1020,15 @@ export default function AdminCertificatesPage() {
                           </p>
                         )}
                       </td>
-                      <td className={`${TD_CLASS} font-mono text-xs`}>{row.nif || '—'}</td>
-                      <td className={`${TD_CLASS} text-xs max-w-[180px] truncate`} title={row.issuer}>
+                      <td className={`${DASHBOARD_TD} font-mono text-xs`}>{row.nif || '—'}</td>
+                      <td className={`${DASHBOARD_TD} text-xs max-w-[180px] truncate`} title={row.issuer}>
                         {row.issuer}
                       </td>
-                      <td className={TD_CLASS}>{row.expiry}</td>
-                      <td className={TD_CLASS}>
+                      <td className={DASHBOARD_TD}>{row.expiry}</td>
+                      <td className={DASHBOARD_TD}>
                         <Badge variant={row.statusVariant}>{row.statusLabel}</Badge>
                       </td>
-                      <td className={TD_CLASS}>
+                      <td className={DASHBOARD_TD}>
                         <CertRowActions
                           onView={() => openDetail(row)}
                           needsScopeChoice={row.needsScopeChoice}
@@ -993,30 +1074,32 @@ export default function AdminCertificatesPage() {
                       </td>
                     </tr>
                     {isRegistering && wc && (
-                      <tr className="bg-[#1B2A41]/5">
+                      <tr className="bg-[#1B2A41]/[0.04]">
                         <td colSpan={8} className="p-4">
-                          <p className="text-sm font-medium text-slate-800 mb-3 text-center">
+                          <p className="mb-3 text-center text-sm font-medium text-[#1B2A41]">
                             Registrar en Vacly: {wc.displayName}
                           </p>
-                          <div className="flex flex-wrap gap-3 items-end justify-center">
-                            <div className="flex-1 min-w-[160px] max-w-xs">
+                          <div className="flex flex-wrap items-end justify-center gap-3">
+                            <div className="min-w-[160px] max-w-xs flex-1">
                               <Input
                                 placeholder="Alias"
                                 value={registerAlias}
                                 onChange={(e) => setRegisterAlias(e.target.value)}
+                                className={DASHBOARD_INPUT_MD}
                               />
                             </div>
-                            <div className="flex-1 min-w-[160px] max-w-xs">
+                            <div className="min-w-[160px] max-w-xs flex-1">
                               <Input
                                 type="password"
                                 placeholder="Contraseña del certificado"
                                 value={registerPassword}
                                 onChange={(e) => setRegisterPassword(e.target.value)}
+                                className={DASHBOARD_INPUT_MD}
                               />
                             </div>
                             <Button
                               size="sm"
-                              className="bg-[#1B2A41] text-white"
+                              className={DASHBOARD_PRIMARY_BTN}
                               disabled={uploading}
                               onClick={() => void registerWindowsCert(wc.thumbprint)}
                             >
@@ -1025,6 +1108,7 @@ export default function AdminCertificatesPage() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className={DASHBOARD_OUTLINE_BTN}
                               onClick={() => {
                                 setRegisterThumb(null)
                                 setRegisterPassword('')
@@ -1042,7 +1126,7 @@ export default function AdminCertificatesPage() {
               })}
               {visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-500">
+                  <td colSpan={8} className="p-8 text-center text-[#5C6B7F]">
                     No hay certificados que coincidan con la búsqueda
                   </td>
                 </tr>
@@ -1050,7 +1134,20 @@ export default function AdminCertificatesPage() {
             </tbody>
           </table>
         </div>
-      </Card>
+      </div>
+
+      {companyId && sessionReady && (
+        <div className={cn(DASHBOARD_CARD, 'w-full')}>
+          <CertActivityLogPanel
+            companyId={companyId}
+            adminHeaders={adminHeaders}
+            certificates={accountCerts.map((c) => ({
+              id: c.id,
+              label: c.alias || c.holderName || c.holderNif || c.id,
+            }))}
+          />
+        </div>
+      )}
     </AdminShell>
   )
 }

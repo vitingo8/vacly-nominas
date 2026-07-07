@@ -4,7 +4,6 @@ import { adminErrorResponse, jsonOk } from '@/lib/admin-integrations/api-helpers
 import {
   assertValidCompanyId,
   assertCompanyAccess,
-  getActorUserId,
 } from '@/lib/admin-integrations/request-context'
 import { AdminIntegrationError } from '@/lib/admin-integrations/errors'
 import {
@@ -49,14 +48,14 @@ export async function PATCH(request: NextRequest) {
     const notificationId = String(body.id || '')
     const certificateId = body.certificate_id ? String(body.certificate_id) : undefined
     assertValidCompanyId(companyId)
-    assertCompanyAccess(request, companyId)
+    const ctx = assertCompanyAccess(request, companyId)
     if (!notificationId) {
       throw new AdminIntegrationError('VALIDATION_ERROR', 'id de la notificacion es requerido')
     }
 
     const supabase = getSupabaseClient()
     await markNotificationRead(supabase, companyId, notificationId, {
-      actorUserId: getActorUserId(request),
+      actorUserId: ctx.actorUserId,
       certificateId,
     })
     return jsonOk({ read: true })
