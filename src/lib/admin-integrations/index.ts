@@ -1,11 +1,17 @@
+/**
+ * Copia mínima de admin-integrations para la firma de presentaciones
+ * (`/api/filing`, `/api/red`, `/api/sepa`).
+ *
+ * La copia canónica y completa (notificaciones, TGSS RED, transacciones,
+ * puente Windows, certificaciones AEAT…) vive en `vacly-administrativo`.
+ * Si cambias la firma aquí, sincroniza el cambio con esa app.
+ */
 export * from './types'
 export * from './config'
 export * from './errors'
 export * from './state-machine'
 export { TransactionService } from './transaction-engine/transaction-service'
-export { TransactionProcessor } from './transaction-engine/processor'
 export { AuditService } from './audit/audit-service'
-export { DocumentStorageService } from './document-storage/document-storage-service'
 export {
   createCertificateVault,
   deriveCertificateStatus,
@@ -29,20 +35,3 @@ export {
   type SignSubmissionInput,
   type SignSubmissionResult,
 } from './signing/signing-service'
-export { notifyExpiringCertificates, type ExpiryNotifierResult } from './notifications/expiry-notifier'
-export {
-  syncCompanyNotifications,
-  listCompanyNotifications,
-  listAgencyNotifications,
-  listNotificationSyncRuns,
-  markNotificationRead,
-  type AdminNotificationRow,
-  type SyncResult,
-  type ProviderSyncResult,
-} from './notifications/notification-service'
-export { getNotificationsConfig } from './notifications/config'
-export { createNotificationAdapters } from './notifications/adapters'
-export { AfiFileGenerator } from './tgss-red/afi-generator'
-export { validateAfiPayload } from './tgss-red/afi-validator'
-export { TgssAffiliationService } from './tgss-red/tgss-affiliation-service'
-export { createTransportAdapter } from './tgss-red/transport/transport-adapter'

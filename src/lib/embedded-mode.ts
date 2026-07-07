@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 
+export const VACLY_EMBED_HEIGHT_MSG = 'VACLY_EMBED_HEIGHT'
+
 export function readSearchParam(key: string): string | null {
   if (typeof window === 'undefined') return null
   return new URLSearchParams(window.location.search).get(key)
