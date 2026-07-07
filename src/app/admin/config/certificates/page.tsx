@@ -37,6 +37,8 @@ import {
 } from '@/components/admin/cert-expiry-fullscreen-alert'
 import { CertExpiryNotificationsDialog } from '@/components/admin/cert-expiry-notifications-dialog'
 import { CertRowActions } from '@/components/admin/cert-row-actions'
+import { CertActivityLogPanel } from '@/components/admin/cert-activity'
+import { CertPermissionsDialog } from '@/components/admin/cert-permissions-dialog'
 import { CertScopePickerDialog } from '@/components/admin/cert-scope-picker-dialog'
 import { cn } from '@/lib/utils'
 import { DEFAULT_CORPORATE_BRAND, type CorporateBrand } from '@/lib/corporate-brand'
@@ -66,6 +68,8 @@ interface CertRow {
   expiryNotificationMilestones?: number[]
   portfolioScope?: 'own' | 'portfolio' | null
   linkedCompanyId?: string | null
+  accessMode?: 'open' | 'restricted' | null
+  createdBy?: string | null
 }
 
 interface UnifiedRow {
@@ -211,6 +215,9 @@ export default function AdminCertificatesPage() {
   const [scopeSaving, setScopeSaving] = useState(false)
   const [notificationCert, setNotificationCert] = useState<CertRow | null>(null)
   const [notificationSaving, setNotificationSaving] = useState(false)
+  const [permissionsCert, setPermissionsCert] = useState<CertRow | null>(null)
+  const [showActivityLog, setShowActivityLog] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<'all' | CertStatus | 'windows'>('all')
 
   useEffect(() => {
     if (typeof window !== 'undefined') setNominasOrigin(window.location.origin)
@@ -304,12 +311,26 @@ export default function AdminCertificatesPage() {
       daysToExpiry: cert?.daysToExpiry ?? daysToExpiry,
       organizationalUnit: wc?.organizationalUnit ?? null,
       subjectDn: wc?.subject ?? null,
+      certificateId: cert?.id ?? null,
+      ownerCompanyId: cert?.companyId ?? companyId ?? null,
     }
   }
 
   const openDetail = (row: UnifiedRow) => {
     setDetailCert(buildDetailFromRow(row))
     setDetailOpen(true)
+    // Trazabilidad: consulta del detalle de un certificado de Vacly.
+    const cert = row.vaclyCert
+    if (cert?.id) {
+      const targetCompanyId = cert.companyId || companyId
+      if (targetCompanyId) {
+        void fetch('/api/admin/config/certificates/audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+          body: JSON.stringify({ company_id: targetCompanyId, certificate_id: cert.id }),
+        }).catch(() => {})
+      }
+    }
   }
 
   const saveExpiryNotifications = async (cert: CertRow, enabled: boolean, milestones: number[]) => {
@@ -419,6 +440,7 @@ export default function AdminCertificatesPage() {
       for (const wc of filteredWindows) {
         const match = findVaclyMatch(wc, accountCerts)
         if (match) continue
+        const notExportable = wc.exportable === false
         rows.push({
           key: `win-${wc.thumbprint}`,
           origin: 'windows',
@@ -428,7 +450,7 @@ export default function AdminCertificatesPage() {
           nif: wc.nif || null,
           issuer: formatCertIssuer(wc.issuer),
           expiry: fmtDate(wc.notAfter),
-          statusLabel: 'Solo Windows',
+          statusLabel: notExportable ? 'Solo Windows · no exportable' : 'Solo Windows',
           statusVariant: 'outline',
           windowsCert: wc,
         })
@@ -496,13 +518,33 @@ export default function AdminCertificatesPage() {
     companyId,
   ])
 
-  const uploadPfx = async (pfxFile: File, certAlias: string, certPassword: string) => {
+  const rowStatusKey = (row: UnifiedRow): CertStatus | 'windows' =>
+    row.vaclyCert ? row.vaclyCert.status : 'windows'
+
+  const statusCounts = useMemo(() => {
+    const counts = { all: unifiedRows.length, valid: 0, expiring_soon: 0, expired: 0, revoked: 0, windows: 0 }
+    for (const row of unifiedRows) counts[rowStatusKey(row)] += 1
+    return counts
+  }, [unifiedRows])
+
+  const visibleRows = useMemo(
+    () => (statusFilter === 'all' ? unifiedRows : unifiedRows.filter((r) => rowStatusKey(r) === statusFilter)),
+    [unifiedRows, statusFilter],
+  )
+
+  const uploadPfx = async (
+    pfxFile: File,
+    certAlias: string,
+    certPassword: string,
+    source: 'manual_upload' | 'windows_import' = 'manual_upload',
+  ) => {
     if (!companyId) return null
     const fd = new FormData()
     fd.set('company_id', companyId)
     fd.set('alias', certAlias)
     fd.set('password', certPassword)
     fd.set('pfx', pfxFile)
+    fd.set('source', source)
 
     const res = await fetch('/api/admin/config/certificates', {
       method: 'POST',
@@ -513,7 +555,42 @@ export default function AdminCertificatesPage() {
     if (!data.success) {
       throw new Error(data.message || 'Error al registrar el certificado')
     }
-    return data.certificate as CertRow
+    const saved = data.certificate as CertRow
+    await maybeOfferRenewal(saved, data.renewalCandidate)
+    return saved
+  }
+
+  /** Si el titular ya tenía un certificado, ofrece sustituirlo heredando su configuración. */
+  const maybeOfferRenewal = async (
+    saved: CertRow | null,
+    candidate: { id: string; alias: string; validTo?: string | null } | null | undefined,
+  ) => {
+    if (!saved?.id || !candidate?.id || !companyId) return
+    const expiry = candidate.validTo ? ` (caduca ${fmtDate(candidate.validTo)})` : ''
+    const accepted = confirm(
+      `Este titular ya tiene el certificado "${candidate.alias}"${expiry} en Vacly.\n\n` +
+        '¿Es una renovación? El nuevo certificado heredará su alias, clasificación, avisos y permisos, ' +
+        'y el anterior quedará archivado.',
+    )
+    if (!accepted) return
+    try {
+      const res = await fetch('/api/admin/config/certificates', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+        body: JSON.stringify({
+          company_id: companyId,
+          id: saved.id,
+          replace_certificate_id: candidate.id,
+        }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        throw new Error(data.message || 'No se pudo completar la renovación')
+      }
+      setMessage('Certificado renovado: configuración y permisos heredados, el anterior queda archivado.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al renovar el certificado')
+    }
   }
 
   const registerWindowsCert = async (thumbprint: string) => {
@@ -531,7 +608,7 @@ export default function AdminCertificatesPage() {
       const { pfxBase64, fileName } = await exportWindowsCertificate(thumbprint, registerPassword)
       const pfxFile = base64ToPfxFile(pfxBase64, fileName)
       const alias = registerAlias.trim() || selected.displayName || 'Certificado Windows'
-      const saved = await uploadPfx(pfxFile, alias, registerPassword)
+      const saved = await uploadPfx(pfxFile, alias, registerPassword, 'windows_import')
       setMessage(
         `Certificado de ${saved?.holderName || saved?.holderNif || alias} guardado en Vacly. Sigue disponible en Windows.`,
       )
@@ -618,6 +695,21 @@ export default function AdminCertificatesPage() {
           if (notificationCert) void saveExpiryNotifications(notificationCert, enabled, milestones)
         }}
       />
+      <CertPermissionsDialog
+        open={Boolean(permissionsCert)}
+        onOpenChange={(open) => {
+          if (!open) setPermissionsCert(null)
+        }}
+        titular={permissionsCert?.holderName || permissionsCert?.alias || '—'}
+        companyId={permissionsCert?.companyId || companyId || ''}
+        certificateId={permissionsCert?.id || null}
+        adminHeaders={adminHeaders}
+        onAccessModeChanged={(mode) => {
+          setAccountCerts((prev) =>
+            prev.map((c) => (c.id === permissionsCert?.id ? { ...c, accessMode: mode } : c)),
+          )
+        }}
+      />
       <CertScopePickerDialog
         open={Boolean(scopePickerCert)}
         onOpenChange={(open) => {
@@ -638,6 +730,7 @@ export default function AdminCertificatesPage() {
         onOpenChange={setDetailOpen}
         cert={detailCert}
         typeLabels={TYPE_LABEL}
+        adminHeaders={adminHeaders}
       />
 
       {isWindows && !bridgeReady && (
@@ -666,6 +759,13 @@ export default function AdminCertificatesPage() {
           )}
           <button
             type="button"
+            onClick={() => setShowActivityLog((v) => !v)}
+            className={cn(TOOLBAR_BTN_BASE, TOOLBAR_BTN_OUTLINE)}
+          >
+            {showActivityLog ? 'Ocultar actividad' : 'Registro de actividad'}
+          </button>
+          <button
+            type="button"
             onClick={() => setShowAddForm((v) => !v)}
             className={cn(TOOLBAR_BTN_BASE, TOOLBAR_BTN_PRIMARY)}
           >
@@ -673,6 +773,23 @@ export default function AdminCertificatesPage() {
           </button>
         </div>
       </div>
+
+      {showActivityLog && companyId && (
+        <Card className="p-6 border-slate-200 w-full">
+          <h2 className="font-semibold text-slate-800 mb-1">Registro de actividad</h2>
+          <p className="text-xs text-slate-500 mb-4">
+            Trazabilidad completa: quién ha subido, consultado, usado o modificado cada certificado.
+          </p>
+          <CertActivityLogPanel
+            companyId={companyId}
+            adminHeaders={adminHeaders}
+            certificates={accountCerts.map((c) => ({
+              id: c.id,
+              label: c.alias || c.holderName || c.holderNif || c.id,
+            }))}
+          />
+        </Card>
+      )}
 
       {(message || error) && (
         <div className="space-y-1 w-full">
@@ -720,11 +837,51 @@ export default function AdminCertificatesPage() {
       )}
 
       <Card className="border-slate-200 overflow-hidden w-full">
-        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80 text-center">
-          <p className="text-sm text-slate-600">
-            {unifiedRows.length} certificado{unifiedRows.length === 1 ? '' : 's'}
-            {bridgeReady && ` · ${filteredWindows.length} en Windows`}
-          </p>
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-600">
+              {unifiedRows.length} certificado{unifiedRows.length === 1 ? '' : 's'}
+              {bridgeReady && ` · ${filteredWindows.length} en Windows`}
+              {statusCounts.expiring_soon > 0 && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                  {statusCounts.expiring_soon} caduca{statusCounts.expiring_soon === 1 ? '' : 'n'} pronto
+                </span>
+              )}
+              {statusCounts.expired > 0 && (
+                <span className="ml-1.5 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                  {statusCounts.expired} caducado{statusCounts.expired === 1 ? '' : 's'}
+                </span>
+              )}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  { key: 'all' as const, label: 'Todos' },
+                  { key: 'valid' as const, label: 'Vigentes' },
+                  { key: 'expiring_soon' as const, label: 'Caducan pronto' },
+                  { key: 'expired' as const, label: 'Caducados' },
+                  { key: 'revoked' as const, label: 'Revocados' },
+                  { key: 'windows' as const, label: 'Solo Windows' },
+                ]
+              )
+                .filter((f) => f.key === 'all' || statusCounts[f.key] > 0)
+                .map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setStatusFilter(f.key)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+                      statusFilter === f.key
+                        ? 'border-[#1B2A41] bg-[#1B2A41] text-white'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {f.label}
+                    {f.key !== 'all' && ` (${statusCounts[f.key]})`}
+                  </button>
+                ))}
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[960px]">
@@ -741,7 +898,7 @@ export default function AdminCertificatesPage() {
               </tr>
             </thead>
             <tbody>
-              {unifiedRows.map((row) => {
+              {visibleRows.map((row) => {
                 const isRegistering =
                   row.windowsCert && registerThumb === row.windowsCert.thumbprint
                 const cert = row.vaclyCert
@@ -773,6 +930,14 @@ export default function AdminCertificatesPage() {
                         {wc?.organizationalUnit && (
                           <p className="text-[11px] text-slate-400">{wc.organizationalUnit}</p>
                         )}
+                        {wc?.exportable === false && (
+                          <p
+                            className="text-[11px] text-amber-600"
+                            title="La clave privada no permite exportación (tarjeta/DNIe o política de Windows). Para guardarlo en Vacly, sube el fichero .pfx original."
+                          >
+                            Clave no exportable — sube el .pfx original
+                          </p>
+                        )}
                       </td>
                       <td className={`${TD_CLASS} font-mono text-xs`}>{row.nif || '—'}</td>
                       <td className={`${TD_CLASS} text-xs max-w-[180px] truncate`} title={row.issuer}>
@@ -796,7 +961,17 @@ export default function AdminCertificatesPage() {
                           onConfigureNotifications={
                             cert ? () => setNotificationCert(cert) : undefined
                           }
-                          showImport={row.origin === 'windows' && Boolean(wc) && !isRegistering}
+                          showPermissions={Boolean(cert?.id) && cert?.status !== 'revoked'}
+                          isRestricted={cert?.accessMode === 'restricted'}
+                          onConfigurePermissions={
+                            cert ? () => setPermissionsCert(cert) : undefined
+                          }
+                          showImport={
+                            row.origin === 'windows' &&
+                            Boolean(wc) &&
+                            wc?.exportable !== false &&
+                            !isRegistering
+                          }
                           onImportToVacly={
                             wc
                               ? () => {
@@ -865,7 +1040,7 @@ export default function AdminCertificatesPage() {
                   </Fragment>
                 )
               })}
-              {unifiedRows.length === 0 && (
+              {visibleRows.length === 0 && (
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-slate-500">
                     No hay certificados que coincidan con la búsqueda

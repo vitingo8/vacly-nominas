@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,7 @@ import {
   ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
 import { formatMilestonesSummary } from '@/lib/admin-integrations/certificate-vault/cert-expiry-milestones'
+import { CertActivityTimeline } from '@/components/admin/cert-activity'
 
 export interface CertDetailData {
   originLabel: string
@@ -40,6 +41,10 @@ export interface CertDetailData {
   daysToExpiry?: number | null
   organizationalUnit?: string | null
   subjectDn?: string | null
+  /** Id del certificado en Vacly (habilita la pestaña Actividad). */
+  certificateId?: string | null
+  /** Empresa propietaria del certificado en Vacly. */
+  ownerCompanyId?: string | null
 }
 
 interface CertDetailDialogProps {
@@ -47,6 +52,8 @@ interface CertDetailDialogProps {
   onOpenChange: (open: boolean) => void
   cert: CertDetailData | null
   typeLabels?: Record<string, string>
+  /** Cabeceras de sesión para consultar la actividad (token firmado). */
+  adminHeaders?: () => Record<string, string>
 }
 
 function Cell({
@@ -127,8 +134,17 @@ export function CertDetailDialog({
   onOpenChange,
   cert,
   typeLabels = {},
+  adminHeaders,
 }: CertDetailDialogProps) {
+  const [tab, setTab] = useState<'data' | 'activity'>('data')
+
+  useEffect(() => {
+    if (open) setTab('data')
+  }, [open])
+
   if (!cert) return null
+
+  const canShowActivity = Boolean(cert.certificateId && cert.ownerCompanyId && adminHeaders)
 
   const validity = validityProgress(cert.daysToExpiry)
   const barColor =
@@ -204,6 +220,39 @@ export function CertDetailDialog({
           </div>
         </div>
 
+        {canShowActivity && (
+          <div className="flex gap-1 px-8 pt-3 bg-[#f6f8fa] border-b border-slate-200">
+            {(
+              [
+                { id: 'data' as const, label: 'Datos' },
+                { id: 'activity' as const, label: 'Actividad' },
+              ]
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+                  tab === t.id
+                    ? 'bg-white border-slate-200 text-[#1B2A41]'
+                    : 'bg-transparent border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {canShowActivity && tab === 'activity' ? (
+          <div className="px-8 py-6 bg-[#f6f8fa] flex-1 overflow-y-auto">
+            <CertActivityTimeline
+              companyId={cert.ownerCompanyId!}
+              certificateId={cert.certificateId!}
+              adminHeaders={adminHeaders!}
+            />
+          </div>
+        ) : (
         <div className="px-8 py-6 bg-[#f6f8fa] flex-1 flex flex-col justify-between">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5">
             <Cell label="Titular" value={cert.titular} />
@@ -276,6 +325,7 @@ export function CertDetailDialog({
             </div>
           </div>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   )

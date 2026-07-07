@@ -6,8 +6,10 @@ import {
   BellIcon,
   BellSlashIcon,
   EyeIcon,
+  LockClosedIcon,
   QuestionMarkCircleIcon,
   TrashIcon,
+  UsersIcon,
 } from '@heroicons/react/24/outline'
 
 const iconBtn =
@@ -25,6 +27,9 @@ interface CertRowActionsProps {
   showImport?: boolean
   needsScopeChoice?: boolean
   onClassify?: () => void
+  onConfigurePermissions?: () => void
+  showPermissions?: boolean
+  isRestricted?: boolean
 }
 
 export function CertRowActions({
@@ -39,6 +44,9 @@ export function CertRowActions({
   showImport = false,
   needsScopeChoice = false,
   onClassify,
+  onConfigurePermissions,
+  showPermissions = false,
+  isRestricted = false,
 }: CertRowActionsProps) {
   return (
     <div className="flex items-center justify-center gap-0.5">
@@ -87,6 +95,23 @@ export function CertRowActions({
           ) : (
             <BellSlashIcon className="h-4 w-4" />
           )}
+        </Button>
+      )}
+
+      {showPermissions && onConfigurePermissions && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={`${iconBtn} ${isRestricted ? 'text-[#1B2A41]' : ''}`}
+          title={
+            isRestricted
+              ? 'Permisos de usuarios (acceso restringido)'
+              : 'Permisos de usuarios (acceso abierto)'
+          }
+          onClick={onConfigurePermissions}
+        >
+          {isRestricted ? <LockClosedIcon className="h-4 w-4" /> : <UsersIcon className="h-4 w-4" />}
         </Button>
       )}
 

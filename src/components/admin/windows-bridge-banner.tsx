@@ -8,11 +8,32 @@ import {
 } from '@/lib/admin-integrations/certificate-vault/windows-bridge-activate'
 import { probeWindowsCertBridge } from '@/lib/admin-integrations/certificate-vault/windows-cert-bridge'
 
-type BridgeStatus = 'checking' | 'connected' | 'needs_one_click' | 'offline'
+type BridgeStatus = 'checking' | 'connected' | 'needs_one_click' | 'offline' | 'browser_blocked'
 
 interface WindowsBridgeBannerProps {
   nominasOrigin: string
   onConnected: () => void
+}
+
+/**
+ * Detecta si el navegador bloquea las peticiones a la red local (Chrome
+ * Local Network Access). Ocurre cuando esta página está embebida en un iframe
+ * que no delega el permiso `local-network-access`.
+ */
+function isLocalNetworkBlockedByPolicy(): boolean {
+  if (typeof document === 'undefined') return false
+  const doc = document as Document & {
+    permissionsPolicy?: { allowsFeature: (feature: string) => boolean }
+    featurePolicy?: { allowsFeature: (feature: string) => boolean }
+  }
+  const policy = doc.permissionsPolicy || doc.featurePolicy
+  if (!policy || typeof policy.allowsFeature !== 'function') return false
+  try {
+    // Solo es concluyente si el navegador conoce la feature y la deniega.
+    return policy.allowsFeature('local-network-access') === false && window.self !== window.top
+  } catch {
+    return false
+  }
 }
 
 export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridgeBannerProps) {
@@ -26,12 +47,20 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
       onConnected()
       return true
     }
+    if (isLocalNetworkBlockedByPolicy()) {
+      setStatus('browser_blocked')
+      return false
+    }
     setStatus((s) => (s === 'connected' ? s : 'offline'))
     return false
   }, [onConnected])
 
   const connect = useCallback(async () => {
     setStatus('checking')
+    if (isLocalNetworkBlockedByPolicy()) {
+      setStatus('browser_blocked')
+      return
+    }
     const result = await activateWindowsBridge(probeWindowsCertBridge, nominasOrigin)
     if (result === 'connected') {
       setStatus('connected')
@@ -55,7 +84,7 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
   }, [check, connect])
 
   useEffect(() => {
-    if (status !== 'needs_one_click' && status !== 'checking') return
+    if (status !== 'needs_one_click' && status !== 'checking' && status !== 'browser_blocked') return
     const id = window.setInterval(() => {
       void check()
     }, 2000)
@@ -64,13 +93,41 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
 
   if (status === 'connected') return null
 
+  if (status === 'browser_blocked') {
+    return (
+      <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950 space-y-3">
+        <p>
+          <strong>El navegador está bloqueando el acceso a los certificados de Windows.</strong> Esta
+          página está embebida sin el permiso de red local. Abre la gestión de certificados en una
+          pestaña propia, o si el problema persiste tras actualizar Vacly, comprueba que Chrome tenga
+          permitido el acceso a dispositivos de la red local para este sitio (icono del candado →
+          Configuración del sitio).
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-[#1B2A41] text-white"
+            onClick={() => window.open(window.location.href, '_blank', 'noopener')}
+          >
+            Abrir en pestaña nueva
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => void connect()}>
+            Reintentar conexión
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (status === 'needs_one_click') {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 space-y-3">
         <p>
-          <strong>Paso necesario:</strong> ejecuta el archivo <strong>VaclyCertBridge.bat</strong> que
-          se ha descargado (doble clic en Descargas). La ventana de instalación debe completarse; después
-          Vacly detectará tus certificados automáticamente.
+          <strong>El asistente aún no está instalado en este PC.</strong> Ejecuta el archivo{' '}
+          <strong>VaclyCertBridge.bat</strong> que se ha descargado (doble clic en Descargas). No
+          requiere permisos de administrador; al terminar, Vacly detectará tus certificados
+          automáticamente.
         </p>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -100,8 +157,9 @@ export function WindowsBridgeBanner({ nominasOrigin, onConnected }: WindowsBridg
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 space-y-3">
       <p>
-        No se pudo conectar con el almacén de certificados de Windows. Instala el asistente local o sube
-        un .pfx manualmente.
+        No se pudo conectar con el almacén de certificados de Windows. Si ya instalaste el asistente,
+        pulsa «Conectar este PC» para arrancarlo; si es la primera vez, descarga el instalador (no
+        requiere administrador). También puedes subir un .pfx manualmente.
       </p>
       <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" className="bg-[#1B2A41] text-white" onClick={() => void connect()}>

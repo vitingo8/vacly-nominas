@@ -15,12 +15,21 @@ export interface WindowsCertificateEntry {
   notAfter: string
   friendlyName?: string
   serialNumber?: string
+  /** false si la clave privada no permite exportación a PKCS#12 (DNIe, tarjetas, política). */
+  exportable?: boolean
   /** Campos derivados del subject para búsqueda y UI. */
   displayName?: string
   nif?: string | null
   organization?: string | null
   organizationalUnit?: string | null
 }
+
+/**
+ * Opciones extra para peticiones al puente local. `targetAddressSpace` indica a
+ * Chrome (Local Network Access) que la petición HTTP va a loopback de forma
+ * intencionada; los navegadores que no lo soportan ignoran la opción.
+ */
+const LOOPBACK_FETCH_OPTIONS = { targetAddressSpace: 'loopback' } as RequestInit
 
 export function isWindowsClient(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -58,6 +67,7 @@ export async function probeWindowsCertBridge(baseUrl = WINDOWS_CERT_BRIDGE_URL):
     const res = await fetch(`${baseUrl.replace(/\/$/, '')}/health`, {
       signal: controller.signal,
       mode: 'cors',
+      ...LOOPBACK_FETCH_OPTIONS,
     })
     clearTimeout(timer)
     if (!res.ok) return false
@@ -70,7 +80,10 @@ export async function probeWindowsCertBridge(baseUrl = WINDOWS_CERT_BRIDGE_URL):
 
 /** Lista certificados con clave privada del almacén Windows (CurrentUser\\My). */
 export async function listWindowsCertificates(baseUrl = WINDOWS_CERT_BRIDGE_URL): Promise<WindowsCertificateEntry[]> {
-  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/certificates`, { mode: 'cors' })
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/certificates`, {
+    mode: 'cors',
+    ...LOOPBACK_FETCH_OPTIONS,
+  })
   if (!res.ok) {
     throw new Error('No se pudo leer el almacén de certificados de Windows')
   }
@@ -91,6 +104,7 @@ export async function exportWindowsCertificate(
     mode: 'cors',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ thumbprint, password }),
+    ...LOOPBACK_FETCH_OPTIONS,
   })
   const data = await res.json()
   if (!res.ok || !data?.pfxBase64) {
@@ -111,6 +125,7 @@ export async function installWindowsCertificate(
     mode: 'cors',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pfxBase64, password, friendlyName }),
+    ...LOOPBACK_FETCH_OPTIONS,
   })
   const data = await res.json()
   if (!res.ok || !data?.thumbprint) {

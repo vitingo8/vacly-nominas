@@ -1,11 +1,10 @@
-import { NextRequest } from 'next/server'
+﻿import { NextRequest } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import { AuditService, createCertificateVault } from '@/lib/admin-integrations'
 import { adminErrorResponse, jsonOk } from '@/lib/admin-integrations/api-helpers'
 import {
   assertValidCompanyId,
   assertCompanyAccess,
-  getActorUserId,
 } from '@/lib/admin-integrations/request-context'
 import { AdminIntegrationError } from '@/lib/admin-integrations/errors'
 import { corporateBrandForPlan } from '@/lib/corporate-brand'
@@ -18,7 +17,7 @@ export async function GET(request: NextRequest) {
     const companyId = request.nextUrl.searchParams.get('company_id')
     const scope = request.nextUrl.searchParams.get('scope')
     assertValidCompanyId(companyId)
-    assertCompanyAccess(request, companyId!)
+    const ctx = assertCompanyAccess(request, companyId!)
 
     const supabase = getSupabaseClient()
     const audit = new AuditService(supabase)
@@ -26,8 +25,8 @@ export async function GET(request: NextRequest) {
 
     const certificates =
       scope === 'agency'
-        ? await vault.listAgencyCertificates(companyId!)
-        : await vault.listCertificates(companyId!)
+        ? await vault.listAgencyCertificates(companyId!, ctx.actorUserId)
+        : await vault.listCertificates(companyId!, ctx.actorUserId)
 
     if (scope === 'agency') {
       const accountCompanies = await vault.listAccountCompanies(companyId!)
@@ -53,9 +52,11 @@ export async function POST(request: NextRequest) {
     const alias = String(formData.get('alias') || '')
     const password = String(formData.get('password') || '')
     const file = formData.get('pfx') as File | null
+    const rawSource = String(formData.get('source') || '')
+    const source = rawSource === 'windows_import' ? 'windows_import' : 'manual_upload'
 
     assertValidCompanyId(companyId)
-    assertCompanyAccess(request, companyId)
+    const ctx = assertCompanyAccess(request, companyId)
     if (!alias || !file) {
       throw new AdminIntegrationError('VALIDATION_ERROR', 'alias y pfx son requeridos')
     }
@@ -77,10 +78,24 @@ export async function POST(request: NextRequest) {
       alias,
       pfx: buffer,
       password,
-      createdBy: getActorUserId(request),
+      createdBy: ctx.actorUserId,
+      source,
     })
 
-    return jsonOk({ certificate: meta })
+    // Deteccion de renovacion: mismo titular con un certificado anterior vigente.
+    const renewalCandidate = await vault.findRenewalCandidate(companyId, meta.id)
+
+    return jsonOk({
+      certificate: meta,
+      renewalCandidate: renewalCandidate
+        ? {
+            id: renewalCandidate.id,
+            alias: renewalCandidate.alias,
+            validTo: renewalCandidate.validTo,
+            status: renewalCandidate.status,
+          }
+        : null,
+    })
   } catch (error) {
     return adminErrorResponse(error)
   }
@@ -91,7 +106,7 @@ export async function DELETE(request: NextRequest) {
     const companyId = request.nextUrl.searchParams.get('company_id')
     const certificateId = request.nextUrl.searchParams.get('id')
     assertValidCompanyId(companyId)
-    assertCompanyAccess(request, companyId!)
+    const ctx = assertCompanyAccess(request, companyId!)
     if (!certificateId) {
       throw new AdminIntegrationError('VALIDATION_ERROR', 'id del certificado es requerido')
     }
@@ -100,7 +115,7 @@ export async function DELETE(request: NextRequest) {
     const audit = new AuditService(supabase)
     const vault = createCertificateVault(supabase, audit)
 
-    await vault.revokeCertificate(companyId!, certificateId, getActorUserId(request))
+    await vault.revokeCertificate(companyId!, certificateId, ctx.actorUserId)
 
     return jsonOk({ revoked: true })
   } catch (error) {
@@ -115,7 +130,7 @@ export async function PATCH(request: NextRequest) {
     const certificateId = String(body.id || '')
 
     assertValidCompanyId(companyId)
-    assertCompanyAccess(request, companyId)
+    const ctx = assertCompanyAccess(request, companyId)
     if (!certificateId) {
       throw new AdminIntegrationError('VALIDATION_ERROR', 'id del certificado es requerido')
     }
@@ -123,6 +138,25 @@ export async function PATCH(request: NextRequest) {
     const supabase = getSupabaseClient()
     const audit = new AuditService(supabase)
     const vault = createCertificateVault(supabase, audit)
+
+    if (typeof body.replace_certificate_id === 'string' && body.replace_certificate_id) {
+      await vault.replaceCertificate(
+        companyId,
+        certificateId,
+        body.replace_certificate_id,
+        ctx.actorUserId,
+      )
+      return jsonOk({ replaced: body.replace_certificate_id })
+    }
+
+    if (typeof body.access_mode === 'string') {
+      const mode = body.access_mode
+      if (mode !== 'open' && mode !== 'restricted') {
+        throw new AdminIntegrationError('VALIDATION_ERROR', 'access_mode debe ser open o restricted')
+      }
+      await vault.setAccessMode(companyId, certificateId, mode, ctx.actorUserId)
+      return jsonOk({ access_mode: mode })
+    }
 
     if (typeof body.portfolio_scope === 'string') {
       const scope = body.portfolio_scope
@@ -134,7 +168,7 @@ export async function PATCH(request: NextRequest) {
         certificateId,
         scope,
         companyId,
-        getActorUserId(request),
+        ctx.actorUserId,
       )
       return jsonOk({ portfolio_scope: scope })
     }
@@ -156,7 +190,7 @@ export async function PATCH(request: NextRequest) {
           companyId,
           certificateId,
           { enabled, milestones },
-          getActorUserId(request),
+          ctx.actorUserId,
         )
         return jsonOk({
           expiry_notifications_enabled: enabled,
@@ -168,7 +202,7 @@ export async function PATCH(request: NextRequest) {
         companyId,
         certificateId,
         enabled,
-        getActorUserId(request),
+        ctx.actorUserId,
       )
       return jsonOk({ expiry_notifications_enabled: enabled })
     }
@@ -182,7 +216,7 @@ export async function PATCH(request: NextRequest) {
       companyId,
       certificateId,
       enabled,
-      getActorUserId(request),
+      ctx.actorUserId,
     )
 
     return jsonOk({ expiry_notifications_enabled: enabled })

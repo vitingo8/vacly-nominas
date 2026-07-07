@@ -1,4 +1,4 @@
-# Vacly — Instalador del asistente de certificados Windows (ejecutar UNA vez)
+﻿# Vacly — Instalador del asistente de certificados Windows (ejecutar UNA vez)
 # Instala en %LOCALAPPDATA%\Vacly\CertBridge, arranca al logon y registra vacly-bridge://
 
 param(
@@ -19,16 +19,21 @@ function Write-InstallLog([string]$Message) {
   Write-Host $Message
 }
 
-function Ensure-UrlReservation([int]$ListenPort) {
-  $url = "http://127.0.0.1:$ListenPort/"
+function Stop-ExistingBridge([int]$ListenPort) {
+  # El bridge v2 escucha con TcpListener; si hay una instancia antigua (v1,
+  # HttpListener) o una copia previa en el puerto, se detiene para poder
+  # arrancar la versión recién instalada.
   try {
-    $existing = netsh http show urlacl url=$url 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $existing) {
-      netsh http add urlacl url=$url user="$env:USERDOMAIN\$env:USERNAME" | Out-Null
-      Write-InstallLog "Reserva URL registrada: $url"
+    $conns = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $ListenPort -State Listen -ErrorAction SilentlyContinue
+    foreach ($conn in @($conns)) {
+      $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
+      if ($proc -and $proc.ProcessName -match 'powershell') {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        Write-InstallLog "Instancia previa del puente detenida (PID $($proc.Id))"
+      }
     }
   } catch {
-    Write-InstallLog "Aviso: no se pudo reservar $url ($($_.Exception.Message)). Se intentará arrancar igualmente."
+    Write-InstallLog "Aviso: no se pudo comprobar instancias previas ($($_.Exception.Message))"
   }
 }
 
@@ -57,7 +62,7 @@ if (Test-Path $localBridge) {
   Write-InstallLog "Script descargado desde $remote"
 }
 
-Ensure-UrlReservation -ListenPort $Port
+Stop-ExistingBridge -ListenPort $Port
 
 Register-VaclyBridgeProtocol -ScriptPath $BridgeScript -ListenPort $Port
 Write-InstallLog "Protocolo vacly-bridge:// registrado"

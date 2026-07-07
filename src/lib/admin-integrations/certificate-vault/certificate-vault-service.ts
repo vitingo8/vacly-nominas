@@ -14,6 +14,11 @@ import {
 } from './cert-origin-resolver'
 import { normalizeCif } from '@/lib/upload-security'
 import { normalizeExpiryMilestones } from './cert-expiry-milestones'
+import {
+  CertificatePermissionService,
+  filterViewableCertificates,
+  type CertAccessMode,
+} from './cert-permission-service'
 
 /** Dias antes de la caducidad en que el certificado pasa a "expiring_soon". */
 export const EXPIRING_SOON_DAYS = 30
@@ -42,6 +47,8 @@ export interface CertificateMetadata {
   expiryNotificationMilestones?: number[]
   portfolioScope?: PortfolioScope | null
   linkedCompanyId?: string | null
+  accessMode?: CertAccessMode | null
+  createdBy?: string | null
 }
 
 export type { AccountCompany }
@@ -52,6 +59,8 @@ export interface StoreCertificateInput {
   pfx: Buffer
   password: string
   createdBy?: string
+  /** Origen de alta para trazabilidad: 'manual_upload' | 'windows_import'. */
+  source?: string
 }
 
 export interface DecryptedCertificate {
@@ -70,8 +79,8 @@ export interface CertificateVault {
     purpose: string,
     actorUserId?: string,
   ): Promise<DecryptedCertificate>
-  listCertificates(companyId: string): Promise<CertificateMetadata[]>
-  listAgencyCertificates(agencyCompanyId: string): Promise<CertificateMetadata[]>
+  listCertificates(companyId: string, viewerUserId?: string): Promise<CertificateMetadata[]>
+  listAgencyCertificates(agencyCompanyId: string, viewerUserId?: string): Promise<CertificateMetadata[]>
   listAccountCompanies(loggedInCompanyId: string): Promise<AccountCompany[]>
   revokeCertificate(companyId: string, certificateId: string, actorUserId?: string): Promise<void>
   setPortfolioScope(
@@ -93,6 +102,26 @@ export interface CertificateVault {
     settings: { enabled: boolean; milestones: number[] },
     actorUserId?: string,
   ): Promise<void>
+  setAccessMode(
+    companyId: string,
+    certificateId: string,
+    accessMode: CertAccessMode,
+    actorUserId?: string,
+  ): Promise<void>
+  /** Certificado anterior del mismo titular que el nuevo podria sustituir. */
+  findRenewalCandidate(
+    companyId: string,
+    newCertificateId: string,
+  ): Promise<CertificateMetadata | null>
+  /** Sustituye el certificado antiguo por el nuevo heredando configuracion y permisos. */
+  replaceCertificate(
+    companyId: string,
+    newCertificateId: string,
+    oldCertificateId: string,
+    actorUserId?: string,
+  ): Promise<void>
+  /** Servicio de permisos por usuario asociado a la boveda. */
+  readonly permissions: CertificatePermissionService
 }
 
 const ALGO = 'aes-256-gcm'
@@ -151,7 +180,7 @@ export function deriveCertificateStatus(
 }
 
 const LIST_COLUMNS =
-  'id, company_id, alias, holder_nif, holder_name, issuer, serial_number, certificate_type, valid_from, valid_to, status, revoked_at, expiry_notifications_enabled, expiry_notification_milestones, portfolio_scope, linked_company_id'
+  'id, company_id, alias, holder_nif, holder_name, issuer, serial_number, certificate_type, valid_from, valid_to, status, revoked_at, expiry_notifications_enabled, expiry_notification_milestones, portfolio_scope, linked_company_id, access_mode, created_by'
 
 function rowToMetadata(row: Record<string, any>): CertificateMetadata {
   const { status, daysToExpiry } = deriveCertificateStatus(row.valid_to, row.revoked_at)
@@ -174,14 +203,45 @@ function rowToMetadata(row: Record<string, any>): CertificateMetadata {
     expiryNotificationMilestones: normalizeExpiryMilestones(row.expiry_notification_milestones),
     portfolioScope: (row.portfolio_scope as PortfolioScope | null) ?? null,
     linkedCompanyId: row.linked_company_id ?? null,
+    accessMode: (row.access_mode as CertAccessMode | null) ?? 'open',
+    createdBy: row.created_by ?? null,
   }
 }
 
 export class BaseCertificateVault implements CertificateVault {
+  readonly permissions: CertificatePermissionService
+
   constructor(
     protected supabase: SupabaseClient,
     protected audit: AuditService,
-  ) {}
+  ) {
+    this.permissions = new CertificatePermissionService(supabase)
+  }
+
+  /** Lee los campos minimos para decidir permisos sobre un certificado. */
+  protected async getAccessSubject(
+    companyId: string,
+    certificateId: string,
+  ): Promise<{ id: string; accessMode: CertAccessMode | null; createdBy: string | null }> {
+    const { data, error } = await this.supabase
+      .from('administrative_certificates')
+      .select('id, access_mode, created_by')
+      .eq('id', certificateId)
+      .eq('company_id', companyId)
+      .maybeSingle()
+
+    if (error) {
+      throw new AdminIntegrationError('PROCESSING_ERROR', 'Error leyendo certificado', error)
+    }
+    if (!data) {
+      throw new AdminIntegrationError('CERTIFICATE_NOT_FOUND', 'Certificado no encontrado')
+    }
+    return {
+      id: data.id,
+      accessMode: (data.access_mode as CertAccessMode | null) ?? 'open',
+      createdBy: data.created_by ?? null,
+    }
+  }
 
   protected getSecret(): string {
     const config = getAdminConfig()
@@ -195,7 +255,7 @@ export class BaseCertificateVault implements CertificateVault {
   }
 
   async storeCertificate(input: StoreCertificateInput): Promise<CertificateMetadata> {
-    const { companyId, alias, pfx, password, createdBy } = input
+    const { companyId, alias, pfx, password, createdBy, source } = input
 
     // Valida la contrasena y extrae metadatos del propio certificado.
     const parsed = parsePfx(pfx, password)
@@ -246,6 +306,24 @@ export class BaseCertificateVault implements CertificateVault {
       throw new AdminIntegrationError('PROCESSING_ERROR', 'Error guardando certificado', error)
     }
 
+    // El creador recibe grant completo: si el certificado pasa a modo
+    // 'restricted' mas adelante, no pierde el acceso.
+    if (createdBy) {
+      try {
+        await this.permissions.upsertGrant({
+          certificateId: data.id,
+          companyId,
+          userId: createdBy,
+          canView: true,
+          canUse: true,
+          canManage: true,
+          grantedBy: createdBy,
+        })
+      } catch (grantError) {
+        console.error('[CertificateVault] No se pudo crear el grant del creador:', grantError)
+      }
+    }
+
     await this.audit.log({
       companyId,
       eventType: 'certificate_stored',
@@ -256,6 +334,7 @@ export class BaseCertificateVault implements CertificateVault {
         holderNif: parsed.holderNif,
         issuer: parsed.issuer,
         validTo: parsed.validTo,
+        source: source || 'manual_upload',
       },
     })
 
@@ -270,7 +349,9 @@ export class BaseCertificateVault implements CertificateVault {
   ): Promise<DecryptedCertificate> {
     const { data, error } = await this.supabase
       .from('administrative_certificates')
-      .select('id, holder_nif, status, revoked_at, valid_to, encrypted_pfx, encrypted_password')
+      .select(
+        'id, holder_nif, status, revoked_at, valid_to, encrypted_pfx, encrypted_password, access_mode, created_by',
+      )
       .eq('id', certificateId)
       .eq('company_id', companyId)
       .single()
@@ -285,21 +366,38 @@ export class BaseCertificateVault implements CertificateVault {
       throw new AdminIntegrationError('CERTIFICATE_NOT_FOUND', 'Certificado sin material criptografico')
     }
 
+    // Permisos por usuario: en modo 'restricted' se exige grant de uso.
+    const allowed = await this.permissions.checkAccess(
+      { id: data.id, accessMode: data.access_mode, createdBy: data.created_by },
+      actorUserId,
+      'use',
+    )
+    if (!allowed) {
+      await this.audit.log({
+        companyId,
+        eventType: 'certificate_use_denied',
+        actorUserId,
+        metadata: { certificateId, purpose, reason: 'sin permiso de uso' },
+      })
+      throw new AdminIntegrationError('UNAUTHORIZED', 'No tienes permiso para usar este certificado')
+    }
+
+    // Fail-closed (control eIDAS): sin traza de auditoria no se descifra la clave.
+    await this.audit.logStrict({
+      companyId,
+      eventType: 'certificate_used',
+      actorUserId,
+      metadata: { certificateId, purpose, actor: actorUserId ? 'user' : 'system' },
+    })
+
     const secret = this.getSecret()
     const pfx = decryptBuffer(bytesFromDb(data.encrypted_pfx), secret)
     const password = decryptBuffer(bytesFromDb(data.encrypted_password), secret).toString('utf8')
 
-    await this.audit.log({
-      companyId,
-      eventType: 'certificate_used',
-      actorUserId,
-      metadata: { certificateId, purpose },
-    })
-
     return { certificateId: data.id, holderNif: data.holder_nif, pfx, password }
   }
 
-  async listCertificates(companyId: string): Promise<CertificateMetadata[]> {
+  async listCertificates(companyId: string, viewerUserId?: string): Promise<CertificateMetadata[]> {
     const { data, error } = await this.supabase
       .from('administrative_certificates')
       .select(LIST_COLUMNS)
@@ -310,7 +408,8 @@ export class BaseCertificateVault implements CertificateVault {
       throw new AdminIntegrationError('PROCESSING_ERROR', 'Error listando certificados', error)
     }
 
-    return (data || []).map(rowToMetadata)
+    const certs = (data || []).map(rowToMetadata)
+    return filterViewableCertificates(this.permissions, certs, viewerUserId)
   }
 
   async listAccountCompanies(loggedInCompanyId: string): Promise<AccountCompany[]> {
@@ -387,7 +486,10 @@ export class BaseCertificateVault implements CertificateVault {
     return null
   }
 
-  async listAgencyCertificates(agencyCompanyId: string): Promise<CertificateMetadata[]> {
+  async listAgencyCertificates(
+    agencyCompanyId: string,
+    viewerUserId?: string,
+  ): Promise<CertificateMetadata[]> {
     // Empresas gestionadas por la agencia + la propia agencia.
     const { data: companies, error: companiesError } = await this.supabase
       .from('companies')
@@ -434,7 +536,7 @@ export class BaseCertificateVault implements CertificateVault {
       }
     }
 
-    return (data || []).map((row) => {
+    const certs = (data || []).map((row) => {
       const meta = rowToMetadata(row)
       meta.companyName =
         (meta.linkedCompanyId ? nameById.get(meta.linkedCompanyId) : null) ??
@@ -442,9 +544,13 @@ export class BaseCertificateVault implements CertificateVault {
         null
       return meta
     })
+    return filterViewableCertificates(this.permissions, certs, viewerUserId)
   }
 
   async revokeCertificate(companyId: string, certificateId: string, actorUserId?: string): Promise<void> {
+    const subject = await this.getAccessSubject(companyId, certificateId)
+    await this.permissions.assertAccess(subject, actorUserId, 'manage')
+
     const { data, error } = await this.supabase
       .from('administrative_certificates')
       .update({
@@ -481,6 +587,9 @@ export class BaseCertificateVault implements CertificateVault {
     enabled: boolean,
     actorUserId?: string,
   ): Promise<void> {
+    const subject = await this.getAccessSubject(companyId, certificateId)
+    await this.permissions.assertAccess(subject, actorUserId, 'manage')
+
     const { data, error } = await this.supabase
       .from('administrative_certificates')
       .update({
@@ -513,6 +622,9 @@ export class BaseCertificateVault implements CertificateVault {
     settings: { enabled: boolean; milestones: number[] },
     actorUserId?: string,
   ): Promise<void> {
+    const subject = await this.getAccessSubject(companyId, certificateId)
+    await this.permissions.assertAccess(subject, actorUserId, 'manage')
+
     const milestones = normalizeExpiryMilestones(settings.milestones)
     const { data, error } = await this.supabase
       .from('administrative_certificates')
@@ -548,6 +660,9 @@ export class BaseCertificateVault implements CertificateVault {
     loggedInCompanyId: string,
     actorUserId?: string,
   ): Promise<void> {
+    const subject = await this.getAccessSubject(companyId, certificateId)
+    await this.permissions.assertAccess(subject, actorUserId, 'manage')
+
     const { data: cert, error: readError } = await this.supabase
       .from('administrative_certificates')
       .select('id, holder_nif, holder_name')
@@ -601,6 +716,171 @@ export class BaseCertificateVault implements CertificateVault {
       eventType: 'certificate_portfolio_scope_set',
       actorUserId,
       metadata: { certificateId, scope, linkedCompanyId },
+    })
+  }
+
+  async setAccessMode(
+    companyId: string,
+    certificateId: string,
+    accessMode: CertAccessMode,
+    actorUserId?: string,
+  ): Promise<void> {
+    const subject = await this.getAccessSubject(companyId, certificateId)
+    await this.permissions.assertAccess(subject, actorUserId, 'manage')
+
+    // Quien restringe el certificado conserva acceso completo.
+    if (accessMode === 'restricted' && actorUserId) {
+      await this.permissions.upsertGrant({
+        certificateId,
+        companyId,
+        userId: actorUserId,
+        canView: true,
+        canUse: true,
+        canManage: true,
+        grantedBy: actorUserId,
+      })
+    }
+
+    const { data, error } = await this.supabase
+      .from('administrative_certificates')
+      .update({ access_mode: accessMode, updated_at: new Date().toISOString() })
+      .eq('id', certificateId)
+      .eq('company_id', companyId)
+      .select('id')
+      .maybeSingle()
+
+    if (error) {
+      throw new AdminIntegrationError('PROCESSING_ERROR', 'Error cambiando el modo de acceso', error)
+    }
+    if (!data) {
+      throw new AdminIntegrationError('CERTIFICATE_NOT_FOUND', 'Certificado no encontrado')
+    }
+
+    await this.audit.log({
+      companyId,
+      eventType: 'certificate_access_mode_set',
+      actorUserId,
+      metadata: { certificateId, accessMode },
+    })
+  }
+
+  async findRenewalCandidate(
+    companyId: string,
+    newCertificateId: string,
+  ): Promise<CertificateMetadata | null> {
+    const { data: newCert, error } = await this.supabase
+      .from('administrative_certificates')
+      .select('id, holder_nif, serial_number')
+      .eq('id', newCertificateId)
+      .eq('company_id', companyId)
+      .maybeSingle()
+
+    if (error || !newCert?.holder_nif) return null
+
+    const { data: candidates } = await this.supabase
+      .from('administrative_certificates')
+      .select(LIST_COLUMNS)
+      .eq('company_id', companyId)
+      .eq('holder_nif', newCert.holder_nif)
+      .neq('id', newCertificateId)
+      .is('revoked_at', null)
+      .order('valid_to', { ascending: false })
+      .limit(1)
+
+    const candidate = candidates?.[0]
+    if (!candidate) return null
+    // Mismo numero de serie = mismo certificado re-subido, no una renovacion.
+    if (
+      candidate.serial_number &&
+      newCert.serial_number &&
+      candidate.serial_number === newCert.serial_number
+    ) {
+      return null
+    }
+    return rowToMetadata(candidate)
+  }
+
+  async replaceCertificate(
+    companyId: string,
+    newCertificateId: string,
+    oldCertificateId: string,
+    actorUserId?: string,
+  ): Promise<void> {
+    const oldSubject = await this.getAccessSubject(companyId, oldCertificateId)
+    await this.permissions.assertAccess(oldSubject, actorUserId, 'manage')
+
+    const { data: oldCert, error } = await this.supabase
+      .from('administrative_certificates')
+      .select(
+        'id, alias, portfolio_scope, linked_company_id, access_mode, expiry_notifications_enabled, expiry_notification_milestones',
+      )
+      .eq('id', oldCertificateId)
+      .eq('company_id', companyId)
+      .maybeSingle()
+
+    if (error || !oldCert) {
+      throw new AdminIntegrationError('CERTIFICATE_NOT_FOUND', 'Certificado anterior no encontrado')
+    }
+
+    // El nuevo hereda alias, clasificacion, avisos y modo de acceso.
+    const { error: updateError } = await this.supabase
+      .from('administrative_certificates')
+      .update({
+        alias: oldCert.alias,
+        portfolio_scope: oldCert.portfolio_scope,
+        linked_company_id: oldCert.linked_company_id,
+        access_mode: oldCert.access_mode || 'open',
+        expiry_notifications_enabled: oldCert.expiry_notifications_enabled,
+        expiry_notification_milestones: oldCert.expiry_notification_milestones,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', newCertificateId)
+      .eq('company_id', companyId)
+
+    if (updateError) {
+      throw new AdminIntegrationError('PROCESSING_ERROR', 'Error heredando la configuracion', updateError)
+    }
+
+    // Copiar los permisos por usuario del antiguo al nuevo.
+    const grants = await this.permissions.listGrants(oldCertificateId)
+    for (const grant of grants) {
+      await this.permissions.upsertGrant({
+        certificateId: newCertificateId,
+        companyId,
+        userId: grant.userId,
+        canView: grant.canView,
+        canUse: grant.canUse,
+        canManage: grant.canManage,
+        grantedBy: grant.grantedBy ?? actorUserId,
+      })
+    }
+
+    // Archivar el anterior (revocado y con material criptografico eliminado).
+    const { error: revokeError } = await this.supabase
+      .from('administrative_certificates')
+      .update({
+        status: 'revoked',
+        revoked_at: new Date().toISOString(),
+        encrypted_pfx: null,
+        encrypted_password: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', oldCertificateId)
+      .eq('company_id', companyId)
+
+    if (revokeError) {
+      throw new AdminIntegrationError('PROCESSING_ERROR', 'Error archivando el certificado anterior', revokeError)
+    }
+
+    await this.audit.log({
+      companyId,
+      eventType: 'certificate_renewed',
+      actorUserId,
+      metadata: {
+        certificateId: newCertificateId,
+        replacedCertificateId: oldCertificateId,
+        inheritedAlias: oldCert.alias,
+      },
     })
   }
 }
