@@ -46,3 +46,9 @@ export const DASHBOARD_TABLE_HEAD = 'bg-[#F6F8FA]/70'
 
 export const DASHBOARD_ROW =
   'border-t border-[#1B2A41]/8 transition-colors hover:bg-[#F6F8FA]/40'
+
+export const DASHBOARD_MODAL_OVERLAY =
+  'fixed inset-0 z-50 flex items-center justify-center bg-[#1B2A41]/40 p-4'
+
+export const DASHBOARD_COMPACT_SELECT =
+  'h-9 w-full max-w-full rounded-lg border border-[#1B2A41]/12 bg-white px-2 text-xs text-[#1B2A41] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]/30 disabled:opacity-50'

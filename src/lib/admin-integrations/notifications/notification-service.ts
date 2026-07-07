@@ -35,6 +35,8 @@ import {
 export interface AdminNotificationRow {
   id: string
   companyId: string
+  /** Empresa cliente mostrada/filtrable (puede diferir del company_id almacenado en BD). */
+  displayCompanyId?: string | null
   companyName?: string | null
   certificateId?: string | null
   provider: string
@@ -859,6 +861,7 @@ export async function listAgencyNotifications(
       cert?.alias?.trim() ||
       null
 
+    n.displayCompanyId = displayCompanyId || n.companyId
     n.companyName =
       certAlias ||
       (displayCompanyId ? nameById.get(displayCompanyId) : null) ||

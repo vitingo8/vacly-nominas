@@ -1,6 +1,7 @@
 'use client'
 
-import { Button } from '@/components/ui/button'
+import { DASHBOARD_PRIMARY_BTN } from '@/components/admin/dashboard-styles'
+import { cn } from '@/lib/utils'
 import { BellAlertIcon } from '@heroicons/react/24/outline'
 
 export interface AdminNewNotificationsAlert {
@@ -49,26 +50,22 @@ export function AdminNewNotificationsBanner({ alert, onDismiss }: AdminNewNotifi
       aria-modal="true"
       aria-labelledby="admin-new-notif-title"
     >
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl p-8 text-center">
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
-          <BellAlertIcon className="h-9 w-9 text-amber-600" />
+      <div className="w-full max-w-lg rounded-2xl border border-[#1B2A41]/10 bg-white shadow-2xl p-8 text-center">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#C6A664]/15">
+          <BellAlertIcon className="h-9 w-9 text-[#C6A664]" />
         </div>
-        <h2 id="admin-new-notif-title" className="text-xl font-bold text-slate-900 mb-2">
+        <h2 id="admin-new-notif-title" className="text-xl font-bold text-[#1B2A41] mb-2">
           Notificaciones administrativas pendientes
         </h2>
-        <p className="text-sm text-slate-600 mb-6 leading-relaxed">
+        <p className="text-sm text-[#5C6B7F] mb-6 leading-relaxed">
           Hay <strong>{alert.pendingCount}</strong> notificación{alert.pendingCount === 1 ? '' : 'es'}{' '}
           pendiente{alert.pendingCount === 1 ? '' : 's'} ante la administración en{' '}
           <strong>{alert.providersLabel}</strong>. Revísalas y comparece cuando corresponda para no perder
           plazos.
         </p>
-        <Button
-          type="button"
-          className="w-full h-11 bg-[#1B2A41] text-white hover:bg-[#152036]"
-          onClick={onDismiss}
-        >
+        <button type="button" className={cn(DASHBOARD_PRIMARY_BTN, 'w-full h-11')} onClick={onDismiss}>
           Entendido, ir a la bandeja
-        </Button>
+        </button>
       </div>
     </div>
   )

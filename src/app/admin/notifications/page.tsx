@@ -1,11 +1,27 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AdminShell, useCompanyId } from '@/components/admin/admin-shell'
 import { readAdminTokenFromUrl, useAdminSession } from '@/lib/admin-session-client'
-import { Card } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+import { AdminFilterSelect } from '@/components/admin/admin-filter-select'
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
+import {
+  DASHBOARD_CARD,
+  DASHBOARD_CARD_HEADER,
+  DASHBOARD_COMPACT_SELECT,
+  DASHBOARD_EYEBROW,
+  DASHBOARD_MODAL_OVERLAY,
+  DASHBOARD_OUTLINE_BTN,
+  DASHBOARD_PRIMARY_BTN,
+  DASHBOARD_ROW,
+  DASHBOARD_SUBTITLE,
+  DASHBOARD_TABLE_HEAD,
+  DASHBOARD_TD,
+  DASHBOARD_TH,
+  DASHBOARD_TITLE,
+} from '@/components/admin/dashboard-styles'
+import { NotificationAssigneeSelect, type NotificationTeamMember } from '@/components/admin/notification-assignee-select'
 
 import { AEAT_LOGO_URL } from '@/lib/brand-assets'
 import {
@@ -15,11 +31,6 @@ import {
   type AdminNewNotificationsAlert,
 } from '@/components/admin/admin-new-notifications-banner'
 import { NOTIFICATION_AUTO_SYNC_LABEL } from '@/lib/admin-integrations/notifications/notification-service'
-import { NotificationAssigneeSelect, type NotificationTeamMember } from '@/components/admin/notification-assignee-select'
-import {
-  NotificationViewFilterSelect,
-  type NotificationViewFilter,
-} from '@/components/admin/notification-view-filter'
 import {
   NotificationColumnHeader,
   TableToolbarHint,
@@ -33,6 +44,7 @@ import {
 interface NotifRow {
   id: string
   companyId: string
+  displayCompanyId?: string | null
   companyName?: string | null
   certificateId?: string | null
   provider: string
@@ -61,6 +73,15 @@ interface CertOption {
   alias: string
   status: string
   companyName?: string | null
+}
+
+/** Misma clave que la columna Empresa de la tabla (nombre visible, no id interno). */
+function notifCompanyFilterKey(n: NotifRow): string {
+  return n.companyName?.trim() || n.displayCompanyId || n.companyId
+}
+
+function notifPortfolioCompanyId(n: NotifRow): string {
+  return n.displayCompanyId || n.companyId
 }
 
 function fmtDate(value?: string | null): string {
@@ -95,11 +116,11 @@ interface SyncSummaryState {
 }
 
 function deadlineClass(deadline?: string | null, opened?: boolean): string {
-  if (!deadline || opened) return 'text-slate-600'
+  if (!deadline || opened) return 'text-[#5C6B7F]'
   const days = (new Date(deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
   if (days < 0) return 'text-red-600 font-medium'
   if (days <= 3) return 'text-amber-700 font-medium'
-  return 'text-slate-600'
+  return 'text-[#5C6B7F]'
 }
 
 const PROVIDER_LABEL: Record<string, string> = { dehu: 'DEHú LEMA', aeat: 'AEAT', tgss: 'TGSS WSCN' }
@@ -108,7 +129,13 @@ function providerLabel(provider: string): string {
   return PROVIDER_LABEL[provider] || provider.toUpperCase()
 }
 
-type StatusFilter = NotificationViewFilter
+type StatusFilter = 'admin_pending' | 'vacly_active' | 'all'
+
+const STATUS_FILTER_OPTIONS = [
+  { value: 'admin_pending', label: 'Pendientes' },
+  { value: 'vacly_active', label: 'Activas en Vacly' },
+  { value: 'all', label: 'Todas' },
+]
 
 function isAdminPendingAccess(n: NotifRow): boolean {
   return n.adminStatus.tone === 'warning'
@@ -118,10 +145,18 @@ function isPendingNotification(n: NotifRow): boolean {
   return n.vaclyStatus !== 'cerrada'
 }
 
-function filterNotifications(rows: NotifRow[], statusFilter: StatusFilter): NotifRow[] {
-  if (statusFilter === 'all') return rows
-  if (statusFilter === 'vacly_active') return rows.filter(isPendingNotification)
-  return rows.filter(isAdminPendingAccess)
+function filterNotifications(
+  rows: NotifRow[],
+  statusFilter: StatusFilter,
+  companyFilter: string,
+): NotifRow[] {
+  let filtered = rows
+  if (statusFilter === 'vacly_active') filtered = filtered.filter(isPendingNotification)
+  else if (statusFilter !== 'all') filtered = filtered.filter(isAdminPendingAccess)
+  if (companyFilter !== 'all') {
+    filtered = filtered.filter((n) => notifCompanyFilterKey(n) === companyFilter)
+  }
+  return filtered
 }
 
 function addCalendarDays(date: Date, days: number): Date {
@@ -158,8 +193,7 @@ function countAdminPendingNotifications(rows: NotifRow[]): number {
   return rows.filter((n) => n.adminStatus.tone === 'warning').length
 }
 
-const compactSelectClass =
-  'h-9 w-full max-w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]/30'
+const compactSelectClass = DASHBOARD_COMPACT_SELECT
 
 function needsComparecer(row: NotifRow): boolean {
   if (row.readAt) return false
@@ -223,6 +257,7 @@ export default function AdminNotificationsPage() {
   const [syncing, setSyncing] = useState(false)
   const [actingId, setActingId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('admin_pending')
+  const [companyFilter, setCompanyFilter] = useState('all')
   const [viewer, setViewer] = useState<{ title: string; url: string; blob: Blob; fileName: string } | null>(null)
   const [emailPanel, setEmailPanel] = useState<{
     row: NotifRow
@@ -295,7 +330,7 @@ export default function AdminNotificationsPage() {
 
   const loadTeamsForRows = (rows: NotifRow[]) => {
     if (!companyId) return
-    const ids = [...new Set(rows.map((r) => r.companyId).filter(Boolean))]
+    const ids = [...new Set(rows.map((r) => notifPortfolioCompanyId(r)).filter(Boolean))]
     if (ids.length === 0) {
       setTeamsByCompanyId({})
       return
@@ -374,6 +409,41 @@ export default function AdminNotificationsPage() {
     loadCerts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId, sessionReady])
+
+  const companyFilterSource = useMemo(
+    () => filterNotifications(agency, statusFilter, 'all'),
+    [agency, statusFilter],
+  )
+
+  const companyOptions = useMemo(() => {
+    const byKey = new Map<string, string>()
+    for (const n of companyFilterSource) {
+      const key = notifCompanyFilterKey(n)
+      if (!key) continue
+      const label = n.companyName?.trim() || key
+      if (!byKey.has(key)) byKey.set(key, label)
+    }
+    const sorted = [...byKey.entries()].sort((a, b) => a[1].localeCompare(b[1], 'es'))
+    return [
+      { value: 'all', label: 'Todas las empresas' },
+      ...sorted.map(([value, label]) => ({ value, label })),
+    ]
+  }, [companyFilterSource])
+
+  const filteredNotifications = useMemo(
+    () => filterNotifications(agency, statusFilter, companyFilter),
+    [agency, statusFilter, companyFilter],
+  )
+
+  useEffect(() => {
+    if (companyFilter === 'all') return
+    if (companyOptions.some((o) => o.value === companyFilter)) return
+    setCompanyFilter('all')
+  }, [companyFilter, companyOptions])
+
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [companyFilter, statusFilter])
 
   // Mantiene la selección coherente con los datos cargados.
   useEffect(() => {
@@ -803,44 +873,48 @@ export default function AdminNotificationsPage() {
   return (
     <AdminShell>
       <AdminNewNotificationsBanner alert={newNotifAlert} onDismiss={dismissNewNotifBanner} />
-      <Card className="p-6 border-slate-200 w-full">
-        <h2 className="font-semibold text-slate-800 mb-1">Sincronizar notificaciones</h2>
-        <p className="text-xs text-slate-500 mb-4">
-          La sincronización consulta el listado en AEAT y TGSS WSCN con todos los certificados de la cartera (sin abrir ni
-          comparecer). El contenido se descarga solo cuando pulsas Abrir y confirmas.
-        </p>
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+      <div className="space-y-4">
+      <div className={cn(DASHBOARD_CARD, 'w-full')}>
+        <div className={DASHBOARD_CARD_HEADER}>
+          <p className={DASHBOARD_EYEBROW}>Sincronización</p>
+          <h2 className={cn(DASHBOARD_TITLE, 'mt-1')}>Actualizar bandeja</h2>
+          <p className={cn(DASHBOARD_SUBTITLE, 'mt-1 whitespace-nowrap')}>
+            Consulta el listado en AEAT y TGSS WSCN con todos los certificados de la cartera (sin abrir ni comparecer). El contenido se descarga solo cuando pulsas Abrir y confirmas.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-3">
-            <Button
+            <button
+              type="button"
               onClick={sync}
               disabled={syncing || certs.length === 0}
-              className="bg-[#1B2A41] text-white hover:bg-[#152036] shrink-0"
+              className={DASHBOARD_PRIMARY_BTN}
             >
               {syncing
                 ? 'Sincronizando...'
                 : certs.length > 1
                   ? `Sincronizar ${certs.length} certificados`
                   : 'Sincronizar ahora'}
-            </Button>
+            </button>
             {certs.length > 0 && (
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-[#5C6B7F]">
                 {certs.length} certificado{certs.length > 1 ? 's' : ''} de la cartera
               </span>
             )}
           </div>
-          <div className="flex min-w-0 flex-col items-end gap-0.5 text-right text-xs text-slate-600">
+          <div className="flex min-w-0 flex-col items-end gap-0.5 text-right text-xs text-[#5C6B7F]">
             <p>
-              <span className="font-medium text-slate-700">Última actualización:</span>{' '}
+              <span className="font-medium text-[#1B2A41]">Última actualización:</span>{' '}
               {syncSummary?.lastUpdatedAt ? fmtDateTime(syncSummary.lastUpdatedAt) : 'Aún no se ha sincronizado'}
               {syncSummary?.lastUpdatedAt && syncSummary.lastStored != null && (
-                <span className="text-slate-500">
+                <span>
                   {' '}
                   · {syncSummary.lastStored} nueva{syncSummary.lastStored === 1 ? '' : 's'} de{' '}
                   {syncSummary.lastFetched ?? 0} recibidas
                 </span>
               )}
             </p>
-            <p className="text-slate-500">
+            <p>
               Sincronización automática programada a las {NOTIFICATION_AUTO_SYNC_LABEL} (hora peninsular).
               {pendingCount > 0 && (
                 <span className="text-amber-700 font-medium">
@@ -851,56 +925,83 @@ export default function AdminNotificationsPage() {
             </p>
           </div>
         </div>
-        {message && <p className="text-sm text-emerald-700 mt-3">{message}</p>}
-        {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
-      </Card>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 mt-6">
-        <h3 className="font-semibold text-slate-800">Cartera de la gestoría</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-slate-500">Mostrar</span>
-          <NotificationViewFilterSelect value={statusFilter} onChange={setStatusFilter} />
-        </div>
+        {(message || error) && (
+          <div className="space-y-1 border-t border-[#1B2A41]/8 px-4 pb-4 sm:px-5">
+            {message && <p className="text-sm text-emerald-700">{message}</p>}
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </div>
+        )}
       </div>
 
       {selectedIds.size > 0 && (
-        <div className="sticky top-0 z-20 mb-3 flex flex-wrap items-center gap-3 rounded-md border border-[#1B2A41]/20 bg-[#1B2A41]/5 px-4 py-2.5">
-          <span className="text-sm font-medium text-slate-700">
+        <div className="sticky top-0 z-20 mb-3 flex flex-wrap items-center gap-3 rounded-2xl border border-[#1B2A41]/12 bg-[#F6F8FA]/90 px-4 py-2.5">
+          <span className="text-sm font-medium text-[#1B2A41]">
             {selectedIds.size} seleccionada{selectedIds.size > 1 ? 's' : ''}
           </span>
           {bulkProgress && (
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-[#5C6B7F]">
               Procesando {bulkProgress.done}/{bulkProgress.total}…
             </span>
           )}
           <div className="flex flex-wrap items-center gap-2 ml-auto">
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
+              className={DASHBOARD_OUTLINE_BTN}
               disabled={!!bulkBusy}
               onClick={() => requestBulk('download')}
             >
               {bulkBusy === 'download' ? 'Descargando…' : 'Descargar (ZIP)'}
-            </Button>
-            <Button
-              size="sm"
-              className="bg-[#1B2A41] text-white hover:bg-[#152036]"
+            </button>
+            <button
+              type="button"
+              className={DASHBOARD_PRIMARY_BTN}
               disabled={!!bulkBusy}
               onClick={() => requestBulk('print')}
             >
               {bulkBusy === 'print' ? 'Preparando…' : 'Imprimir todas'}
-            </Button>
-            <Button variant="ghost" size="sm" disabled={!!bulkBusy} onClick={clearSelection}>
+            </button>
+            <button
+              type="button"
+              className="text-xs font-medium text-[#5C6B7F] hover:text-[#1B2A41] disabled:opacity-50"
+              disabled={!!bulkBusy}
+              onClick={clearSelection}
+            >
               Limpiar
-            </Button>
+            </button>
           </div>
         </div>
       )}
 
       <NotifTable
-        rows={filterNotifications(agency, statusFilter)}
+        rows={filteredNotifications}
         totalCount={agency.length}
         statusFilter={statusFilter}
+        toolbarFilters={
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-[#5C6B7F]">Empresa</span>
+              <AdminFilterSelect
+                value={companyFilter}
+                onChange={setCompanyFilter}
+                options={companyOptions}
+                placeholder="Todas las empresas"
+                className="w-48 sm:w-56"
+                minWidth={192}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-[#5C6B7F]">Mostrar</span>
+              <AdminFilterSelect
+                value={statusFilter}
+                onChange={(v) => setStatusFilter(v as StatusFilter)}
+                options={STATUS_FILTER_OPTIONS}
+                placeholder="Pendientes"
+                className="w-40 sm:w-44"
+                minWidth={160}
+              />
+            </div>
+          </div>
+        }
         onRequestAction={requestAction}
         actingId={actingId}
         selectedIds={selectedIds}
@@ -909,20 +1010,24 @@ export default function AdminNotificationsPage() {
         teamsByCompanyId={teamsByCompanyId}
         onWorkflowChange={patchWorkflow}
       />
+      </div>
 
       {confirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <Card className="max-w-md w-full p-6 border-slate-200 shadow-xl">
-            <h3 className="font-semibold text-slate-800 mb-2">
-              {confirmOpen.needsComparecer
-                ? `Comparecer en ${providerLabel(confirmOpen.row.provider)}`
-                : confirmOpen.action === 'mail'
-                  ? 'Analizar notificación'
-                  : confirmOpen.action === 'download'
-                    ? 'Descargar notificación'
-                    : 'Abrir notificación'}
-            </h3>
-            <p className="text-sm text-slate-600 mb-4">
+        <div className={DASHBOARD_MODAL_OVERLAY}>
+          <div className={cn(DASHBOARD_CARD, 'max-w-md w-full shadow-xl')}>
+            <div className={DASHBOARD_CARD_HEADER}>
+              <h3 className={DASHBOARD_TITLE}>
+                {confirmOpen.needsComparecer
+                  ? `Comparecer en ${providerLabel(confirmOpen.row.provider)}`
+                  : confirmOpen.action === 'mail'
+                    ? 'Analizar notificación'
+                    : confirmOpen.action === 'download'
+                      ? 'Descargar notificación'
+                      : 'Abrir notificación'}
+              </h3>
+            </div>
+            <div className="p-5">
+              <p className={cn(DASHBOARD_SUBTITLE, 'mb-4')}>
               {confirmOpen.needsComparecer
                 ? confirmOpen.action === 'mail'
                   ? `Para redactar el correo al cliente hay que comparecer ante ${providerLabel(confirmOpen.row.provider)} y descargar «${confirmOpen.row.subject}». Esta acción tiene efectos legales.`
@@ -934,56 +1039,57 @@ export default function AdminNotificationsPage() {
                   : confirmOpen.action === 'download'
                     ? `¿Descargar el PDF de «${confirmOpen.row.subject}»?`
                     : `¿Mostrar el contenido de «${confirmOpen.row.subject}» en pantalla?`}
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setConfirmOpen(null)}>
-                Cancelar
-              </Button>
-              <Button className="bg-[#1B2A41] text-white hover:bg-[#152036]" onClick={executeConfirm}>
-                {confirmOpen.needsComparecer
-                  ? confirmOpen.action === 'mail'
-                    ? 'Comparecer y analizar'
-                    : confirmOpen.action === 'download'
-                      ? 'Comparecer y descargar'
-                      : 'Comparecer y abrir'
-                  : confirmOpen.action === 'mail'
-                    ? 'Analizar y redactar'
-                    : confirmOpen.action === 'download'
-                      ? 'Descargar'
-                      : 'Abrir'}
-              </Button>
+              </p>
+              <div className="flex justify-end gap-2">
+                <button type="button" className={DASHBOARD_OUTLINE_BTN} onClick={() => setConfirmOpen(null)}>
+                  Cancelar
+                </button>
+                <button type="button" className={DASHBOARD_PRIMARY_BTN} onClick={executeConfirm}>
+                  {confirmOpen.needsComparecer
+                    ? confirmOpen.action === 'mail'
+                      ? 'Comparecer y analizar'
+                      : confirmOpen.action === 'download'
+                        ? 'Comparecer y descargar'
+                        : 'Comparecer y abrir'
+                    : confirmOpen.action === 'mail'
+                      ? 'Analizar y redactar'
+                      : confirmOpen.action === 'download'
+                        ? 'Descargar'
+                        : 'Abrir'}
+                </button>
+              </div>
             </div>
-          </Card>
+          </div>
         </div>
       )}
 
       {emailPanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto p-0 border-slate-200 shadow-xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 bg-white">
+        <div className={DASHBOARD_MODAL_OVERLAY}>
+          <div className={cn(DASHBOARD_CARD, 'max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl')}>
+            <div className={cn(DASHBOARD_CARD_HEADER, 'sticky top-0 z-10 flex items-center justify-between gap-3')}>
               <div className="min-w-0">
-                <h3 className="font-semibold text-slate-800 truncate">Correo al cliente</h3>
-                <p className="text-xs text-slate-500 truncate">
+                <h3 className={cn(DASHBOARD_TITLE, 'truncate')}>Correo al cliente</h3>
+                <p className={cn(DASHBOARD_SUBTITLE, 'truncate')}>
                   {emailPanel.analysis.companyName}
                   {' · '}
                   {languageLabel(emailPanel.analysis.language)}
                   {emailPanel.analysis.cached ? ' · guardado' : ''}
                 </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button variant="outline" size="sm" onClick={copyEmailToClipboard}>
+              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                <button type="button" className={DASHBOARD_OUTLINE_BTN} onClick={copyEmailToClipboard}>
                   {copyState === 'copied' ? 'Copiado ✓' : 'Copiar'}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
+                </button>
+                <button
+                  type="button"
+                  className={DASHBOARD_OUTLINE_BTN}
                   onClick={() => triggerPdfDownload(emailPanel.pdfBlob, emailPanel.fileName)}
                 >
                   Descargar PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
+                </button>
+                <button
+                  type="button"
+                  className={DASHBOARD_OUTLINE_BTN}
                   onClick={() =>
                     setViewer({
                       title: emailPanel.row.subject,
@@ -994,22 +1100,22 @@ export default function AdminNotificationsPage() {
                   }
                 >
                   Ver PDF
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-[#1B2A41] text-white hover:bg-[#152036]"
+                </button>
+                <button
+                  type="button"
+                  className={DASHBOARD_PRIMARY_BTN}
                   onClick={() => {
                     window.location.href = emailPanel.mailto
                   }}
                 >
                   Abrir correo
-                </Button>
+                </button>
                 <button
                   type="button"
                   aria-label="Cerrar"
                   title="Cerrar"
                   onClick={closeEmailPanel}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#5C6B7F] hover:bg-[#F6F8FA] hover:text-[#1B2A41]"
                 >
                   <IconClose />
                 </button>
@@ -1017,34 +1123,34 @@ export default function AdminNotificationsPage() {
             </div>
 
             <div className="p-5 space-y-4">
-              <div className="rounded-md bg-slate-50 border border-slate-200 p-3">
-                <p className="text-xs font-medium text-slate-500 mb-1">Resumen (IA)</p>
-                <p className="text-sm text-slate-700 whitespace-pre-wrap">{emailPanel.analysis.summary}</p>
+              <div className="rounded-xl border border-[#1B2A41]/10 bg-[#F6F8FA]/60 p-3">
+                <p className="text-xs font-medium text-[#5C6B7F] mb-1">Resumen (IA)</p>
+                <p className="text-sm text-[#1B2A41] whitespace-pre-wrap">{emailPanel.analysis.summary}</p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-[80px_1fr] gap-x-3 gap-y-1 text-sm">
-                <span className="text-xs font-medium text-slate-500 sm:pt-0.5">Para</span>
-                <span className="text-slate-800 break-all">
+                <span className="text-xs font-medium text-[#5C6B7F] sm:pt-0.5">Para</span>
+                <span className="text-[#1B2A41] break-all">
                   {emailPanel.analysis.emailTo || '— (añade el email del cliente)'}
                 </span>
-                <span className="text-xs font-medium text-slate-500 sm:pt-0.5">Asunto</span>
-                <span className="text-slate-800">{emailPanel.analysis.emailSubject}</span>
+                <span className="text-xs font-medium text-[#5C6B7F] sm:pt-0.5">Asunto</span>
+                <span className="text-[#1B2A41]">{emailPanel.analysis.emailSubject}</span>
               </div>
 
               <div>
-                <label className="text-xs font-medium text-slate-500">Vista previa del correo</label>
+                <label className="text-xs font-medium text-[#5C6B7F]">Vista previa del correo</label>
                 <div
-                  className="email-html-preview mt-1 text-sm text-slate-800 leading-relaxed border border-slate-200 rounded-md p-4 bg-white"
+                  className="email-html-preview mt-1 text-sm text-[#1B2A41] leading-relaxed border border-[#1B2A41]/10 rounded-xl p-4 bg-white"
                   dangerouslySetInnerHTML={{ __html: emailPanel.analysis.emailBodyHtml }}
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="text-xs text-slate-500">Idioma</span>
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#1B2A41]/10 bg-[#F6F8FA]/60 px-3 py-2">
+                <span className="text-xs text-[#5C6B7F]">Idioma</span>
                 <select
                   value={regenLanguage}
                   onChange={(e) => setRegenLanguage(e.target.value)}
-                  className="h-8 rounded-md border border-slate-300 px-2 text-sm bg-white"
+                  className={cn(DASHBOARD_COMPACT_SELECT, 'w-auto')}
                 >
                   {EMAIL_LANGUAGES.map((l) => (
                     <option key={l.code} value={l.code}>
@@ -1052,127 +1158,136 @@ export default function AdminNotificationsPage() {
                     </option>
                   ))}
                 </select>
-                <Button
-                  variant="outline"
-                  size="sm"
+                <button
+                  type="button"
+                  className={DASHBOARD_OUTLINE_BTN}
                   disabled={actingId === emailPanel.row.id}
                   onClick={() => runMailAnalysis(emailPanel.row, false, regenLanguage, true)}
                 >
                   {actingId === emailPanel.row.id ? 'Regenerando…' : 'Regenerar en este idioma'}
-                </Button>
+                </button>
               </div>
 
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <div className="rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 «Copiar» pega el correo con formato en Gmail/Outlook. Recuerda adjuntar el PDF descargado antes de
                 enviar (el cliente de correo no permite adjuntarlo automáticamente).
               </div>
             </div>
-          </Card>
+          </div>
         </div>
       )}
 
       {bulkConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <Card className="max-w-md w-full p-6 border-slate-200 shadow-xl">
-            <h3 className="font-semibold text-slate-800 mb-2">
-              {bulkConfirm.action === 'download'
-                ? `Descargar ${bulkConfirm.rows.length} notificaciones`
-                : `Imprimir ${bulkConfirm.rows.length} notificaciones`}
-            </h3>
-            <p className="text-sm text-slate-600 mb-4">
-              {bulkConfirm.needsComparecer
-                ? `Algunas notificaciones aún no se han abierto: al ${
-                    bulkConfirm.action === 'download' ? 'descargarlas' : 'imprimirlas'
-                  } se comparecerá ante el organismo emisor (AEAT o TGSS) y se descargará su contenido. Esta acción tiene efectos legales.`
-                : `Se ${
-                    bulkConfirm.action === 'download' ? 'descargarán' : 'prepararán para imprimir'
-                  } las notificaciones seleccionadas.`}
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setBulkConfirm(null)}>
-                Cancelar
-              </Button>
-              <Button className="bg-[#1B2A41] text-white hover:bg-[#152036]" onClick={executeBulkConfirm}>
-                {bulkConfirm.needsComparecer
-                  ? bulkConfirm.action === 'download'
-                    ? 'Comparecer y descargar'
-                    : 'Comparecer e imprimir'
-                  : bulkConfirm.action === 'download'
-                    ? 'Descargar'
-                    : 'Imprimir'}
-              </Button>
+        <div className={DASHBOARD_MODAL_OVERLAY}>
+          <div className={cn(DASHBOARD_CARD, 'max-w-md w-full shadow-xl')}>
+            <div className={DASHBOARD_CARD_HEADER}>
+              <h3 className={DASHBOARD_TITLE}>
+                {bulkConfirm.action === 'download'
+                  ? `Descargar ${bulkConfirm.rows.length} notificaciones`
+                  : `Imprimir ${bulkConfirm.rows.length} notificaciones`}
+              </h3>
             </div>
-          </Card>
+            <div className="p-5">
+              <p className={cn(DASHBOARD_SUBTITLE, 'mb-4')}>
+                {bulkConfirm.needsComparecer
+                  ? `Algunas notificaciones aún no se han abierto: al ${
+                      bulkConfirm.action === 'download' ? 'descargarlas' : 'imprimirlas'
+                    } se comparecerá ante el organismo emisor (AEAT o TGSS) y se descargará su contenido. Esta acción tiene efectos legales.`
+                  : `Se ${
+                      bulkConfirm.action === 'download' ? 'descargarán' : 'prepararán para imprimir'
+                    } las notificaciones seleccionadas.`}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button type="button" className={DASHBOARD_OUTLINE_BTN} onClick={() => setBulkConfirm(null)}>
+                  Cancelar
+                </button>
+                <button type="button" className={DASHBOARD_PRIMARY_BTN} onClick={executeBulkConfirm}>
+                  {bulkConfirm.needsComparecer
+                    ? bulkConfirm.action === 'download'
+                      ? 'Comparecer y descargar'
+                      : 'Comparecer e imprimir'
+                    : bulkConfirm.action === 'download'
+                      ? 'Descargar'
+                      : 'Imprimir'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
       {languagePrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <Card className="max-w-md w-full p-6 border-slate-200 shadow-xl">
-            <h3 className="font-semibold text-slate-800 mb-2">Idioma del correo</h3>
-            <p className="text-sm text-slate-600 mb-4">
-              No hay un correo anterior de referencia para este cliente. Elige el idioma en el que quieres redactar el
-              correo. Se guardará para próximas notificaciones.
-            </p>
-            <select
-              value={regenLanguage}
-              onChange={(e) => setRegenLanguage(e.target.value)}
-              className="w-full h-10 rounded-md border border-slate-300 px-3 text-sm bg-white mb-4"
-            >
-              {EMAIL_LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setLanguagePrompt(null)}>
-                Cancelar
-              </Button>
-              <Button
-                className="bg-[#1B2A41] text-white hover:bg-[#152036]"
-                disabled={actingId === languagePrompt.row.id}
-                onClick={() => runMailAnalysis(languagePrompt.row, true, regenLanguage)}
-              >
-                {actingId === languagePrompt.row.id ? 'Generando…' : 'Generar correo'}
-              </Button>
+        <div className={DASHBOARD_MODAL_OVERLAY}>
+          <div className={cn(DASHBOARD_CARD, 'max-w-md w-full shadow-xl')}>
+            <div className={DASHBOARD_CARD_HEADER}>
+              <h3 className={DASHBOARD_TITLE}>Idioma del correo</h3>
             </div>
-          </Card>
+            <div className="p-5">
+              <p className={cn(DASHBOARD_SUBTITLE, 'mb-4')}>
+                No hay un correo anterior de referencia para este cliente. Elige el idioma en el que quieres redactar el
+                correo. Se guardará para próximas notificaciones.
+              </p>
+              <select
+                value={regenLanguage}
+                onChange={(e) => setRegenLanguage(e.target.value)}
+                className={cn(DASHBOARD_COMPACT_SELECT, 'mb-4')}
+              >
+                {EMAIL_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+              <div className="flex justify-end gap-2">
+                <button type="button" className={DASHBOARD_OUTLINE_BTN} onClick={() => setLanguagePrompt(null)}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className={DASHBOARD_PRIMARY_BTN}
+                  disabled={actingId === languagePrompt.row.id}
+                  onClick={() => runMailAnalysis(languagePrompt.row, true, regenLanguage)}
+                >
+                  {actingId === languagePrompt.row.id ? 'Generando…' : 'Generar correo'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
       {viewer && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/50 p-4 md:p-8">
-          <Card className="flex flex-col flex-1 min-h-0 border-slate-200 shadow-xl overflow-hidden">
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50">
-              <h3 className="font-medium text-slate-800 truncate">{viewer.title}</h3>
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#1B2A41]/50 p-4 md:p-8">
+          <div className={cn(DASHBOARD_CARD, 'flex flex-col flex-1 min-h-0 shadow-xl overflow-hidden')}>
+            <div className={cn(DASHBOARD_CARD_HEADER, 'flex items-center justify-between gap-3 shrink-0')}>
+              <h3 className={cn(DASHBOARD_TITLE, 'truncate')}>{viewer.title}</h3>
               <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  variant="outline"
-                  size="sm"
+                <button
+                  type="button"
+                  className={DASHBOARD_OUTLINE_BTN}
                   onClick={() => triggerPdfDownload(viewer.blob, viewer.fileName)}
                 >
                   Descargar
-                </Button>
+                </button>
                 <button
                   type="button"
                   aria-label="Cerrar"
                   title="Cerrar"
                   onClick={closeViewer}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#5C6B7F] hover:bg-white/80 hover:text-[#1B2A41]"
                 >
                   <IconClose />
                 </button>
               </div>
             </div>
-            <div className="flex-1 min-h-0 bg-neutral-100">
+            <div className="flex-1 min-h-0 bg-[#F6F8FA]">
               <iframe
                 src={`${viewer.url}#toolbar=1&navpanes=0`}
                 title={viewer.title}
                 className="h-full w-full min-h-[70vh] border-0"
               />
             </div>
-          </Card>
+          </div>
         </div>
       )}
     </AdminShell>
@@ -1210,8 +1325,8 @@ function ProviderBadge({ provider, sender }: { provider: string; sender: string 
       <div className="flex items-center justify-start gap-2 text-left">
         <AeatLogo />
         <div className="min-w-0 text-left">
-          <span className="text-xs font-medium text-slate-700">AEAT</span>
-          {sender && <span className="block text-[11px] text-slate-400 leading-tight">{sender}</span>}
+          <span className="text-xs font-medium text-[#1B2A41]">AEAT</span>
+          {sender && <span className="block text-[11px] text-[#5C6B7F] leading-tight">{sender}</span>}
         </div>
       </div>
     )
@@ -1219,7 +1334,7 @@ function ProviderBadge({ provider, sender }: { provider: string; sender: string 
   return (
     <div className="text-left">
       <Badge variant="secondary">{PROVIDER_LABEL[provider] || provider}</Badge>
-      {sender && <span className="block text-[11px] text-slate-400 mt-0.5 text-left">{sender}</span>}
+      {sender && <span className="block text-[11px] text-[#5C6B7F] mt-0.5 text-left">{sender}</span>}
     </div>
   )
 }
@@ -1242,7 +1357,7 @@ function IconButton({
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-[#1B2A41] disabled:opacity-40 disabled:pointer-events-none"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#1B2A41]/12 text-[#5C6B7F] hover:bg-[#F6F8FA] hover:text-[#1B2A41] disabled:opacity-40 disabled:pointer-events-none"
     >
       {children}
     </button>
@@ -1288,6 +1403,7 @@ function NotifTable({
   rows,
   totalCount,
   statusFilter,
+  toolbarFilters,
   onRequestAction,
   actingId,
   selectedIds,
@@ -1299,6 +1415,7 @@ function NotifTable({
   rows: NotifRow[]
   totalCount: number
   statusFilter: StatusFilter
+  toolbarFilters?: ReactNode
   onRequestAction: (action: ConfirmAction, row: NotifRow) => void
   actingId: string | null
   selectedIds: Set<string>
@@ -1345,41 +1462,49 @@ function NotifTable({
           : 'Sin notificaciones'
 
   return (
-    <Card className="border-slate-200 w-full max-w-full overflow-hidden">
-      <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/80">
-        <TableToolbarHint
-          shown={displayedRows.length}
-          total={rows.length}
-          activeFilterCount={activeFilterCount}
-          onClearFilters={clearAllFilters}
-        >
-          {statusFilter === 'admin_pending' ? (
-            <>
-              <span className="font-medium text-slate-700">{displayedRows.length} pendientes</span>
-              {totalCount > rows.length && (
-                <span>{` · ${totalCount - rows.length} ocultas por vista`}</span>
-              )}
-            </>
-          ) : statusFilter === 'vacly_active' ? (
-            <>
-              <span className="font-medium text-slate-700">{displayedRows.length} activas visibles</span>
-              {totalCount > rows.length && (
-                <span>{` · ${totalCount - rows.length} cerradas (ocultas por vista)`}</span>
-              )}
-            </>
-          ) : (
-            <span>
-              <span className="font-medium text-slate-700">{displayedRows.length} visibles</span>
-              {totalCount > 0 && (
-                <span>{` · ${rows.filter(isPendingNotification).length} activas en cartera`}</span>
-              )}
-            </span>
-          )}
-        </TableToolbarHint>
+    <div className={cn(DASHBOARD_CARD, 'w-full max-w-full')}>
+      <div className={DASHBOARD_CARD_HEADER}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className={DASHBOARD_EYEBROW}>Bandeja</p>
+            <h2 className={cn(DASHBOARD_TITLE, 'mt-1')}>Cartera de la gestoría</h2>
+          </div>
+          {toolbarFilters}
+        </div>
+        <div className="mt-2.5">
+          <TableToolbarHint
+            shown={displayedRows.length}
+            total={rows.length}
+            activeFilterCount={activeFilterCount}
+            onClearFilters={clearAllFilters}
+          >
+            {statusFilter === 'admin_pending' ? (
+              <>
+                <span className="font-medium text-[#1B2A41]">{displayedRows.length} pendientes</span>
+                {totalCount > rows.length && (
+                  <span>{` · ${totalCount - rows.length} ocultas por vista`}</span>
+                )}
+              </>
+            ) : statusFilter === 'vacly_active' ? (
+              <>
+                <span className="font-medium text-[#1B2A41]">{displayedRows.length} activas visibles</span>
+                {totalCount > rows.length && (
+                  <span>{` · ${totalCount - rows.length} cerradas (ocultas por vista)`}</span>
+                )}
+              </>
+            ) : (
+              <span>
+                <span className="font-medium text-[#1B2A41]">{displayedRows.length} visibles</span>
+                {totalCount > 0 && (
+                  <span>{` · ${rows.filter(isPendingNotification).length} activas en cartera`}</span>
+                )}
+              </span>
+            )}
+          </TableToolbarHint>
+        </div>
       </div>
 
-      {/* Vista móvil / tablet: tarjetas apiladas, sin scroll horizontal */}
-      <div className="lg:hidden divide-y divide-slate-100">
+      <div className="lg:hidden divide-y divide-[#1B2A41]/8">
         {displayedRows.map((n) => (
           <NotifMobileCard
             key={n.id}
@@ -1389,16 +1514,15 @@ function NotifTable({
             onToggleSelect={onToggleSelect}
             onRequestAction={onRequestAction}
             onWorkflowChange={onWorkflowChange}
-            members={teamsByCompanyId[n.companyId] ?? []}
+            members={teamsByCompanyId[n.displayCompanyId || n.companyId] ?? []}
           />
         ))}
         {displayedRows.length === 0 && (
-          <p className="p-6 text-center text-sm text-slate-500">{emptyMessage}</p>
+          <p className="p-6 text-center text-sm text-[#5C6B7F]">{emptyMessage}</p>
         )}
       </div>
 
-      {/* Vista escritorio: tabla fluida dentro del ancho del iframe */}
-      <div className="hidden lg:block">
+      <div className="hidden lg:block overflow-x-auto">
         <table className="w-full table-fixed text-sm">
           <colgroup>
             <col className="w-10" />
@@ -1413,13 +1537,13 @@ function NotifTable({
             <col className="w-[5.75rem]" />
             <col className="w-[7.5rem]" />
           </colgroup>
-          <thead className="bg-slate-50">
+          <thead className={DASHBOARD_TABLE_HEAD}>
             <tr>
               <th className="p-2 w-10 text-center align-middle">
                 <input
                   type="checkbox"
                   aria-label="Seleccionar todas visibles"
-                  className="h-4 w-4 rounded border-slate-300 align-middle"
+                  className="h-4 w-4 rounded border-[#1B2A41]/20 align-middle accent-[#1B2A41]"
                   checked={allSelected}
                   ref={(el) => {
                     if (el) el.indeterminate = !allSelected && someSelected
@@ -1523,7 +1647,7 @@ function NotifTable({
                 columnFilters={columnFilters}
                 onFilterChange={handleFilterChange}
               />
-              <th className="p-2 text-center font-medium text-slate-600 text-xs align-middle whitespace-normal leading-tight">
+              <th className={cn(DASHBOARD_TH, 'p-2 align-middle whitespace-normal leading-tight')}>
                 Acciones
               </th>
             </tr>
@@ -1538,12 +1662,12 @@ function NotifTable({
                 onToggleSelect={onToggleSelect}
                 onRequestAction={onRequestAction}
                 onWorkflowChange={onWorkflowChange}
-                members={teamsByCompanyId[n.companyId] ?? []}
+                members={teamsByCompanyId[n.displayCompanyId || n.companyId] ?? []}
               />
             ))}
             {displayedRows.length === 0 && (
               <tr>
-                <td colSpan={colCount} className="p-6 text-center text-slate-500">
+                <td colSpan={colCount} className="p-6 text-center text-[#5C6B7F]">
                   {emptyMessage}
                 </td>
               </tr>
@@ -1551,7 +1675,7 @@ function NotifTable({
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -1602,32 +1726,34 @@ function NotifDesktopRow({
 
   return (
     <tr
-      className={`border-t border-slate-100 ${
-        selected ? 'bg-[#1B2A41]/5' : pendingVacly ? 'bg-amber-50/40' : ''
-      }`}
+      className={cn(
+        DASHBOARD_ROW,
+        selected && 'bg-[#1B2A41]/5',
+        !selected && pendingVacly && 'bg-amber-50/40',
+      )}
     >
       <td className="p-2 w-10 text-center align-middle">
         <input
           type="checkbox"
           aria-label="Seleccionar notificación"
-          className="h-4 w-4 rounded border-slate-300 align-middle"
+          className="h-4 w-4 rounded border-[#1B2A41]/20 align-middle accent-[#1B2A41]"
           checked={selected}
           onChange={() => onToggleSelect(n.id)}
         />
       </td>
-      <td className="p-2 text-slate-700 font-medium align-middle text-center text-xs">
+      <td className={cn(DASHBOARD_TD, 'p-2 font-medium align-middle text-xs')}>
         <span className="block break-words whitespace-normal">{n.companyName || '—'}</span>
       </td>
-      <td className="p-2 align-middle text-left">
+      <td className={cn(DASHBOARD_TD, 'p-2 align-middle text-left')}>
         <ProviderBadge provider={n.provider} sender={n.sender} />
       </td>
-      <td className="p-2 text-slate-700 align-middle break-words text-xs">
+      <td className={cn(DASHBOARD_TD, 'p-2 align-middle break-words text-xs text-left')}>
         {n.externalId && (
-          <span className="block font-mono text-[11px] text-slate-500 mb-0.5">{n.externalId}</span>
+          <span className="block font-mono text-[11px] text-[#5C6B7F]/80 mb-0.5">{n.externalId}</span>
         )}
-        <span className="whitespace-normal">{n.subject}</span>
+        <span className="whitespace-normal text-[#1B2A41]">{n.subject}</span>
         {n.concept && n.concept !== n.subject && (
-          <span className="block text-[11px] text-slate-400 mt-0.5 whitespace-normal break-words">{n.concept}</span>
+          <span className="block text-[11px] text-[#5C6B7F] mt-0.5 whitespace-normal break-words">{n.concept}</span>
         )}
       </td>
       <td className="p-2 align-middle text-center">
@@ -1644,7 +1770,7 @@ function NotifDesktopRow({
           ))}
         </select>
       </td>
-      <td className="p-2 text-slate-600 align-middle whitespace-normal text-center text-xs">{fmtDate(n.receivedAt)}</td>
+      <td className={cn(DASHBOARD_TD, 'p-2 align-middle whitespace-normal text-xs')}>{fmtDate(n.receivedAt)}</td>
       <td className={`p-2 align-middle whitespace-normal text-center text-xs ${deadlineClass(caducidad, !pendingVacly)}`}>
         {fmtDate(caducidad)}
       </td>
@@ -1698,27 +1824,30 @@ function NotifMobileCard({
 
   return (
     <article
-      className={`p-4 space-y-3 ${selected ? 'bg-[#1B2A41]/5' : pendingVacly ? 'bg-amber-50/40' : 'bg-white'}`}
+      className={cn(
+        'p-4 space-y-3',
+        selected ? 'bg-[#1B2A41]/5' : pendingVacly ? 'bg-amber-50/40' : 'bg-white',
+      )}
     >
       <div className="flex items-start gap-3">
         <input
           type="checkbox"
           aria-label="Seleccionar notificación"
-          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300"
+          className="mt-1 h-4 w-4 shrink-0 rounded border-[#1B2A41]/20 accent-[#1B2A41]"
           checked={selected}
           onChange={() => onToggleSelect(n.id)}
         />
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-slate-800">{n.companyName || '—'}</span>
+            <span className="text-xs font-semibold text-[#1B2A41]">{n.companyName || '—'}</span>
             <ProviderBadge provider={n.provider} sender={null} />
           </div>
-          {n.externalId && <p className="font-mono text-[11px] text-slate-500 break-all">{n.externalId}</p>}
-          <p className="text-sm text-slate-800 break-words">{n.subject}</p>
+          {n.externalId && <p className="font-mono text-[11px] text-[#5C6B7F] break-all">{n.externalId}</p>}
+          <p className="text-sm text-[#1B2A41] break-words">{n.subject}</p>
           {n.concept && n.concept !== n.subject && (
-            <p className="text-xs text-slate-500 break-words">{n.concept}</p>
+            <p className="text-xs text-[#5C6B7F] break-words">{n.concept}</p>
           )}
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#5C6B7F]">
             <span>Emisión: {fmtDate(n.receivedAt)}</span>
             <span className={deadlineClass(caducidad, !pendingVacly)}>Caducidad: {fmtDate(caducidad)}</span>
           </div>
@@ -1727,7 +1856,7 @@ function NotifMobileCard({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <label className="space-y-1">
-          <span className="text-[11px] font-medium text-slate-500">Tipo</span>
+          <span className="text-[11px] font-medium text-[#5C6B7F]">Tipo</span>
           <select
             className={compactSelectClass}
             value={n.category || 'otro'}
@@ -1742,7 +1871,7 @@ function NotifMobileCard({
           </select>
         </label>
         <label className="space-y-1">
-          <span className="text-[11px] font-medium text-slate-500">Estado Vacly</span>
+          <span className="text-[11px] font-medium text-[#5C6B7F]">Estado Vacly</span>
           <select
             className={compactSelectClass}
             value={n.vaclyStatus}
@@ -1757,7 +1886,7 @@ function NotifMobileCard({
           </select>
         </label>
         <label className="space-y-1">
-          <span className="text-[11px] font-medium text-slate-500">Responsable</span>
+          <span className="text-[11px] font-medium text-[#5C6B7F]">Responsable</span>
           <NotificationAssigneeSelect
             value={n.assignedUserId}
             members={members}
