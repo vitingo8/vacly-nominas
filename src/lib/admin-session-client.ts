@@ -142,13 +142,11 @@ export function adminHeadersFromToken(token: string | null | undefined): Record<
 export function useAdminSession(companyId: string | null) {
   const [token, setToken] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
-  const [sessionError, setSessionError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!companyId) {
       setToken(null)
       setReady(false)
-      setSessionError(null)
       return
     }
 
@@ -157,23 +155,14 @@ export function useAdminSession(companyId: string | null) {
     if (fromUrl) {
       setToken(fromUrl)
       setReady(true)
-      setSessionError(null)
       return
     }
 
     setReady(false)
-    setSessionError(null)
     ensureAdminSessionToken(companyId).then((resolved) => {
       if (cancelled) return
       setToken(resolved)
       setReady(true)
-      if (!resolved) {
-        setSessionError(
-          isEmbeddedAdminContext()
-            ? 'No se pudo obtener la sesión firmada desde Vacly. Recarga la página o vuelve a entrar desde el menú de Certificados.'
-            : 'Acceso directo sin sesión. Abre esta pantalla desde Vacly (menú Certificados) o configura ADMIN_SESSION_SECRET en desarrollo.',
-        )
-      }
     })
 
     return () => {
@@ -186,5 +175,5 @@ export function useAdminSession(companyId: string | null) {
     [token],
   )
 
-  return { adminHeaders, sessionReady: ready, token, sessionError }
+  return { adminHeaders, sessionReady: ready, token }
 }

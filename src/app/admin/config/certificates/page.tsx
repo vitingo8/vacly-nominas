@@ -175,7 +175,7 @@ function findPendingExpiryAlerts(source: CertRow[]): CertExpiryAlertItem[] {
 
 export default function AdminCertificatesPage() {
   const companyId = useCompanyId()
-  const { adminHeaders, sessionReady, sessionError } = useAdminSession(companyId)
+  const { adminHeaders, sessionReady } = useAdminSession(companyId)
   const [accountCerts, setAccountCerts] = useState<CertRow[]>([])
   const [accountCompanies, setAccountCompanies] = useState<AccountCompany[]>([])
   const [corporateBrand, setCorporateBrand] = useState<CorporateBrand>(DEFAULT_CORPORATE_BRAND)
@@ -854,10 +854,9 @@ export default function AdminCertificatesPage() {
         </div>
       </div>
 
-      {(message || error || sessionError) && (
+      {(message || error) && (
         <div className="space-y-1 w-full">
           {message && <p className="text-sm text-emerald-700">{message}</p>}
-          {sessionError && <p className="text-sm text-red-600">{sessionError}</p>}
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
       )}

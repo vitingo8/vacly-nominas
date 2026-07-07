@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { AdminShell, useCompanyId } from '@/components/admin/admin-shell'
+import { readAdminTokenFromUrl, useAdminSession } from '@/lib/admin-session-client'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -60,12 +61,6 @@ interface CertOption {
   alias: string
   status: string
   companyName?: string | null
-}
-
-function adminHeaders(): Record<string, string> {
-  if (typeof window === 'undefined') return {}
-  const token = new URLSearchParams(window.location.search).get('token')
-  return token ? { 'x-vacly-company-token': token } : {}
 }
 
 function fmtDate(value?: string | null): string {
@@ -204,11 +199,6 @@ function languageLabel(code: string): string {
   return EMAIL_LANGUAGES.find((l) => l.code === code)?.label || code
 }
 
-function getSessionToken(): string {
-  if (typeof window === 'undefined') return ''
-  return new URLSearchParams(window.location.search).get('token') || ''
-}
-
 function sanitizeFileName(value: string): string {
   return value.replace(/[^\w\s.-]/g, '').trim().slice(0, 80) || 'notificacion'
 }
@@ -224,6 +214,7 @@ function buildMailtoLink(to: string, subject: string, body: string): string {
 
 export default function AdminNotificationsPage() {
   const companyId = useCompanyId()
+  const { adminHeaders, sessionReady, token } = useAdminSession(companyId)
   const [agency, setAgency] = useState<NotifRow[]>([])
   const [teamsByCompanyId, setTeamsByCompanyId] = useState<Record<string, NotificationTeamMember[]>>({})
   const [certs, setCerts] = useState<CertOption[]>([])
@@ -378,10 +369,11 @@ export default function AdminNotificationsPage() {
   }
 
   useEffect(() => {
+    if (!companyId || !sessionReady) return
     loadAgency()
     loadCerts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId])
+  }, [companyId, sessionReady])
 
   // Mantiene la selección coherente con los datos cargados.
   useEffect(() => {
@@ -401,8 +393,8 @@ export default function AdminNotificationsPage() {
   const documentUrl = (row: NotifRow, opts?: { download?: boolean }): string => {
     const params = new URLSearchParams({ company_id: row.companyId })
     if (row.certificateId) params.set('certificate_id', row.certificateId)
-    const token = getSessionToken()
-    if (token) params.set('token', token)
+    const sessionToken = token ?? readAdminTokenFromUrl()
+    if (sessionToken) params.set('token', sessionToken)
     if (opts?.download) params.set('download', '1')
     return `/api/admin/notifications/${row.id}/document?${params.toString()}`
   }
