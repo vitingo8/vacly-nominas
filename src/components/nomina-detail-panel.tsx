@@ -139,7 +139,7 @@ export function NominaPdfPanel({
                 rel="noopener noreferrer"
                 className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium inline-flex items-center gap-2"
               >
-                <EyeIcon className="w-4 h-4" />
+                <EyeIcon className="h-4.5 w-4.5 shrink-0" />
                 Abrir en nueva pestaña
               </a>
               <a
@@ -147,7 +147,7 @@ export function NominaPdfPanel({
                 download={downloadName}
                 className="px-4 py-2 bg-[#1B2A41] text-white rounded-lg hover:bg-[#152036] transition-colors text-sm font-medium inline-flex items-center gap-2"
               >
-                <ArrowDownTrayIcon className="w-4 h-4" />
+                <ArrowDownTrayIcon className="h-4.5 w-4.5 shrink-0" />
                 Descargar PDF
               </a>
             </>
@@ -381,7 +381,7 @@ export function NominaDetailPanel({
             <Card className="border-0 shadow-md bg-gradient-to-br from-[#C6A664]/10 to-[#B8964A]/10">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <CurrencyDollarIcon className="w-4 h-4 text-[#C6A664]" />
+                  <CurrencyDollarIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                   <span className="text-xs font-medium text-[#1B2A41]">Salario Bruto</span>
                 </div>
                 <p className="text-2xl font-bold text-[#1B2A41]">{formatCurrency(nominaData.gross_salary)}</p>
@@ -390,7 +390,7 @@ export function NominaDetailPanel({
             <Card className="border-0 shadow-md bg-gradient-to-br from-emerald-50 to-green-50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <CreditCardIcon className="w-4 h-4 text-emerald-600" />
+                  <CreditCardIcon className="h-4.5 w-4.5 shrink-0 text-emerald-600" />
                   <span className="text-xs font-medium text-emerald-700">Salario Neto</span>
                 </div>
                 <p className="text-2xl font-bold text-emerald-900">{formatCurrency(nominaData.net_pay)}</p>
@@ -399,7 +399,7 @@ export function NominaDetailPanel({
             <Card className="border-0 shadow-md bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <BuildingOffice2Icon className="w-4 h-4 text-[#C6A664]" />
+                  <BuildingOffice2Icon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                   <span className="text-xs font-medium text-[#1B2A41]">Coste Empresa</span>
                 </div>
                 <p className="text-2xl font-bold text-[#1B2A41]">{formatCurrency(nominaData.cost_empresa)}</p>
@@ -408,7 +408,7 @@ export function NominaDetailPanel({
             <Card className="border-0 shadow-md bg-gradient-to-br from-slate-50 to-gray-50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <ArrowTrendingUpIcon className="w-4 h-4 text-slate-600" />
+                  <ArrowTrendingUpIcon className="h-4.5 w-4.5 shrink-0 text-slate-600" />
                   <span className="text-xs font-medium text-slate-700">Base SS</span>
                 </div>
                 <p className="text-2xl font-bold text-slate-900">{formatCurrency(nominaData.base_ss)}</p>
@@ -420,7 +420,7 @@ export function NominaDetailPanel({
             <Card className="border shadow-sm">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <DocumentTextIcon className="w-4 h-4 text-[#C6A664]" />
+                  <DocumentTextIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                   Datos del Empleado
                 </CardTitle>
               </CardHeader>
@@ -443,7 +443,7 @@ export function NominaDetailPanel({
             <Card className="border shadow-sm">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <BuildingOffice2Icon className="w-4 h-4 text-emerald-600" />
+                  <BuildingOffice2Icon className="h-4.5 w-4.5 shrink-0 text-emerald-600" />
                   Datos de la Empresa
                 </CardTitle>
               </CardHeader>

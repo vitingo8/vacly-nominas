@@ -51,6 +51,19 @@ import type {
   PayrollConfigInput,
 } from '@/lib/calculadora'
 import { resolvePayrollConfigForDate, type PeriodSmi } from '@/lib/payroll-parameters'
+import {
+  DASHBOARD_CARD,
+  DASHBOARD_CARD_HEADER,
+  DASHBOARD_EYEBROW,
+  DASHBOARD_INPUT_MD,
+  DASHBOARD_KPI_TILE,
+  DASHBOARD_OUTLINE_BTN,
+  DASHBOARD_PAGE_BG,
+  DASHBOARD_PILL_GROUP,
+  DASHBOARD_PRIMARY_BTN,
+  DASHBOARD_TITLE,
+  dashboardPillClass,
+} from '@/components/dashboard-styles'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -69,6 +82,13 @@ interface ErteExtra {
   exemptionPercent: number
 }
 
+interface ComplementLine {
+  concept: string
+  amount: number
+  cotizesSS: boolean
+  tributesIRPF: boolean
+}
+
 interface EmployeeRow {
   id: string
   name: string
@@ -80,6 +100,9 @@ interface EmployeeRow {
   cotizationGroup: number
   irpfPercentage: number
   fixedComplements: number
+  fixedComplementsCotizable: number
+  fixedComplementsNonCotizable: number
+  complementLines: ComplementLine[]
   proratedBonuses: number
   numberOfBonuses: number
   contractType: string
@@ -90,9 +113,19 @@ interface EmployeeRow {
   seniorityPeriods: number
   yearsOfService: number
   monthlyProratedBonusFromAgreement: number | null
-  automaticAgreementConcepts: Array<{ concept: string; amount: number; type: 'salary' | 'non_salary' }>
+  automaticAgreementConcepts: Array<{
+    concept: string
+    amount: number
+    type: 'salary' | 'non_salary'
+    cotizesSS?: boolean
+    tributesIRPF?: boolean
+  }>
   workedDays: number
   overtimeHours: number
+  overtimeSource: 'manual' | 'fichajes'
+  overtimeHoursExplicit: boolean
+  autoOvertimeHours: number
+  autoOvertimeDays: number
   vacationDays: number
   itDays: number
   itContingencyType: 'ENFERMEDAD_COMUN' | 'ACCIDENTE_TRABAJO'
@@ -115,6 +148,11 @@ interface EmployeeRow {
   hasActiveContract: boolean
   usingAgreementDefaults: boolean
   irpfSource: string
+  manualIrpfRate: number | null
+  aeatIrpfRate: number | null
+  irpfDiffers: boolean
+  motorWarnings: string[]
+  irpfSaving: boolean
 }
 
 interface CompanyAgreementSummary {
@@ -228,10 +266,16 @@ function WizardInner() {
         const calendarDays = getDaysInMonth(month, year)
         const nBonuses = row.numberOfBonuses || 2
         const seniorityAmount = moneyValue(row.seniorityAmount)
-        const automaticSalary = row.automaticAgreementConcepts.filter((c) => c.type === 'salary')
-        const automaticNonSalary = row.automaticAgreementConcepts.filter((c) => c.type === 'non_salary')
-        const automaticSalaryAmount = automaticSalary.reduce((s, c) => s + moneyValue(c.amount), 0)
-        const automaticNonSalaryAmount = automaticNonSalary.reduce((s, c) => s + moneyValue(c.amount), 0)
+        const automaticCotizable = row.automaticAgreementConcepts.filter(
+          (c) => c.cotizesSS !== false && (c.cotizesSS === true || c.type === 'salary'),
+        )
+        const automaticNonCotizable = row.automaticAgreementConcepts.filter(
+          (c) => c.cotizesSS === false || (c.cotizesSS == null && c.type === 'non_salary'),
+        )
+        const automaticSalaryAmount = automaticCotizable.reduce((s, c) => s + moneyValue(c.amount), 0)
+        const automaticNonSalaryAmount = automaticNonCotizable.reduce((s, c) => s + moneyValue(c.amount), 0)
+        const employeeCotizable = moneyValue(row.fixedComplementsCotizable ?? row.fixedComplements)
+        const employeeNonCotizable = moneyValue(row.fixedComplementsNonCotizable)
         const baseWithSeniority = moneyValue(row.baseSalary) + seniorityAmount
         const monthlyProratedBonus =
           row.monthlyProratedBonusFromAgreement != null
@@ -242,8 +286,8 @@ function WizardInner() {
           baseSalaryMonthly: moneyValue(row.baseSalary),
           cotizationGroup: (row.cotizationGroup || 7) as GrupoCotizacion,
           irpfPercentage: row.irpfPercentage || 0,
-          fixedComplements: moneyValue(row.fixedComplements) + seniorityAmount + automaticSalaryAmount,
-          nonSalaryComplements: automaticNonSalaryAmount,
+          fixedComplements: employeeCotizable + seniorityAmount + automaticSalaryAmount,
+          nonSalaryComplements: employeeNonCotizable + automaticNonSalaryAmount,
           proratedBonuses: 0,
           numberOfBonuses: nBonuses,
           contractType: mapContractType(row.contractType),
@@ -379,7 +423,15 @@ function WizardInner() {
             comp.cotizationGroup || contract.cotization_group ||
             (hasActiveContract ? 7 : Number(defaults.default_cotization_group) || 7),
           irpfPercentage: comp.irpfPercentage || 0,
-          fixedComplements: comp.fixedComplements || 0,
+          fixedComplements: comp.fixedComplementsCotizable ?? moneyValue(comp.fixedComplements),
+          fixedComplementsCotizable: comp.fixedComplementsCotizable ?? moneyValue(comp.fixedComplements),
+          fixedComplementsNonCotizable: comp.fixedComplementsNonCotizable ?? 0,
+          complementLines: (comp.complementLines ?? []).map((line: any) => ({
+            concept: line.concept,
+            amount: moneyValue(line.amount),
+            cotizesSS: line.cotizesSS !== false,
+            tributesIRPF: line.tributesIRPF !== false,
+          })),
           proratedBonuses: comp.proratedBonuses || 0,
           numberOfBonuses,
           contractType: contract.contract_type || 'permanent',
@@ -394,7 +446,11 @@ function WizardInner() {
           monthlyProratedBonusFromAgreement: derived?.monthlyProratedBonuses ?? null,
           automaticAgreementConcepts: derived?.automaticConcepts ?? [],
           workedDays: Math.max(0, daysInMonth - autoITDays),
-          overtimeHours: 0,
+          overtimeHours: Number(emp.autoOvertimeHours ?? 0),
+          overtimeSource: 'fichajes',
+          overtimeHoursExplicit: false,
+          autoOvertimeHours: Number(emp.autoOvertimeHours ?? 0),
+          autoOvertimeDays: Number(emp.autoOvertimeMeta?.daysWithOvertime ?? 0),
           vacationDays: 0,
           itDays: autoITDays,
           itContingencyType: autoIT?.contingencyType ?? 'ENFERMEDAD_COMUN',
@@ -411,7 +467,16 @@ function WizardInner() {
           generated: false,
           hasActiveContract,
           usingAgreementDefaults: !hasActiveContract && !!agreementInfo,
-          irpfSource: comp.irpfPercentage ? 'persistido' : 'pendiente',
+          irpfSource: comp.irpfSource || 'none',
+          manualIrpfRate: comp.manualRate ?? null,
+          aeatIrpfRate: comp.aeatRate ?? null,
+          irpfDiffers: !!comp.irpfDiffers,
+          motorWarnings: [
+            ...(emp.complementWarnings ?? []),
+            ...(derived?.warnings ?? []),
+            ...(emp.autoOvertimeMeta?.warnings ?? []),
+          ],
+          irpfSaving: false,
         }
         if (!row.proratedBonuses && row.baseSalary > 0) {
           row.proratedBonuses = Math.round((row.baseSalary * row.numberOfBonuses) / 12 * 100) / 100
@@ -550,6 +615,8 @@ function WizardInner() {
             variables: {
               workedDays: emp.workedDays,
               overtimeHours: emp.overtimeHours,
+              overtimeSource: emp.overtimeSource,
+              overtimeHoursExplicit: emp.overtimeHoursExplicit,
               vacationDays: emp.vacationDays,
               itDays: emp.itDays,
               itContingencyType: emp.itContingencyType,
@@ -686,7 +753,7 @@ function WizardInner() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
+    <div className={DASHBOARD_PAGE_BG}>
       {/* Cabecera + stepper */}
       <div className="bg-[#1B2A41] text-white">
         <div className={cn('max-w-6xl mx-auto px-6', isEmbedded ? 'py-4' : 'py-6')}>
@@ -725,7 +792,7 @@ function WizardInner() {
                       {done ? '✓' : s.n}
                     </span>
                     <span className="text-sm font-medium hidden sm:inline">{s.label}</span>
-                    <Icon className="w-4 h-4 sm:hidden" />
+                    <Icon className="h-4.5 w-4.5 shrink-0 sm:hidden" />
                   </button>
                   {idx < steps.length - 1 && <div className={cn('h-px flex-1 mx-1', done ? 'bg-emerald-400/60' : 'bg-white/10')} />}
                 </div>
@@ -742,7 +809,7 @@ function WizardInner() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <CalendarDaysIcon className="w-5 h-5 text-[#C6A664]" /> ¿Qué periodo vas a liquidar?
+                  <CalendarDaysIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" /> ¿Qué periodo vas a liquidar?
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -770,7 +837,7 @@ function WizardInner() {
                   </div>
                 </div>
                 <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 flex items-start gap-2">
-                  <ExclamationTriangleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <ExclamationTriangleIcon className="h-4.5 w-4.5 shrink-0 flex-shrink-0 mt-0.5" />
                   <span>Solo se pueden generar nóminas de meses ya cerrados (no del mes en curso ni futuros).</span>
                 </div>
                 <div className="flex justify-end">
@@ -778,7 +845,7 @@ function WizardInner() {
                     onClick={() => { setStep(2); loadEmployees() }}
                     className="bg-[#1B2A41] hover:bg-[#1B2A41]/90 gap-2"
                   >
-                    Continuar <ArrowRightIcon className="w-4 h-4" />
+                    Continuar <ArrowRightIcon className="h-4.5 w-4.5 shrink-0" />
                   </Button>
                 </div>
               </CardContent>
@@ -792,9 +859,9 @@ function WizardInner() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <span className="flex items-center gap-2"><ShieldCheckIcon className="w-5 h-5 text-[#C6A664]" /> Checklist de preparación</span>
+                  <span className="flex items-center gap-2"><ShieldCheckIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" /> Checklist de preparación</span>
                   <Button variant="outline" size="sm" onClick={loadEmployees} disabled={loadingEmployees} className="gap-2">
-                    <ArrowPathIcon className={cn('w-4 h-4', loadingEmployees && 'animate-spin')} /> Recargar
+                    <ArrowPathIcon className={cn('h-4.5 w-4.5 shrink-0', loadingEmployees && 'animate-spin')} /> Recargar
                   </Button>
                 </CardTitle>
               </CardHeader>
@@ -828,13 +895,13 @@ function WizardInner() {
               </CardContent>
             </Card>
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(1)} className="gap-2"><ArrowLeftIcon className="w-4 h-4" /> Atrás</Button>
+              <Button variant="outline" onClick={() => setStep(1)} className="gap-2"><ArrowLeftIcon className="h-4.5 w-4.5 shrink-0" /> Atrás</Button>
               <Button
                 onClick={() => setStep(3)}
                 disabled={blockers.length > 0 || employees.length === 0}
                 className="bg-[#1B2A41] hover:bg-[#1B2A41]/90 gap-2"
               >
-                Revisar empleados <ArrowRightIcon className="w-4 h-4" />
+                Revisar empleados <ArrowRightIcon className="h-4.5 w-4.5 shrink-0" />
               </Button>
             </div>
           </div>
@@ -851,12 +918,15 @@ function WizardInner() {
             </div>
 
             <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><UserGroupIcon className="w-5 h-5 text-[#C6A664]" /> Revisión por empleado</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="flex items-center gap-2"><UserGroupIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" /> Revisión por empleado</CardTitle></CardHeader>
               <CardContent className="space-y-2">
                 {employees.map((emp) => (
                   <EmployeeReviewRow
                     key={emp.id}
                     emp={emp}
+                    companyId={companyId}
+                    selectedMonth={selectedMonth}
+                    selectedYear={selectedYear}
                     expanded={expandedId === emp.id}
                     onToggle={() => setExpandedId(expandedId === emp.id ? null : emp.id)}
                     onUpdate={updateRow}
@@ -870,9 +940,9 @@ function WizardInner() {
             </Card>
 
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(2)} className="gap-2"><ArrowLeftIcon className="w-4 h-4" /> Atrás</Button>
+              <Button variant="outline" onClick={() => setStep(2)} className="gap-2"><ArrowLeftIcon className="h-4.5 w-4.5 shrink-0" /> Atrás</Button>
               <Button onClick={() => setStep(4)} className="bg-[#1B2A41] hover:bg-[#1B2A41]/90 gap-2">
-                Generar nóminas <ArrowRightIcon className="w-4 h-4" />
+                Generar nóminas <ArrowRightIcon className="h-4.5 w-4.5 shrink-0" />
               </Button>
             </div>
           </div>
@@ -882,7 +952,7 @@ function WizardInner() {
         {step === 4 && (
           <div className="space-y-6">
             <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><DocumentTextIcon className="w-5 h-5 text-[#C6A664]" /> Resumen y generación</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="flex items-center gap-2"><DocumentTextIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" /> Resumen y generación</CardTitle></CardHeader>
               <CardContent className="space-y-5">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <SummaryCard icon={UserGroupIcon} label="Nóminas" value={`${summary.count}`} />
@@ -902,20 +972,20 @@ function WizardInner() {
 
                 {!generationResults && !generating && (
                   <Button onClick={generatePayslips} disabled={summary.count === 0} className="w-full bg-[#C6A664] text-[#1B2A41] hover:bg-[#C6A664]/90 font-semibold gap-2">
-                    <DocumentTextIcon className="w-5 h-5" /> Generar {summary.count} nómina(s)
+                    <DocumentTextIcon className="h-4.5 w-4.5 shrink-0" /> Generar {summary.count} nómina(s)
                   </Button>
                 )}
 
                 {generationResults && (
                   <div className="space-y-3">
                     <div className="rounded-lg border p-3 bg-emerald-50 border-emerald-200 text-emerald-800 text-sm flex items-center gap-2">
-                      <CheckCircleIcon className="w-5 h-5" />
+                      <CheckCircleIcon className="h-4.5 w-4.5 shrink-0" />
                       {generationResults.filter((r) => r.success).length} generada(s) correctamente
                       {generationResults.some((r) => !r.success) && `, ${generationResults.filter((r) => !r.success).length} con error`}
                     </div>
                     {generationResults.filter((r) => !r.success).map((r) => (
                       <div key={r.employeeId} className="text-sm text-red-700 flex items-center gap-2">
-                        <XCircleIcon className="w-4 h-4" /> {r.employeeName}: {r.error}
+                        <XCircleIcon className="h-4.5 w-4.5 shrink-0" /> {r.employeeName}: {r.error}
                       </div>
                     ))}
                   </div>
@@ -941,7 +1011,7 @@ function WizardInner() {
             )}
 
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(3)} className="gap-2"><ArrowLeftIcon className="w-4 h-4" /> Atrás</Button>
+              <Button variant="outline" onClick={() => setStep(3)} className="gap-2"><ArrowLeftIcon className="h-4.5 w-4.5 shrink-0" /> Atrás</Button>
               {generationResults && (
                 <Button variant="outline" onClick={() => { setGenerationResults(null); setStep(1) }}>Nueva liquidación</Button>
               )}
@@ -957,9 +1027,9 @@ function WizardInner() {
 
 function SummaryCard({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
-    <div className="rounded-xl border bg-white p-4">
-      <div className="flex items-center gap-2 text-slate-500 text-xs mb-1"><Icon className="w-4 h-4" /> {label}</div>
-      <div className="text-lg font-semibold text-[#1B2A41]">{value}</div>
+    <div className={DASHBOARD_KPI_TILE}>
+      <div className="flex items-center gap-2 text-vacly-slate text-xs mb-1"><Icon className="h-4.5 w-4.5 shrink-0" /> {label}</div>
+      <div className="text-lg font-semibold text-vacly-navy">{value}</div>
     </div>
   )
 }
@@ -967,7 +1037,7 @@ function SummaryCard({ icon: Icon, label, value }: { icon: any; label: string; v
 function ExportButton({ label, busy, onClick }: { label: string; busy: boolean; onClick: () => void }) {
   return (
     <Button variant="outline" onClick={onClick} disabled={busy} className="justify-start gap-2 h-auto py-3">
-      {busy ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <DocumentTextIcon className="w-4 h-4 text-[#C6A664]" />}
+      {busy ? <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin" /> : <DocumentTextIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />}
       <span className="text-sm">{label}</span>
     </Button>
   )
@@ -985,64 +1055,209 @@ function NumField({ label, value, onChange, step = 1, suffix }: { label: string;
   )
 }
 
+function irpfSourceLabel(source: string): string {
+  const map: Record<string, string> = {
+    manual: 'Manual',
+    aeat_persisted: 'AEAT',
+    aeat_live: 'AEAT (recalc.)',
+    estimated: 'Estimado',
+    request_fallback: 'Petición',
+    none: 'Sin tipo',
+  }
+  return map[source] ?? source
+}
+
 function EmployeeReviewRow({
-  emp, expanded, onToggle, onUpdate, calendarDays,
+  emp, companyId, selectedMonth, selectedYear, expanded, onToggle, onUpdate, calendarDays,
 }: {
   emp: EmployeeRow
+  companyId: string
+  selectedMonth: number
+  selectedYear: number
   expanded: boolean
   onToggle: () => void
   onUpdate: (id: string, patch: Partial<EmployeeRow>) => void
   calendarDays: number
 }) {
   const p = emp.payslipResult
+
+  const saveIrpfManual = async () => {
+    onUpdate(emp.id, { irpfSaving: true })
+    try {
+      const res = await fetch(
+        `/api/generacion?action=update_irpf&company_id=${companyId}&employee_id=${emp.id}&mode=manual&irpf_percentage=${emp.irpfPercentage}`,
+      )
+      const data = await res.json()
+      if (!data.success) throw new Error(data.error)
+      onUpdate(emp.id, {
+        irpfPercentage: data.irpfPercentage,
+        irpfSource: data.irpfSource,
+        manualIrpfRate: data.manualRate,
+        aeatIrpfRate: data.aeatRate,
+        irpfDiffers: data.differs,
+        irpfSaving: false,
+      })
+    } catch {
+      onUpdate(emp.id, { irpfSaving: false })
+    }
+  }
+
+  const recalcIrpfAeat = async () => {
+    onUpdate(emp.id, { irpfSaving: true })
+    try {
+      const res = await fetch(
+        `/api/generacion?action=update_irpf&company_id=${companyId}&employee_id=${emp.id}&mode=recalculate&year=${selectedYear}`,
+      )
+      const data = await res.json()
+      if (!data.success) throw new Error(data.error)
+      onUpdate(emp.id, {
+        irpfPercentage: data.irpfPercentage,
+        irpfSource: data.irpfSource,
+        manualIrpfRate: data.manualRate,
+        aeatIrpfRate: data.aeatRate,
+        irpfDiffers: data.differs,
+        irpfSaving: false,
+      })
+    } catch {
+      onUpdate(emp.id, { irpfSaving: false })
+    }
+  }
+
   return (
-    <div className={cn('rounded-xl border bg-white overflow-hidden', emp.calcError && 'border-red-200')}>
+    <div className={cn(DASHBOARD_CARD, emp.calcError && 'border-red-200')}>
       <div className="flex items-center gap-3 p-3">
         <input
           type="checkbox"
           checked={emp.selected}
           onChange={(e) => onUpdate(emp.id, { selected: e.target.checked })}
-          className="w-4 h-4 accent-[#C6A664]"
+          className="h-4.5 w-4.5 shrink-0 accent-vacly-gold"
         />
         <button onClick={onToggle} className="flex-1 flex items-center justify-between text-left">
           <div>
-            <div className="font-medium text-slate-800 flex items-center gap-2">
+            <div className="font-medium text-vacly-navy flex items-center gap-2 flex-wrap">
               {emp.name || 'Sin nombre'}
               {!emp.hasActiveContract && <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 text-[10px]">Sin contrato</Badge>}
               {emp.generated && <Badge variant="outline" className="text-emerald-700 border-emerald-200 bg-emerald-50 text-[10px]">Generada</Badge>}
+              <Badge variant="outline" className={cn('text-[10px]', emp.irpfSource === 'manual' ? 'border-vacly-gold/40 bg-vacly-gold/10 text-vacly-navy' : 'border-vacly-navy/15 text-vacly-slate')}>
+                {irpfSourceLabel(emp.irpfSource)} {emp.irpfPercentage}%
+              </Badge>
+              {emp.irpfDiffers && emp.aeatIrpfRate != null && (
+                <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-50 text-amber-800">
+                  AEAT {emp.aeatIrpfRate}%
+                </Badge>
+              )}
             </div>
-            <div className="text-xs text-slate-400">{emp.nif} · Grupo {emp.cotizationGroup} · IRPF {emp.irpfPercentage}%</div>
+            <div className="text-xs text-vacly-slate">{emp.nif} · Grupo {emp.cotizationGroup}</div>
           </div>
           <div className="flex items-center gap-4">
             {emp.calcError ? (
               <span className="text-xs text-red-600">{emp.calcError}</span>
             ) : (
               <div className="text-right">
-                <div className="text-xs text-slate-400">Líquido</div>
-                <div className="font-semibold text-[#1B2A41]">{formatCurrency(emp.netSalary)}</div>
+                <div className="text-xs text-vacly-slate">Líquido</div>
+                <div className="font-semibold text-vacly-navy">{formatCurrency(emp.netSalary)}</div>
               </div>
             )}
-            <ChevronDownIcon className={cn('w-5 h-5 text-slate-400 transition-transform', expanded && 'rotate-180')} />
+            <ChevronDownIcon className={cn('h-4.5 w-4.5 shrink-0 text-vacly-slate transition-transform', expanded && 'rotate-180')} />
           </div>
         </button>
       </div>
 
+      {emp.motorWarnings.length > 0 && (
+        <div className="px-3 pb-2 space-y-1">
+          {emp.motorWarnings.slice(0, 3).map((w, i) => (
+            <div key={i} className="flex items-start gap-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+              <ExclamationTriangleIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>{w}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {expanded && (
-        <div className="border-t bg-slate-50/50 p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Variables editables */}
+        <div className="border-t border-[#1B2A41]/8 bg-[#F6F8FA]/40 p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold text-slate-700">Variables del mes</h4>
+            <h4 className={DASHBOARD_EYEBROW}>Variables del mes</h4>
             <div className="grid grid-cols-3 gap-3">
               <NumField label="Días trabajados" value={emp.workedDays} onChange={(v) => onUpdate(emp.id, { workedDays: v })} />
               <NumField label="Vacaciones" value={emp.vacationDays} onChange={(v) => onUpdate(emp.id, { vacationDays: v })} />
-              <NumField label="Horas extra" value={emp.overtimeHours} onChange={(v) => onUpdate(emp.id, { overtimeHours: v })} />
+              <div>
+                <Label className="text-xs text-vacly-slate">Horas extra</Label>
+                <Input
+                  type="number"
+                  step={0.25}
+                  value={emp.overtimeHours}
+                  onChange={(e) =>
+                    onUpdate(emp.id, {
+                      overtimeHours: Number(e.target.value),
+                      overtimeSource: 'manual',
+                      overtimeHoursExplicit: true,
+                    })
+                  }
+                  className={cn('mt-1 h-9', DASHBOARD_INPUT_MD)}
+                />
+                {emp.overtimeSource === 'fichajes' && emp.autoOvertimeHours > 0 && (
+                  <span className="text-[10px] text-vacly-slate mt-1 block">
+                    Desde fichajes ({emp.autoOvertimeDays} día{emp.autoOvertimeDays !== 1 ? 's' : ''})
+                  </span>
+                )}
+              </div>
               <NumField label="Comisiones" value={emp.commissions} onChange={(v) => onUpdate(emp.id, { commissions: v })} suffix="€" />
               <NumField label="Anticipos" value={emp.advances} onChange={(v) => onUpdate(emp.id, { advances: v })} suffix="€" />
-              <NumField label="IRPF %" value={emp.irpfPercentage} step={0.01} onChange={(v) => onUpdate(emp.id, { irpfPercentage: v })} suffix="%" />
             </div>
 
-            <details className="rounded-lg border bg-white">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-600">Conceptos avanzados (especie, embargo, ERTE)</summary>
+            <div className="rounded-xl border border-[#1B2A41]/10 bg-white p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs text-vacly-slate">IRPF %</Label>
+                <div className="flex gap-2">
+                  <button type="button" disabled={emp.irpfSaving} onClick={saveIrpfManual} className={DASHBOARD_OUTLINE_BTN}>
+                    Guardar manual
+                  </button>
+                  <button type="button" disabled={emp.irpfSaving} onClick={recalcIrpfAeat} className={DASHBOARD_OUTLINE_BTN}>
+                    Recalcular AEAT
+                  </button>
+                </div>
+              </div>
+              <Input
+                type="number"
+                step={0.01}
+                value={emp.irpfPercentage}
+                onChange={(e) =>
+                  onUpdate(emp.id, {
+                    irpfPercentage: Number(e.target.value),
+                    irpfSource: 'manual',
+                  })
+                }
+                className={cn('h-9', DASHBOARD_INPUT_MD)}
+              />
+              {emp.irpfDiffers && emp.aeatIrpfRate != null && (
+                <p className="text-[11px] text-amber-700">
+                  El % manual ({emp.irpfPercentage}%) difiere del AEAT ({emp.aeatIrpfRate}%).
+                </p>
+              )}
+            </div>
+
+            {emp.complementLines.length > 0 && (
+              <div className="rounded-xl border border-[#1B2A41]/10 bg-white p-3">
+                <h5 className="text-xs font-semibold text-vacly-navy mb-2">Complementos fijos</h5>
+                <div className="space-y-1.5">
+                  {emp.complementLines.map((line, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-xs">
+                      <span className="text-vacly-slate">{line.concept}</span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={cn('text-[10px]', line.cotizesSS ? 'border-emerald-200 text-emerald-700' : 'border-slate-200 text-slate-600')}>
+                          {line.cotizesSS ? 'Cotiza' : 'No cotiza'}
+                        </Badge>
+                        <span className="font-medium text-vacly-navy">{formatCurrency(line.amount)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <details className="rounded-xl border border-[#1B2A41]/10 bg-white">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-vacly-slate">Conceptos avanzados (especie, embargo, ERTE)</summary>
               <div className="p-3 space-y-4 border-t">
                 <div className="grid grid-cols-2 gap-3">
                   <NumField label="Salario en especie" value={emp.inKind.amount} onChange={(v) => onUpdate(emp.id, { inKind: { ...emp.inKind, amount: v } })} suffix="€" />

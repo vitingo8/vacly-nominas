@@ -11,7 +11,7 @@ import { EmployeeFilterSelect, type EmployeeFilterOption } from '@/components/em
 import { ExcelColumnHeader } from '@/components/excel-column-header'
 import { PersonAvatar } from '@/components/ui/person-avatar'
 import type { NominaEstadoFilter, NominaSortColumn, NominaSortDir } from '@/lib/nomina-list-query'
-import type { NominaViewerData } from '@/components/nomina-viewer-dialog'
+import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
 import {
   AdjustmentsHorizontalIcon,
   ArrowDownTrayIcon,
@@ -651,8 +651,8 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   return (
     <div
       className={cn(
-        'bg-gradient-to-br from-slate-50 via-white to-slate-100',
-        isEmbedded ? 'min-h-full w-full' : 'min-h-screen',
+        DASHBOARD_PAGE_BG,
+        isEmbedded ? 'min-h-full w-full' : '',
       )}
     >
       <div
@@ -712,7 +712,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                     rangePreset !== 'all' && 'bg-[#1B2A41] hover:bg-[#152036]',
                   )}
                 >
-                  <FunnelIcon className="h-4 w-4 shrink-0" />
+                  <FunnelIcon className="h-4.5 w-4.5 shrink-0" />
                   <span className="max-w-[5.5rem] truncate">{shortPresetLabel}</span>
                   <ChevronDownIcon className="h-3.5 w-3.5 shrink-0" />
                 </Button>
@@ -789,7 +789,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                     groupBy !== 'none' && 'bg-[#C6A664] text-[#1B2A41] hover:bg-[#d4b574]',
                   )}
                 >
-                  <RectangleGroupIcon className="h-4 w-4 shrink-0" />
+                  <RectangleGroupIcon className="h-4.5 w-4.5 shrink-0" />
                   <span className="max-w-[4.5rem] truncate">{shortGroupLabel}</span>
                   <ChevronDownIcon className="h-3.5 w-3.5 shrink-0" />
                 </Button>
@@ -828,7 +828,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                   title="Limpiar filtros"
                   className="h-8 w-8 shrink-0 p-0 text-slate-500 hover:text-slate-800"
                 >
-                  <XMarkIcon className="h-4 w-4" />
+                  <XMarkIcon className="h-4.5 w-4.5 shrink-0" />
                 </Button>
               )}
 
@@ -842,7 +842,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                   title={isExporting ? 'Exportando…' : selectedIds.size > 0 ? 'Exportar selección' : 'Exportar filtrado'}
                   className="h-8 shrink-0 border-[#C6A664]/30 px-2 text-[#1B2A41] hover:bg-[#C6A664]/10"
                 >
-                  <ArrowDownTrayIcon className={`h-4 w-4 ${isExporting ? 'animate-pulse' : ''}`} />
+                  <ArrowDownTrayIcon className={`h-4.5 w-4.5 shrink-0 ${isExporting ? 'animate-pulse' : ''}`} />
                   <span className="ml-1 hidden max-w-[4.5rem] truncate text-xs 2xl:inline">
                     {isExporting ? '…' : 'Exportar'}
                   </span>
@@ -856,7 +856,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
                   title="Actualizar"
                   className="h-8 w-8 shrink-0 border-[#C6A664]/30 p-0 text-[#1B2A41] hover:bg-[#C6A664]/10 xl:w-auto xl:px-2"
                 >
-                  <ArrowPathIcon className={`h-4 w-4 ${isLoadingHistorial ? 'animate-spin' : ''}`} />
+                  <ArrowPathIcon className={`h-4.5 w-4.5 shrink-0 ${isLoadingHistorial ? 'animate-spin' : ''}`} />
                   <span className="ml-1 hidden text-xs xl:inline">Actualizar</span>
                 </Button>
               </div>

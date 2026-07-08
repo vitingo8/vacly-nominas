@@ -17,7 +17,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { PersonAvatar } from '@/components/ui/person-avatar'
-import { cn } from '@/lib/utils'
+import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
 import { useEmbeddedMode } from '@/lib/embedded-mode'
 import type { Expense } from '@/types/expenses'
 
@@ -225,7 +225,7 @@ export function GastosVerView({ companyId }: GastosVerViewProps) {
   ]
 
   return (
-    <div className="w-full min-h-screen bg-transparent">
+    <div className={cn('w-full', DASHBOARD_PAGE_BG)}>
       <div className="w-full px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
         <div className="mb-6">
           {!isEmbedded && (
@@ -268,7 +268,7 @@ export function GastosVerView({ companyId }: GastosVerViewProps) {
           {showCalendar && (
             <Card className="p-4 mb-4 border-slate-200">
               <div className="flex items-center gap-2 mb-3">
-                <CalendarDaysIcon className="w-5 h-5 text-[#C6A664]" />
+                <CalendarDaysIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                 <span className="text-sm font-medium text-slate-700">Seleccionar periodo</span>
               </div>
               <div className="flex flex-wrap items-end gap-4">
@@ -341,7 +341,7 @@ export function GastosVerView({ companyId }: GastosVerViewProps) {
               disabled={isLoading}
               className="gap-2"
             >
-              <ArrowPathIcon className={cn('w-4 h-4', isLoading && 'animate-spin')} />
+              <ArrowPathIcon className={cn('h-4.5 w-4.5 shrink-0', isLoading && 'animate-spin')} />
               Actualizar
             </Button>
           </div>

@@ -29,7 +29,7 @@ import { Label } from '@/components/ui/label'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
-import { cn } from '@/lib/utils'
+import { DASHBOARD_PAGE_BG, DASHBOARD_CARD, DASHBOARD_CARD_HEADER, DASHBOARD_TITLE } from '@/components/dashboard-styles'
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface SalaryConcept {
@@ -578,7 +578,7 @@ export default function ConceptosPage() {
 
   // ── Render ───────────────────────────────────────────────────────
   return (
-    <div className="w-full min-h-screen bg-transparent">
+    <div className={cn('w-full', DASHBOARD_PAGE_BG)}>
       <div className="w-full px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
 
         <div className="flex items-center justify-end gap-2 mb-6">
@@ -589,7 +589,7 @@ export default function ConceptosPage() {
             disabled={isLoading}
             className="gap-2"
           >
-            <ArrowPathIcon className={cn("w-4 h-4", isLoading && "animate-spin")} />
+            <ArrowPathIcon className={cn("h-4.5 w-4.5 shrink-0", isLoading && "animate-spin")} />
             Actualizar
           </Button>
           <Button
@@ -604,21 +604,21 @@ export default function ConceptosPage() {
                 : 'No hay convenio asignado a esta empresa. Asigna uno antes de sembrar conceptos.'
             }
           >
-            <ArrowPathIcon className={cn("w-4 h-4", isSeeding && "animate-spin")} />
+            <ArrowPathIcon className={cn("h-4.5 w-4.5 shrink-0", isSeeding && "animate-spin")} />
             {isSeeding ? 'Cargando convenio…' : 'Cargar desde convenio'}
           </Button>
           <Button
             onClick={handleOpenCreate}
             className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
           >
-            <PlusIcon className="w-4 h-4" />
+            <PlusIcon className="h-4.5 w-4.5 shrink-0" />
             Nuevo Concepto
           </Button>
         </div>
 
         {activeAgreement ? (
           <div className="mb-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-            <BookOpenIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#1B2A41]" />
+            <BookOpenIcon className="mt-0.5 h-4.5 w-4.5 shrink-0 text-[#1B2A41]" />
             <div className="flex-1">
               <div className="font-medium text-[#1B2A41]">
                 Convenio asignado: {activeAgreement.name}
@@ -642,7 +642,7 @@ export default function ConceptosPage() {
           </div>
         ) : companyId ? (
           <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            <InformationCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+            <InformationCircleIcon className="mt-0.5 h-4.5 w-4.5 shrink-0" />
             <div>
               No hay convenio asignado a esta empresa. Asigna un convenio desde el catálogo (API{' '}
               <code className="rounded bg-amber-100 px-1 py-0.5 text-xs">
@@ -674,7 +674,7 @@ export default function ConceptosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1B2A41] shadow-sm">
-                  <BanknotesIcon className="h-4 w-4 text-white" />
+                  <BanknotesIcon className="h-4.5 w-4.5 shrink-0 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Total</CardTitle>
               </div>
@@ -689,7 +689,7 @@ export default function ConceptosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 shadow-sm">
-                  <CheckIcon className="h-4 w-4 text-white" />
+                  <CheckIcon className="h-4.5 w-4.5 shrink-0 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Salariales</CardTitle>
               </div>
@@ -704,7 +704,7 @@ export default function ConceptosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 shadow-sm">
-                  <BookOpenIcon className="h-4 w-4 text-white" />
+                  <BookOpenIcon className="h-4.5 w-4.5 shrink-0 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">No Salariales</CardTitle>
               </div>
@@ -719,7 +719,7 @@ export default function ConceptosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#C6A664] shadow-sm">
-                  <CheckCircleIcon className="h-4 w-4 text-white" />
+                  <CheckCircleIcon className="h-4.5 w-4.5 shrink-0 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold text-slate-700">Activos</CardTitle>
               </div>
@@ -734,7 +734,7 @@ export default function ConceptosPage() {
           <CardHeader className="pb-2">
             <div className="flex items-start gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1B2A41] shadow-sm">
-                <InformationCircleIcon className="h-4 w-4 text-white" />
+                <InformationCircleIcon className="h-4.5 w-4.5 shrink-0 text-white" />
               </div>
               <div>
                 <CardTitle className="text-sm font-semibold text-slate-800">
@@ -788,7 +788,7 @@ export default function ConceptosPage() {
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative flex-1 w-full sm:w-auto">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4.5 w-4.5 shrink-0 text-slate-400" />
                 <Input
                   placeholder="Buscar por nombre o código..."
                   value={filterSearch}
@@ -821,7 +821,7 @@ export default function ConceptosPage() {
                   onClick={clearFilters}
                   className="h-9 gap-1 text-slate-500 hover:text-slate-700"
                 >
-                  <XMarkIcon className="w-4 h-4" />
+                  <XMarkIcon className="h-4.5 w-4.5 shrink-0" />
                   Limpiar
                 </Button>
               )}
@@ -858,7 +858,7 @@ export default function ConceptosPage() {
                 onClick={handleOpenCreate}
                 className="bg-[#1B2A41] hover:bg-[#152036] text-white gap-2"
               >
-                <PlusIcon className="w-4 h-4" />
+                <PlusIcon className="h-4.5 w-4.5 shrink-0" />
                 Crear Concepto
               </Button>
             )}
@@ -921,16 +921,16 @@ export default function ConceptosPage() {
                     </TableCell>
                     <TableCell className="text-center">
                       {concept.cotizes_ss ? (
-                        <CheckIcon className="w-4 h-4 text-emerald-600 mx-auto" />
+                        <CheckIcon className="h-4.5 w-4.5 shrink-0 text-emerald-600 mx-auto" />
                       ) : (
-                        <XCircleIcon className="w-4 h-4 text-slate-300 mx-auto" />
+                        <XCircleIcon className="h-4.5 w-4.5 shrink-0 text-slate-300 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {concept.tributes_irpf ? (
-                        <CheckIcon className="w-4 h-4 text-emerald-600 mx-auto" />
+                        <CheckIcon className="h-4.5 w-4.5 shrink-0 text-emerald-600 mx-auto" />
                       ) : (
-                        <XCircleIcon className="w-4 h-4 text-slate-300 mx-auto" />
+                        <XCircleIcon className="h-4.5 w-4.5 shrink-0 text-slate-300 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
@@ -1021,10 +1021,10 @@ export default function ConceptosPage() {
                   className="w-full justify-between border-[#C6A664]/30 text-[#1B2A41] hover:bg-[#C6A664]/5 hover:border-[#C6A664]/50"
                 >
                   <span className="flex items-center gap-2">
-                    <BookOpenIcon className="w-4 h-4 text-[#C6A664]" />
+                    <BookOpenIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                     Añadir Predefinido
                   </span>
-                  <ChevronDownIcon className={cn("w-4 h-4 transition-transform", showPredefined && "rotate-180")} />
+                  <ChevronDownIcon className={cn("h-4.5 w-4.5 shrink-0 transition-transform", showPredefined && "rotate-180")} />
                 </Button>
 
                 {showPredefined && (
@@ -1113,7 +1113,7 @@ export default function ConceptosPage() {
                       type="checkbox"
                       checked={form.active}
                       onChange={(e) => setForm({ ...form, active: e.target.checked })}
-                      className="accent-[#1B2A41] w-4 h-4"
+                      className="accent-[#1B2A41] h-4.5 w-4.5 shrink-0"
                     />
                     <span className="text-sm text-slate-700">Concepto activo</span>
                   </label>
@@ -1124,7 +1124,7 @@ export default function ConceptosPage() {
             {/* Cotización y tributación */}
             <div className="rounded-lg border border-slate-200 p-4 space-y-4 bg-slate-50/50">
               <h4 className="text-sm font-semibold text-[#1B2A41] flex items-center gap-2">
-                <BanknotesIcon className="w-4 h-4" />
+                <BanknotesIcon className="h-4.5 w-4.5 shrink-0" />
                 Cotización y Tributación
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1201,7 +1201,7 @@ export default function ConceptosPage() {
             {/* Educational Tooltip */}
             <div className="space-y-2">
               <Label className="text-slate-700 flex items-center gap-2">
-                <QuestionMarkCircleIcon className="w-4 h-4 text-[#C6A664]" />
+                <QuestionMarkCircleIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                 Tooltip Educativo
               </Label>
               <textarea

@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { runPayrollGeneration } from '../src/app/api/generacion/generacion-service'
 import { resolveMonthAbsences } from '../src/lib/payroll-absence-engine'
 import { resolveApprovedITAbsence } from '../src/lib/payroll-it-engine'
+import { resolveMonthOvertimeHours } from '../src/lib/payroll-overtime-engine'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUTPUT_DIR = resolve(__dirname, '..', '..', 'testing_nominas', 'wetracks_mayo_2026')
@@ -107,119 +108,6 @@ function parseCotizationGroup(category: string | null | undefined, fallback = 7)
   return m ? Number(m[1]) : fallback
 }
 
-// ---------------------------------------------------------------------------
-// Horas extra desde fichajes (public.registers.check_events)
-// Misma lógica de emparejamiento check_in/check_out que
-// vacly-app/lib/registerCheckEvents.ts (calculateWorkedHoursFromCheckEvents),
-// replicada aquí para no importar código de otro paquete del monorepo.
-// ---------------------------------------------------------------------------
-interface ParsedCheckEvent {
-  time: string
-  type: string
-  category?: string | null
-}
-
-function parseCheckEvents(raw: unknown): ParsedCheckEvent[] {
-  let events: unknown = raw
-  if (typeof events === 'string') {
-    try {
-      events = JSON.parse(events)
-    } catch {
-      return []
-    }
-  }
-  if (!Array.isArray(events)) return []
-
-  const parsed: ParsedCheckEvent[] = []
-  for (const event of events) {
-    if (!event || typeof event !== 'object') continue
-    const record = event as Record<string, unknown>
-    let time = typeof record.time === 'string' ? record.time : ''
-    if (!time && typeof record.timestamp === 'string') {
-      const date = new Date(record.timestamp)
-      if (!Number.isNaN(date.getTime())) {
-        time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-      }
-    }
-    if (!time || typeof record.type !== 'string') continue
-    parsed.push({
-      time,
-      type: record.type,
-      category: typeof record.category === 'string' ? record.category : null,
-    })
-  }
-  return parsed
-}
-
-function calculateWorkedHoursFromCheckEvents(checkEvents: ParsedCheckEvent[]): number {
-  const workEvents = checkEvents.filter((e) => !e.category || e.category === 'Trabajo')
-  if (workEvents.length < 2) return 0
-
-  const sorted = [...workEvents].sort((a, b) => {
-    const [ha, ma] = a.time.split(':').map(Number)
-    const [hb, mb] = b.time.split(':').map(Number)
-    return (ha * 60 + ma) - (hb * 60 + mb)
-  })
-
-  let totalMinutes = 0
-  let currentCheckIn: Date | null = null
-  for (const event of sorted) {
-    const [hours, minutes] = event.time.split(':').map(Number)
-    if (Number.isNaN(hours) || Number.isNaN(minutes)) continue
-    if (event.type === 'check_in') {
-      currentCheckIn = new Date()
-      currentCheckIn.setHours(hours, minutes, 0, 0)
-    } else if (event.type === 'check_out' && currentCheckIn) {
-      const checkOut = new Date()
-      checkOut.setHours(hours, minutes, 0, 0)
-      if (checkOut < currentCheckIn) checkOut.setDate(checkOut.getDate() + 1)
-      totalMinutes += (checkOut.getTime() - currentCheckIn.getTime()) / (1000 * 60)
-      currentCheckIn = null
-    }
-  }
-  return round2(totalMinutes / 60)
-}
-
-/**
- * Suma las horas extra reales de un empleado en un periodo, leyendo sus
- * fichajes (`public.registers`, vinculado por `employees.user_id`).
- * Una hora extra es la parte de horas trabajadas en el día que excede la
- * jornada diaria estándar del contrato (weekly_hours / 5 días laborables).
- */
-async function resolveOvertimeHours(
-  supabase: import('@supabase/supabase-js').SupabaseClient<any, 'public', any>,
-  params: { userId: string | null; periodStart: string; periodEnd: string; dailyStandardHours: number },
-): Promise<{ overtimeHours: number; daysWithOvertime: number; totalWorkedHours: number }> {
-  if (!params.userId) return { overtimeHours: 0, daysWithOvertime: 0, totalWorkedHours: 0 }
-
-  const { data, error } = await supabase
-    .from('registers')
-    .select('work_date, check_events')
-    .eq('user_id', params.userId)
-    .gte('work_date', params.periodStart)
-    .lte('work_date', params.periodEnd)
-
-  if (error || !data) return { overtimeHours: 0, daysWithOvertime: 0, totalWorkedHours: 0 }
-
-  let overtimeHours = 0
-  let totalWorkedHours = 0
-  let daysWithOvertime = 0
-  const standard = Math.max(0, params.dailyStandardHours)
-
-  for (const row of data as Array<{ work_date: string; check_events: unknown }>) {
-    const events = parseCheckEvents(row.check_events)
-    const worked = calculateWorkedHoursFromCheckEvents(events)
-    totalWorkedHours += worked
-    const extra = Math.max(0, round2(worked - standard))
-    if (extra > 0) {
-      overtimeHours += extra
-      daysWithOvertime += 1
-    }
-  }
-
-  return { overtimeHours: round2(overtimeHours), daysWithOvertime, totalWorkedHours: round2(totalWorkedHours) }
-}
-
 async function downloadReferencePdfs(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: import('@supabase/supabase-js').SupabaseClient<any, 'public', any>,
@@ -279,6 +167,27 @@ async function downloadReferencePdfs(
   return downloads
 }
 
+function bootstrapComplementLines(
+  perceptions: Array<{ concept: string; amount: number }> | undefined,
+): Array<{ conceptName: string; amount: number }> {
+  if (!perceptions?.length) return []
+  const skipPatterns = [
+    'SALARIO BASE',
+    'PAGA EXTRA',
+    'EX.',
+    'HORAS EXTRA',
+    'GRATIFICACIONES',
+    'ANTIGUEDAD',
+    'A CTA CONVENIO',
+  ]
+  return perceptions
+    .filter((p) => {
+      const c = normalizeName(p.concept)
+      return Number(p.amount) > 0 && !skipPatterns.some((s) => c.includes(s))
+    })
+    .map((p) => ({ conceptName: p.concept, amount: Number(p.amount) }))
+}
+
 function bootstrapFromReferenceNomina(ref: any, comp: any) {
   const perceptions = (ref?.perceptions ?? []) as Array<{ concept: string; amount: number }>
   const norm = (s: string) =>
@@ -307,7 +216,7 @@ function bootstrapFromReferenceNomina(ref: any, comp: any) {
   return {
     baseSalaryMonthly: baseSalaryMonthly || Number(comp.baseSalaryMonthly) || 0,
     proratedBonuses,
-    fixedComplements,
+    fixedComplements: bootstrapComplementLines(perceptions),
     cotizationGroup: parseCotizationGroup(ref?.employee?.category, Number(comp.cotizationGroup) || 7),
     irpfPercentage: Number(comp.irpfPercentage) || irpfFromRef || 0,
     professionalCategory: ref?.employee?.category ?? undefined,
@@ -387,8 +296,9 @@ async function main() {
         periodStart,
         periodEnd,
       }),
-      resolveOvertimeHours(supabase as any, {
-        userId: (emp as any).user_id ?? null,
+      resolveMonthOvertimeHours(supabase as any, {
+        companyId: COMPANY_ID,
+        employeeId: emp.id,
         periodStart,
         periodEnd,
         dailyStandardHours,
@@ -429,7 +339,9 @@ async function main() {
       baseSalaryMonthly: numericOrBoot(contract.agreed_base_salary, boot?.baseSalaryMonthly, Number(comp.baseSalaryMonthly) || 0),
       cotizationGroup: Number(comp.cotizationGroup ?? contract.cotization_group ?? boot?.cotizationGroup ?? 7),
       irpfPercentage: numericOrBoot(comp.irpfPercentage, boot?.irpfPercentage, 0),
-      fixedComplements: complementsTotal(comp.fixedComplements, boot?.fixedComplements),
+      fixedComplements: Array.isArray(boot?.fixedComplements) && boot.fixedComplements.length > 0
+        ? boot.fixedComplements
+        : complementsTotal(comp.fixedComplements, undefined),
       proratedBonuses: numericOrBoot(
         typeof comp.proratedBonuses === 'number' ? comp.proratedBonuses : undefined,
         boot?.proratedBonuses,

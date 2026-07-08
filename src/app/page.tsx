@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -484,7 +485,7 @@ export default function VaclyNominas() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+    <div className={DASHBOARD_PAGE_BG}>
       <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
         {/* Upload Section */}
         <Card className="mb-8 border-0 shadow-xl bg-white/80 backdrop-blur-sm overflow-hidden">
@@ -493,7 +494,7 @@ export default function VaclyNominas() {
             <div className="flex flex-col md:flex-row items-center gap-6">
               <div className="flex-1 text-center md:text-left">
                 <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2 justify-center md:justify-start">
-                  <ArrowUpTrayIcon className="w-5 h-5 text-[#C6A664]" />
+                  <ArrowUpTrayIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                   Subir PDF de Nóminas
                 </h2>
                 <p className="text-slate-600 text-sm">
@@ -516,7 +517,7 @@ export default function VaclyNominas() {
               <div>
                 <Label htmlFor="pdf-upload" className="cursor-pointer">
                   <div className="flex items-center gap-3 bg-gradient-to-r from-[#1B2A41] to-[#2d4057] text-white px-8 py-4 rounded-2xl hover:from-[#152036] hover:to-[#1B2A41] transition-all shadow-lg shadow-[#1B2A41]/25 hover:shadow-xl hover:shadow-[#1B2A41]/30 font-semibold">
-                    <ArrowUpTrayIcon className="h-5 w-5" />
+                    <ArrowUpTrayIcon className="h-4.5 w-4.5 shrink-0" />
                     <span>Seleccionar PDF</span>
                   </div>
                 </Label>
@@ -537,7 +538,7 @@ export default function VaclyNominas() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-[#C6A664] flex items-center justify-center animate-pulse">
-                      <BoltIcon className="w-5 h-5 text-white" />
+                      <BoltIcon className="h-4.5 w-4.5 shrink-0 text-white" />
                     </div>
                     <div>
                       <span className="font-semibold text-slate-800">Procesando documento...</span>
@@ -565,7 +566,7 @@ export default function VaclyNominas() {
               <div className="flex items-center gap-3">
                 {/* Search */}
                 <div className="relative">
-                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4.5 w-4.5 shrink-0 text-slate-400" />
                   <Input
                     type="text"
                     placeholder="Buscar empleado..."
@@ -619,7 +620,7 @@ export default function VaclyNominas() {
                       viewMode === 'grid' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    <Squares2X2Icon className="w-4 h-4" />
+                    <Squares2X2Icon className="h-4.5 w-4.5 shrink-0" />
                   </button>
                   <button
                     onClick={() => setViewMode('list')}
@@ -627,7 +628,7 @@ export default function VaclyNominas() {
                       viewMode === 'list' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    <ListBulletIcon className="w-4 h-4" />
+                    <ListBulletIcon className="h-4.5 w-4.5 shrink-0" />
                   </button>
                 </div>
 
@@ -640,12 +641,12 @@ export default function VaclyNominas() {
                   >
                     {isBatchProcessing ? (
                       <>
-                        <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
+                        <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 mr-2 animate-spin" />
                         {Math.round(batchProgress)}%
                       </>
                     ) : (
                       <>
-                        <CpuChipIcon className="w-4 h-4 mr-2" />
+                        <CpuChipIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
                         Procesar Todos ({pendingCount})
                       </>
                     )}
@@ -660,12 +661,12 @@ export default function VaclyNominas() {
                 >
                   {isExportingExcel ? (
                     <>
-                      <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
+                      <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 mr-2 animate-spin" />
                       Exportando...
                     </>
                   ) : (
                     <>
-                      <TableCellsIcon className="w-4 h-4 mr-2" />
+                      <TableCellsIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
                       Exportar Excel
                     </>
                   )}

@@ -9,11 +9,21 @@ export default {
   ],
   theme: {
   	extend: {
+  		spacing: {
+  			'4.5': '1.125rem',
+  		},
   		screens: {
   			'2xl': '1536px',
   			'3xl': '1920px',
   		},
   		colors: {
+  			vacly: {
+  				navy: '#1B2A41',
+  				'navy-hover': '#152036',
+  				gold: '#C6A664',
+  				mist: '#BED9EA',
+  				slate: '#5C6B7F',
+  			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {

@@ -114,7 +114,7 @@ export function NominasSelectionBanner({
                 disabled={isExporting}
                 className="h-8 flex-1 border-0 bg-[#C6A664] text-[#1B2A41] hover:bg-[#d4b574] sm:flex-none"
               >
-                <ArrowDownTrayIcon className={`h-4 w-4 ${isExporting ? 'animate-pulse' : ''}`} />
+                <ArrowDownTrayIcon className={`h-4.5 w-4.5 shrink-0 ${isExporting ? 'animate-pulse' : ''}`} />
                 <span className="ml-1.5">{isExporting ? 'Exportando…' : 'Exportar'}</span>
               </Button>
               <Button
@@ -123,7 +123,7 @@ export function NominasSelectionBanner({
                 onClick={onDelete}
                 className="h-8 flex-1 border-white/20 bg-white/5 text-white hover:border-rose-400/30 hover:bg-rose-500/20 hover:text-rose-100 sm:flex-none"
               >
-                <TrashIcon className="h-4 w-4" />
+                <TrashIcon className="h-4.5 w-4.5 shrink-0" />
                 <span className="ml-1.5">Eliminar</span>
               </Button>
               <Button
@@ -132,7 +132,7 @@ export function NominasSelectionBanner({
                 onClick={onClear}
                 className="h-8 flex-1 text-white/80 hover:bg-white/10 hover:text-white sm:flex-none"
               >
-                <XMarkIcon className="h-4 w-4" />
+                <XMarkIcon className="h-4.5 w-4.5 shrink-0" />
                 <span className="ml-1">Deseleccionar</span>
               </Button>
             </div>

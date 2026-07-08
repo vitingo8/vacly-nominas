@@ -153,7 +153,7 @@ export function NominaCard({
           )}
         >
           <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-            <ClockIcon className="w-4 h-4 text-slate-500" />
+            <ClockIcon className="h-4.5 w-4.5 shrink-0 text-slate-500" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-slate-700 truncate">Página {pageNumber}</p>
@@ -271,7 +271,7 @@ export function NominaCard({
             }}
             className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
           >
-            <EyeIcon className="w-4 h-4" />
+            <EyeIcon className="h-4.5 w-4.5 shrink-0" />
           </button>
           <button
             onClick={(e) => {
@@ -280,7 +280,7 @@ export function NominaCard({
             }}
             className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
           >
-            <ArrowDownTrayIcon className="w-4 h-4" />
+            <ArrowDownTrayIcon className="h-4.5 w-4.5 shrink-0" />
           </button>
         </div>
       </div>
@@ -304,7 +304,7 @@ export function NominaCard({
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-xl bg-slate-200 flex items-center justify-center">
-                <ClockIcon className="w-5 h-5 text-slate-500" />
+                <ClockIcon className="h-4.5 w-4.5 shrink-0 text-slate-500" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-700">Página {pageNumber}</p>
@@ -342,12 +342,12 @@ export function NominaCard({
           >
             {isProcessing ? (
               <>
-                <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin" />
                 Procesando...
               </>
             ) : (
               <>
-                <CpuChipIcon className="w-4 h-4" />
+                <CpuChipIcon className="h-4.5 w-4.5 shrink-0" />
                 Procesar con IA
               </>
             )}
@@ -453,7 +453,7 @@ export function NominaCard({
           {/* Salario Bruto */}
           <div className="bg-gradient-to-br from-[#C6A664]/10 to-[#B8964A]/10 rounded-xl p-3 border border-[#C6A664]/20">
             <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-5 h-5 rounded-md bg-[#C6A664]/10 flex items-center justify-center">
+              <div className="h-4.5 w-4.5 shrink-0 rounded-md bg-[#C6A664]/10 flex items-center justify-center">
                 <ArrowTrendingUpIcon className="w-3 h-3 text-[#C6A664]" />
               </div>
               <span className="text-[10px] font-medium text-[#1B2A41] uppercase tracking-wide">Bruto</span>
@@ -466,7 +466,7 @@ export function NominaCard({
           {/* Salario Neto */}
           <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-3 border border-emerald-100">
             <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-5 h-5 rounded-md bg-emerald-500/10 flex items-center justify-center">
+              <div className="h-4.5 w-4.5 shrink-0 rounded-md bg-emerald-500/10 flex items-center justify-center">
                 <CreditCardIcon className="w-3 h-3 text-emerald-600" />
               </div>
               <span className="text-[10px] font-medium text-emerald-700 uppercase tracking-wide">Neto</span>
@@ -479,7 +479,7 @@ export function NominaCard({
           {/* Coste Empresa */}
           <div className="bg-gradient-to-br from-[#1B2A41]/5 to-[#C6A664]/5 rounded-xl p-3 border border-[#C6A664]/20">
             <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-5 h-5 rounded-md bg-[#C6A664]/10 flex items-center justify-center">
+              <div className="h-4.5 w-4.5 shrink-0 rounded-md bg-[#C6A664]/10 flex items-center justify-center">
                 <BuildingOffice2Icon className="w-3 h-3 text-[#C6A664]" />
               </div>
               <span className="text-[10px] font-medium text-[#1B2A41] uppercase tracking-wide">Coste Emp.</span>
@@ -492,7 +492,7 @@ export function NominaCard({
           {/* Retención */}
           <div className="bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl p-3 border border-rose-100">
             <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-5 h-5 rounded-md bg-rose-500/10 flex items-center justify-center">
+              <div className="h-4.5 w-4.5 shrink-0 rounded-md bg-rose-500/10 flex items-center justify-center">
                 <span className="text-[10px] font-bold text-rose-600">%</span>
               </div>
               <span className="text-[10px] font-medium text-rose-700 uppercase tracking-wide">Retención</span>
@@ -531,7 +531,7 @@ export function NominaCard({
 
       {/* Hover indicator */}
       <div className="absolute bottom-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <ChevronRightIcon className="w-5 h-5 text-emerald-500" />
+        <ChevronRightIcon className="h-4.5 w-4.5 shrink-0 text-emerald-500" />
       </div>
     </div>
   )
@@ -580,7 +580,7 @@ export function NominaStats({ documents }: NominaStatsProps) {
     <div className="bg-white rounded-2xl p-6 mb-6 shadow-2xl border border-slate-200">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold text-[#1B2A41] flex items-center gap-2">
-          <ArrowTrendingUpIcon className="w-5 h-5 text-emerald-500" />
+          <ArrowTrendingUpIcon className="h-4.5 w-4.5 shrink-0 text-emerald-500" />
           Resumen de Nóminas
         </h3>
         <div className="flex items-center gap-2">

@@ -45,6 +45,7 @@ import type {
   EmployeePayrollInput, MonthlyVariablesInput, PayslipResult, GrupoCotizacion, PayrollConfigInput
 } from '@/lib/calculadora'
 import { resolvePayrollConfigForDate, type PeriodSmi } from '@/lib/payroll-parameters'
+import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -379,10 +380,16 @@ function GeneracionContent() {
       //   prorrata mes  = (monthlyBase + antigüedad) × nº pagas / 12
       // ────────────────────────────────────────────────────────────────
       const seniorityAmount = moneyValue(row.seniorityAmount)
-      const automaticSalaryConcepts = row.automaticAgreementConcepts.filter((concept) => concept.type === 'salary')
-      const automaticNonSalaryConcepts = row.automaticAgreementConcepts.filter((concept) => concept.type === 'non_salary')
+      const automaticSalaryConcepts = row.automaticAgreementConcepts.filter(
+        (concept) => concept.cotizesSS !== false && (concept.cotizesSS === true || concept.type === 'salary'),
+      )
+      const automaticNonSalaryConcepts = row.automaticAgreementConcepts.filter(
+        (concept) => concept.cotizesSS === false || (concept.cotizesSS == null && concept.type === 'non_salary'),
+      )
       const automaticSalaryConceptAmount = automaticSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
       const automaticNonSalaryConceptAmount = automaticNonSalaryConcepts.reduce((sum, concept) => sum + moneyValue(concept.amount), 0)
+      const employeeCotizable = moneyValue((row as any).fixedComplementsCotizable ?? row.fixedComplements)
+      const employeeNonCotizable = moneyValue((row as any).fixedComplementsNonCotizable ?? 0)
       const baseWithSeniority = moneyValue(row.baseSalary) + seniorityAmount
 
       // Si el backend ya nos dio la prorrata jornada-adjusted del convenio,
@@ -398,8 +405,8 @@ function GeneracionContent() {
         irpfPercentage: row.irpfPercentage || 0,
         // Antigüedad como complemento fijo (devengo salarial mensual).
         // Se suma al complemento manual que el usuario haya configurado.
-        fixedComplements: moneyValue(row.fixedComplements) + seniorityAmount + automaticSalaryConceptAmount,
-        nonSalaryComplements: automaticNonSalaryConceptAmount,
+        fixedComplements: employeeCotizable + seniorityAmount + automaticSalaryConceptAmount,
+        nonSalaryComplements: employeeNonCotizable + automaticNonSalaryConceptAmount,
         // Se pasa 0 aquí; la prorrata entra como devengo mensual (otherSalaryAccruals)
         // para replicar el modo "prorrateado" del backend y que aparezca en totalDevengos.
         proratedBonuses: 0,
@@ -531,7 +538,7 @@ function GeneracionContent() {
             || contract.cotization_group
             || (hasActiveContract ? 7 : Number(defaults.default_cotization_group) || 7),
           irpfPercentage: comp.irpfPercentage || 0,
-          fixedComplements: comp.fixedComplements || 0,
+          fixedComplements: comp.fixedComplementsCotizable ?? comp.fixedComplements || 0,
           proratedBonuses: comp.proratedBonuses || 0,
           numberOfBonuses,
           contractType: contract.contract_type || 'permanent',
@@ -546,7 +553,7 @@ function GeneracionContent() {
           monthlyProratedBonusFromAgreement: derived?.monthlyProratedBonuses ?? null,
           automaticAgreementConcepts: derived?.automaticConcepts ?? [],
           workedDays: Math.max(0, daysInMonth - autoITDays),
-          overtimeHours: 0,
+          overtimeHours: Number(emp.autoOvertimeHours ?? 0),
           vacationDays: 0,
           itDays: autoITDays,
           itContingencyType: autoIT?.contingencyType ?? 'ENFERMEDAD_COMUN',
@@ -571,6 +578,8 @@ function GeneracionContent() {
           row.proratedBonuses =
             Math.round((row.baseSalary * row.numberOfBonuses) / 12 * 100) / 100
         }
+        ;(row as any).fixedComplementsCotizable = comp.fixedComplementsCotizable ?? comp.fixedComplements ?? 0
+        ;(row as any).fixedComplementsNonCotizable = comp.fixedComplementsNonCotizable ?? 0
 
         return calculateRow(row, selectedMonth, selectedYear, nextPeriodSmi)
       })
@@ -682,6 +691,7 @@ function GeneracionContent() {
             variables: {
               workedDays: emp.workedDays,
               overtimeHours: emp.overtimeHours,
+              overtimeSource: 'fichajes',
               vacationDays: emp.vacationDays,
               itDays: emp.itDays,
               itContingencyType: emp.itContingencyType,
@@ -963,7 +973,7 @@ function GeneracionContent() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className={DASHBOARD_PAGE_BG}>
       {/* ── Content ── */}
       <div className="max-w-[1600px] mx-auto px-6 py-6">
         <Tabs value={activeTab} onValueChange={(val) => {
@@ -972,11 +982,11 @@ function GeneracionContent() {
         }}>
           <TabsList className="mb-6 bg-white border">
             <TabsTrigger value="generar" className="data-[state=active]:bg-[#1B2A41] data-[state=active]:text-white gap-2">
-              <ClipboardDocumentCheckIcon className="w-4 h-4" />
+              <ClipboardDocumentCheckIcon className="h-4.5 w-4.5 shrink-0" />
               Generar Nóminas
             </TabsTrigger>
             <TabsTrigger value="historico" className="data-[state=active]:bg-[#1B2A41] data-[state=active]:text-white gap-2">
-              <ArrowUturnLeftIcon className="w-4 h-4" />
+              <ArrowUturnLeftIcon className="h-4.5 w-4.5 shrink-0" />
               Histórico
             </TabsTrigger>
           </TabsList>
@@ -1007,7 +1017,7 @@ function GeneracionContent() {
                           </option>
                         ))}
                       </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 h-4.5 w-4.5 shrink-0 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -1033,7 +1043,7 @@ function GeneracionContent() {
                           <option key={y} value={y} disabled={y > currentYear}>{y}</option>
                         ))}
                       </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 h-4.5 w-4.5 shrink-0 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -1044,9 +1054,9 @@ function GeneracionContent() {
                     className="bg-[#1B2A41] hover:bg-[#1B2A41]/90"
                   >
                     {loadingEmployees ? (
-                      <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                      <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin" />
                     ) : (
-                      <UserGroupIcon className="w-4 h-4" />
+                      <UserGroupIcon className="h-4.5 w-4.5 shrink-0" />
                     )}
                     Cargar Empleados
                   </Button>
@@ -1064,9 +1074,9 @@ function GeneracionContent() {
                         className="border-[#C6A664] text-[#C6A664] hover:bg-[#C6A664]/10"
                       >
                         {generating ? (
-                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                          <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin" />
                         ) : (
-                          <CheckCircleIcon className="w-4 h-4" />
+                          <CheckCircleIcon className="h-4.5 w-4.5 shrink-0" />
                         )}
                         Generar Seleccionadas ({summary.selected})
                       </Button>
@@ -1076,9 +1086,9 @@ function GeneracionContent() {
                         className="bg-[#C6A664] hover:bg-[#C6A664]/90 text-white"
                       >
                         {generating ? (
-                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                          <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin" />
                         ) : (
-                          <CalculatorIcon className="w-4 h-4" />
+                          <CalculatorIcon className="h-4.5 w-4.5 shrink-0" />
                         )}
                         Generar Todas
                       </Button>
@@ -1091,7 +1101,7 @@ function GeneracionContent() {
             {/* ── Period warning ── */}
             {!periodIsValid && (
               <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                <ExclamationCircleIcon className="h-5 w-5 shrink-0 text-amber-500" />
+                <ExclamationCircleIcon className="h-4.5 w-4.5 shrink-0 text-amber-500" />
                 <span>
                   Solo se pueden generar nóminas de <strong>meses ya cerrados</strong>. El mes actual y los meses futuros no están disponibles.
                 </span>
@@ -1116,7 +1126,7 @@ function GeneracionContent() {
               <Card className="mb-6 border-l-4 border-l-[#C6A664]">
                 <CardContent className="pt-5 pb-4">
                   <div className="flex items-start gap-3">
-                    <CheckCircleIcon className="w-5 h-5 text-[#C6A664] mt-0.5 shrink-0" />
+                    <CheckCircleIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664] mt-0.5 shrink-0" />
                     <div className="flex-1">
                       <h3 className="font-semibold text-sm mb-1">Resultado de la generación</h3>
                       <p className="text-sm text-muted-foreground mb-3">
@@ -1154,7 +1164,7 @@ function GeneracionContent() {
               <Card className="mb-6 border-l-4 border-l-red-500">
                 <CardContent className="pt-5 pb-4">
                   <div className="flex items-center gap-3">
-                    <ExclamationCircleIcon className="w-5 h-5 text-red-500" />
+                    <ExclamationCircleIcon className="h-4.5 w-4.5 shrink-0 text-red-500" />
                     <span className="text-sm text-red-700">{loadError}</span>
                   </div>
                 </CardContent>
@@ -1169,7 +1179,7 @@ function GeneracionContent() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="bg-[#1B2A41]/10 p-2 rounded-lg">
-                        <UserGroupIcon className="w-4 h-4 text-[#1B2A41]" />
+                        <UserGroupIcon className="h-4.5 w-4.5 shrink-0 text-[#1B2A41]" />
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Empleados</p>
@@ -1182,7 +1192,7 @@ function GeneracionContent() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="bg-[#C6A664]/10 p-2 rounded-lg">
-                        <ArrowTrendingUpIcon className="w-4 h-4 text-[#C6A664]" />
+                        <ArrowTrendingUpIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Total Bruto</p>
@@ -1195,7 +1205,7 @@ function GeneracionContent() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="bg-emerald-500/10 p-2 rounded-lg">
-                        <ArrowDownTrayIcon className="w-4 h-4 text-emerald-600" />
+                        <ArrowDownTrayIcon className="h-4.5 w-4.5 shrink-0 text-emerald-600" />
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Total Neto</p>
@@ -1208,7 +1218,7 @@ function GeneracionContent() {
                   <CardContent className="pt-4 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="bg-blue-500/10 p-2 rounded-lg">
-                        <CheckCircleIcon className="w-4 h-4 text-blue-600" />
+                        <CheckCircleIcon className="h-4.5 w-4.5 shrink-0 text-blue-600" />
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Seleccionadas</p>
@@ -1232,7 +1242,7 @@ function GeneracionContent() {
                       </CardDescription>
                     </div>
                     <Button variant="ghost" size="sm" onClick={recalculateAll}>
-                      <ArrowPathIcon className="w-4 h-4 mr-1" />
+                      <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 mr-1" />
                       Recalcular
                     </Button>
                   </div>
@@ -1250,7 +1260,7 @@ function GeneracionContent() {
                                 if (el) el.indeterminate = someSelected && !allSelected
                               }}
                               onChange={toggleSelectAll}
-                              className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
+                              className="h-4.5 w-4.5 shrink-0 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
                             />
                           </TableHead>
                           <TableHead className="min-w-[200px] px-3 text-xs font-semibold uppercase tracking-wider">Empleado</TableHead>
@@ -1283,7 +1293,7 @@ function GeneracionContent() {
                                 type="checkbox"
                                 checked={emp.selected}
                                 onChange={() => toggleSelect(idx)}
-                                className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
+                                className="h-4.5 w-4.5 shrink-0 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
                               />
                             </TableCell>
 
@@ -1440,7 +1450,7 @@ function GeneracionContent() {
                                 disabled={!emp.payslipResult}
                                 onClick={() => setPreviewEmployee(emp)}
                               >
-                                <EyeIcon className="w-4 h-4" />
+                                <EyeIcon className="h-4.5 w-4.5 shrink-0" />
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -1476,7 +1486,7 @@ function GeneracionContent() {
                     Selecciona el mes y año, luego pulsa &quot;Cargar Empleados&quot; para comenzar.
                   </p>
                   <Button onClick={loadEmployees} className="bg-[#1B2A41] hover:bg-[#1B2A41]/90">
-                    <UserGroupIcon className="w-4 h-4" />
+                    <UserGroupIcon className="h-4.5 w-4.5 shrink-0" />
                     Cargar Empleados
                   </Button>
                 </CardContent>
@@ -1505,7 +1515,7 @@ function GeneracionContent() {
                           <option key={i} value={i + 1}>{name}</option>
                         ))}
                       </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 h-4.5 w-4.5 shrink-0 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -1522,7 +1532,7 @@ function GeneracionContent() {
                           <option key={y} value={y}>{y}</option>
                         ))}
                       </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 h-4.5 w-4.5 shrink-0 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -1540,14 +1550,14 @@ function GeneracionContent() {
                         <option value="sent">Enviada</option>
                         <option value="paid">Pagada</option>
                       </select>
-                      <ChevronDownIcon className="absolute right-2.5 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <ChevronDownIcon className="absolute right-2.5 top-2.5 h-4.5 w-4.5 shrink-0 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
                   <div className="space-y-1.5 flex-1 min-w-[200px]">
                     <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Buscar empleado</Label>
                     <div className="relative">
-                      <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+                      <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 h-4.5 w-4.5 shrink-0 text-muted-foreground" />
                       <Input
                         placeholder="Nombre o DNI..."
                         value={historyEmployee}
@@ -1558,7 +1568,7 @@ function GeneracionContent() {
                   </div>
 
                   <Button onClick={loadHistory} disabled={historyLoading} className="bg-[#1B2A41] hover:bg-[#1B2A41]/90">
-                    {historyLoading ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <MagnifyingGlassIcon className="w-4 h-4" />}
+                    {historyLoading ? <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin" /> : <MagnifyingGlassIcon className="h-4.5 w-4.5 shrink-0" />}
                     Buscar
                   </Button>
                 </div>
@@ -1570,7 +1580,7 @@ function GeneracionContent() {
               <Card className="mb-6 border-l-4 border-l-red-500">
                 <CardContent className="pt-5 pb-4">
                   <div className="flex items-start gap-3">
-                    <ExclamationCircleIcon className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
+                    <ExclamationCircleIcon className="h-4.5 w-4.5 shrink-0 text-red-500 mt-0.5 shrink-0" />
                     <div className="flex-1 text-sm text-red-700">{exportError}</div>
                     <Button variant="ghost" size="sm" onClick={() => setExportError(null)}>
                       Cerrar
@@ -1599,9 +1609,9 @@ function GeneracionContent() {
                       className="bg-white hover:bg-slate-50"
                     >
                       {downloadingPDFs ? (
-                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
+                        <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin mr-2" />
                       ) : (
-                        <ArchiveBoxIcon className="w-4 h-4 mr-2" />
+                        <ArchiveBoxIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
                       )}
                       Descargar seleccionadas ({selectedHistoryIds.size})
                     </Button>
@@ -1613,9 +1623,9 @@ function GeneracionContent() {
                       className="bg-white hover:bg-slate-50"
                     >
                       {generatingSEPA ? (
-                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
+                        <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin mr-2" />
                       ) : (
-                        <CodeBracketIcon className="w-4 h-4 mr-2" />
+                        <CodeBracketIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
                       )}
                       Generar SEPA
                     </Button>
@@ -1627,9 +1637,9 @@ function GeneracionContent() {
                       className="bg-white hover:bg-slate-50"
                     >
                       {generatingRED ? (
-                        <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" />
+                        <ArrowPathIcon className="h-4.5 w-4.5 shrink-0 animate-spin mr-2" />
                       ) : (
-                        <CircleStackIcon className="w-4 h-4 mr-2" />
+                        <CircleStackIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
                       )}
                       Generar RED
                     </Button>
@@ -1663,7 +1673,7 @@ function GeneracionContent() {
                               if (el) el.indeterminate = someHistorySelected && !allHistorySelected
                             }}
                             onChange={toggleHistorySelectAll}
-                            className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
+                            className="h-4.5 w-4.5 shrink-0 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
                           />
                         </TableHead>
                         <TableHead className="text-xs font-semibold uppercase tracking-wider">Empleado</TableHead>
@@ -1689,7 +1699,7 @@ function GeneracionContent() {
                                 type="checkbox"
                                 checked={selectedHistoryIds.has(nomina.id)}
                                 onChange={() => toggleHistorySelect(nomina.id)}
-                                className="w-4 h-4 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
+                                className="h-4.5 w-4.5 shrink-0 rounded border-slate-300 text-[#C6A664] focus:ring-[#C6A664] cursor-pointer"
                               />
                             </TableCell>
                             <TableCell className="py-3">
@@ -1727,7 +1737,7 @@ function GeneracionContent() {
                                 onClick={() => setDetailNomina(nomina)}
                                 className="text-[#1B2A41] hover:text-[#C6A664]"
                               >
-                                <EyeIcon className="w-4 h-4" />
+                                <EyeIcon className="h-4.5 w-4.5 shrink-0" />
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -1842,7 +1852,7 @@ function GeneracionContent() {
                 {/* ─── Header fijo ─── */}
                 <DialogHeader className="px-5 py-3 border-b shrink-0 bg-white">
                   <DialogTitle className="flex items-center gap-2 text-base">
-                    <EyeIcon className="w-4 h-4 text-[#C6A664]" />
+                    <EyeIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                     Vista previa de nómina
                   </DialogTitle>
                   <DialogDescription className="text-xs">
@@ -2018,7 +2028,7 @@ function GeneracionContent() {
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <DocumentTextIcon className="w-5 h-5 text-[#C6A664]" />
+                  <DocumentTextIcon className="h-4.5 w-4.5 shrink-0 text-[#C6A664]" />
                   Detalle de Nómina
                 </DialogTitle>
                 <DialogDescription>

@@ -27,7 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ExpenseCard } from '@/components/ui/expense-card'
 import { DigitalTicket } from '@/components/ui/digital-ticket'
-import { cn } from '@/lib/utils'
+import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
 import type { Expense, ReceiptAnalysis, ExpenseStats, EXPENSE_CATEGORIES, PAYMENT_METHODS } from '@/types/expenses'
 
 // Categorías de gastos
@@ -603,7 +603,7 @@ export default function GastosPage() {
   }
 
   return (
-    <div className="w-full min-h-screen bg-transparent">
+    <div className={cn('w-full', DASHBOARD_PAGE_BG)}>
       <div className="w-full px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
@@ -613,7 +613,7 @@ export default function GastosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shadow-sm">
-                  <ArrowTrendingDownIcon className="h-4 w-4 text-white" />
+                  <ArrowTrendingDownIcon className="h-4.5 w-4.5 shrink-0 text-white" />
                 </div>
                 <div>
                   <CardTitle className="text-sm font-semibold text-slate-700">Gastos Este Mes</CardTitle>
@@ -634,7 +634,7 @@ export default function GastosPage() {
             <CardHeader className="relative z-10 pb-1 pt-3 px-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#1B2A41] to-[#C6A664] shadow-sm">
-                  <WalletIcon className="h-4 w-4 text-white" />
+                  <WalletIcon className="h-4.5 w-4.5 shrink-0 text-white" />
                 </div>
                 <div>
                   <CardTitle className="text-sm font-semibold text-slate-700">Total Gastos</CardTitle>
@@ -659,12 +659,12 @@ export default function GastosPage() {
           >
             {isAnalyzing ? (
               <>
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                <div className="animate-spin rounded-full h-4.5 w-4.5 shrink-0 border-2 border-white border-t-transparent mr-2" />
                 Analizando... {analysisProgress}%
               </>
             ) : (
               <>
-                <SparklesIcon className="w-4 h-4 mr-2" />
+                <SparklesIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
                 Gasto con IA
               </>
             )}
@@ -682,7 +682,7 @@ export default function GastosPage() {
             variant="outline"
             className="flex-1 h-10 border border-[#1B2A41] text-[#1B2A41] hover:bg-[#1B2A41] hover:text-white rounded-lg text-sm font-medium"
           >
-            <PlusIcon className="w-4 h-4 mr-2" />
+            <PlusIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
             Nuevo Gasto Manual
           </Button>
         </div>
@@ -710,7 +710,7 @@ export default function GastosPage() {
                 viewMode === 'grid' ? "bg-white shadow-sm text-[#1B2A41]" : "text-slate-500 hover:text-slate-700"
               )}
             >
-              <Squares2X2Icon className="w-5 h-5" />
+              <Squares2X2Icon className="h-4.5 w-4.5 shrink-0" />
             </button>
             <button
               onClick={() => setViewMode('list')}
@@ -719,7 +719,7 @@ export default function GastosPage() {
                 viewMode === 'list' ? "bg-white shadow-sm text-[#1B2A41]" : "text-slate-500 hover:text-slate-700"
               )}
             >
-              <ListBulletIcon className="w-5 h-5" />
+              <ListBulletIcon className="h-4.5 w-4.5 shrink-0" />
             </button>
           </div>
         </div>
@@ -836,7 +836,7 @@ export default function GastosPage() {
                         }}
                         className="h-9 gap-1"
                       >
-                        <XMarkIcon className="w-4 h-4" />
+                        <XMarkIcon className="h-4.5 w-4.5 shrink-0" />
                         Limpiar
                       </Button>
                     )}
@@ -849,7 +849,7 @@ export default function GastosPage() {
                   disabled={isLoading}
                   className="gap-2"
                 >
-                  <ArrowPathIcon className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  <ArrowPathIcon className={`h-4.5 w-4.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
                   Actualizar
                 </Button>
               </div>
@@ -1174,7 +1174,7 @@ export default function GastosPage() {
                   disabled={isLoading}
                   className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
                 >
-                  <SparklesIcon className="w-4 h-4 mr-2" />
+                  <SparklesIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
                   {isLoading ? 'Guardando...' : 'Confirmar y Guardar'}
                 </Button>
               </div>
@@ -1278,7 +1278,7 @@ export default function GastosPage() {
                         setShowImageDialog(true)
                       }}
                     >
-                      <EyeIcon className="w-4 h-4 mr-2" />
+                      <EyeIcon className="h-4.5 w-4.5 shrink-0 mr-2" />
                       Ver más grande
                     </Button>
                   </div>

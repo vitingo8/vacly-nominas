@@ -41,6 +41,18 @@ import {
   estimateIRPFRate,
 } from '@/lib/irpf'
 import { resolveMonthAbsences } from '@/lib/payroll-absence-engine'
+import {
+  resolveEmployeeComplements,
+  sumAgreementConceptAmounts,
+  normalizeConceptName,
+  type SalaryConceptCatalogRow,
+} from '@/lib/payroll-complements'
+import { resolveMonthOvertimeHours } from '@/lib/payroll-overtime-engine'
+import {
+  resolveEmployeeIrpf,
+  resolveEmployeeIrpfPercentage,
+  type IrpfRateSource,
+} from '@/lib/payroll-irpf'
 
 // ─── GET: List generated nominas with filters ─────────────────────────
 export async function GET(request: NextRequest) {
@@ -75,8 +87,159 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Handle load_employees action
     const action = searchParams.get('action')
+
+    // ── update_irpf: guardar % manual o recalcular AEAT ──
+    if (action === 'update_irpf') {
+      const employeeId = searchParams.get('employee_id')
+      const mode = searchParams.get('mode') || 'manual'
+      const manualPct = searchParams.get('irpf_percentage')
+      const irpfYear = year ? parseInt(year, 10) : new Date().getFullYear()
+
+      if (!companyId || !employeeId) {
+        return NextResponse.json(
+          { success: false, error: 'company_id y employee_id son requeridos' },
+          { status: 400 },
+        )
+      }
+
+      const { data: empRow, error: empErr } = await supabase
+        .from('employees')
+        .select('id, first_name, last_name, nif, compensation, irpf_data, family_situation')
+        .eq('id', employeeId)
+        .eq('company_id', companyId)
+        .maybeSingle()
+
+      if (empErr || !empRow) {
+        return NextResponse.json(
+          { success: false, error: 'Empleado no encontrado' },
+          { status: 404 },
+        )
+      }
+
+      const { data: companyRow } = await supabase
+        .from('companies')
+        .select('company, cif')
+        .eq('company_id', companyId)
+        .maybeSingle()
+
+      if (mode === 'manual') {
+        const pct = Number(manualPct)
+        if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+          return NextResponse.json(
+            { success: false, error: 'irpf_percentage inválido (0-100)' },
+            { status: 400 },
+          )
+        }
+        const prevComp =
+          empRow.compensation && typeof empRow.compensation === 'object'
+            ? empRow.compensation
+            : {}
+        const { error: updErr } = await supabase
+          .from('employees')
+          .update({
+            compensation: { ...prevComp, irpfPercentage: pct },
+          })
+          .eq('id', employeeId)
+        if (updErr) {
+          return NextResponse.json(
+            { success: false, error: updErr.message },
+            { status: 500 },
+          )
+        }
+        const resolved = resolveEmployeeIrpf(
+          { compensation: { irpfPercentage: pct }, irpf_data: empRow.irpf_data },
+          pct,
+        )
+        return NextResponse.json({
+          success: true,
+          irpfPercentage: resolved.rate,
+          irpfSource: resolved.source,
+          manualRate: resolved.manualRate,
+          aeatRate: resolved.aeatRate,
+          differs: resolved.differs,
+        })
+      }
+
+      // mode === 'recalculate'
+      const comp = (empRow.compensation as Record<string, unknown>) || {}
+      const baseSalary = Number(comp.baseSalaryMonthly) || 0
+      const fixedComplements = resolveEmployeeComplements(comp.fixedComplements, [])
+      const annualGross = round2((baseSalary + fixedComplements.cotizableAmount) * 14)
+      const { data: contractRow } = await supabase
+        .from('contracts')
+        .select('cotization_group, contract_type')
+        .eq('employee_id', employeeId)
+        .eq('status', 'active')
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      try {
+        const resolvedIrpf = await resolveAnnualIrpfRate({
+          company: {
+            nif: (companyRow as any)?.cif ?? '',
+            name: (companyRow as any)?.company ?? '',
+          },
+          employee: {
+            nif: empRow.nif ?? '',
+            name: `${empRow.last_name ?? ''} ${empRow.first_name ?? ''}`.trim(),
+            irpfData: empRow.irpf_data ?? null,
+            familySituation: empRow.family_situation ?? null,
+            cotizationGroup: Number((contractRow as any)?.cotization_group) || 7,
+            contractType: (contractRow as any)?.contract_type ?? 'permanent',
+          },
+          annualGross,
+          year: irpfYear,
+          test: process.env.NODE_ENV !== 'production',
+        })
+        const prevIrpf =
+          empRow.irpf_data && typeof empRow.irpf_data === 'object' ? empRow.irpf_data : {}
+        await supabase
+          .from('employees')
+          .update({
+            irpf_data: {
+              ...prevIrpf,
+              lastResult: {
+                ...(prevIrpf as any).lastResult,
+                tipoRetencion: resolvedIrpf.rate,
+                source: resolvedIrpf.source,
+                resolvedAt: new Date().toISOString(),
+              },
+            },
+          })
+          .eq('id', employeeId)
+
+        const resolved = resolveEmployeeIrpf(
+          {
+            compensation: empRow.compensation,
+            irpf_data: {
+              lastResult: { tipoRetencion: resolvedIrpf.rate },
+            },
+          },
+          resolvedIrpf.rate,
+        )
+        return NextResponse.json({
+          success: true,
+          irpfPercentage: resolved.rate,
+          irpfSource: resolvedIrpf.source === 'estimated' ? 'estimated' : 'aeat_live',
+          manualRate: resolved.manualRate,
+          aeatRate: resolvedIrpf.rate,
+          differs: resolved.differs,
+          warnings: resolvedIrpf.warnings ?? [],
+        })
+      } catch (err) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: err instanceof Error ? err.message : 'Error recalculando IRPF',
+          },
+          { status: 500 },
+        )
+      }
+    }
+
+    // Handle load_employees action
     if (action === 'load_employees') {
       console.log(`[load_employees] Fetching for company_id: ${companyId}`)
       
@@ -210,10 +373,23 @@ export async function GET(request: NextRequest) {
               ),
             )
           const comp = { ...(emp.compensation || {}) }
-          comp.irpfPercentage = resolveEmployeeIrpfPercentage(
-            { id: emp.id, compensation: emp.compensation, irpf_data: emp.irpf_data },
+          const irpfResolved = resolveEmployeeIrpf(
+            { compensation: emp.compensation, irpf_data: emp.irpf_data },
             comp.irpfPercentage,
           )
+          comp.irpfPercentage = irpfResolved.rate
+          comp.irpfSource = irpfResolved.source
+          comp.manualRate = irpfResolved.manualRate
+          comp.aeatRate = irpfResolved.aeatRate
+          comp.irpfDiffers = irpfResolved.differs
+
+          const complementResolution = resolveEmployeeComplements(
+            comp.fixedComplements,
+            (loadSalaryConcepts ?? []) as SalaryConceptCatalogRow[],
+          )
+          comp.complementLines = complementResolution.lines
+          comp.fixedComplementsCotizable = complementResolution.cotizableAmount
+          comp.fixedComplementsNonCotizable = complementResolution.nonCotizableAmount
           const hasActiveContract = activeContracts.length > 0
 
           if (!hasActiveContract && !comp.baseSalaryMonthly && agreementDefaultBase > 0) {
@@ -301,6 +477,35 @@ export async function GET(request: NextRequest) {
             )
           }
 
+          let autoOvertimeHours = 0
+          let autoOvertimeMeta: {
+            daysWithOvertime: number
+            totalWorkedHours: number
+            warnings: string[]
+          } = { daysWithOvertime: 0, totalWorkedHours: 0, warnings: [] }
+          try {
+            const weeklyHours = Number(contract?.weekly_hours ?? 40)
+            const dailyStandard = weeklyHours > 0 ? weeklyHours / 5 : 8
+            const overtimeResult = await resolveMonthOvertimeHours(supabase as any, {
+              companyId,
+              employeeId: emp.id,
+              periodStart: loadPeriodStart,
+              periodEnd: loadPeriodEnd,
+              dailyStandardHours: dailyStandard,
+            })
+            autoOvertimeHours = overtimeResult.overtimeHours
+            autoOvertimeMeta = {
+              daysWithOvertime: overtimeResult.daysWithOvertime,
+              totalWorkedHours: overtimeResult.totalWorkedHours,
+              warnings: overtimeResult.warnings,
+            }
+          } catch (err) {
+            console.warn(
+              `[load_employees] No se pudo resolver horas extra para ${emp.id}:`,
+              err instanceof Error ? err.message : err,
+            )
+          }
+
           return {
             ...emp,
             compensation: comp,
@@ -310,6 +515,9 @@ export async function GET(request: NextRequest) {
               activeContracts[0]?.agreed_base_salary > 0 || comp.baseSalaryMonthly > 0,
             derivedPreview,
             autoITAbsence,
+            autoOvertimeHours,
+            autoOvertimeMeta,
+            complementWarnings: complementResolution.warnings,
           }
         }),
       )
@@ -400,7 +608,7 @@ interface EmployeeGenerationInput {
   baseSalaryMonthly: number
   cotizationGroup: number
   irpfPercentage: number
-  fixedComplements: number
+  fixedComplements: number | Array<{ conceptId?: string; conceptName: string; amount: number }>
   proratedBonuses: number
   numberOfBonuses: number
   contractType: string
@@ -445,17 +653,6 @@ interface AgreementDerived {
   extraPayNames: string[]         // nombres de pagas que tocan este mes
   allExtraPayNames: string[]      // nombres de todas las pagas del año (para modo prorrateado)
   numberOfBonuses: number
-}
-
-type SalaryConceptCatalogRow = {
-  id: string
-  code?: string | null
-  name: string
-  type?: 'salary' | 'non_salary' | string | null
-  cotizes_ss?: boolean | null
-  tributes_irpf?: boolean | null
-  agreement_id?: string | null
-  active?: boolean | null
 }
 
 type AgreementPayrollConcept = {
@@ -520,22 +717,10 @@ type SmiSalaryReviewRow = {
   new_salary: number | string | null
 }
 
-function toValidIrpfPercentage(value: unknown): number | null {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) return null
-  return numeric
-}
-
-function resolveEmployeeIrpfPercentage(
-  persisted: EmployeeIrpfSource | null | undefined,
-  fallback: unknown,
-): number {
-  return (
-    toValidIrpfPercentage(persisted?.irpf_data?.lastResult?.tipoRetencion) ??
-    toValidIrpfPercentage(persisted?.compensation?.irpfPercentage) ??
-    toValidIrpfPercentage(fallback) ??
-    0
-  )
+function resolveFixedComplementsInput(persisted: unknown, fallback: unknown): unknown {
+  if (Array.isArray(persisted) && persisted.length > 0) return persisted
+  if (typeof persisted === 'number' && Number.isFinite(persisted) && persisted > 0) return persisted
+  return fallback
 }
 
 function mapContractType(type: string): TipoContrato {
@@ -629,15 +814,6 @@ function effectiveContractForPayrollPeriod<T extends { id?: string | null; agree
     ...contract,
     agreed_base_salary: Number.isFinite(salary) && salary > 0 ? round2(salary) : contract.agreed_base_salary,
   }
-}
-
-function normalizeConceptName(value: string | null | undefined): string {
-  return String(value ?? '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
 }
 
 function isCoreAgreementConcept(concept: string): boolean {
@@ -1056,16 +1232,16 @@ export async function runPayrollGeneration(
     for (const emp of employees) {
       try {
         const persistedEmployee = persistedIrpfByEmployeeId.get(emp.employeeId)
-        let effectiveIrpfPercentage = resolveEmployeeIrpfPercentage(persistedEmployee, emp.irpfPercentage)
-        let irpfRateSource: string = persistedEmployee?.irpf_data?.lastResult?.tipoRetencion != null
-          ? 'aeat_employee_irpf_data'
-          : 'manual'
+        const initialIrpf = resolveEmployeeIrpf(persistedEmployee, emp.irpfPercentage)
+        let effectiveIrpfPercentage = initialIrpf.rate
+        let irpfRateSource: IrpfRateSource = initialIrpf.source
+        const irpfLiveWarnings: string[] = []
         const partTimeCoefficient = resolveWorkdayCoefficient(emp.fullTime, emp.workdayPercentage)
 
         // Cargar contrato activo (agreement_ref_id, professional_category, start_date, …)
         let activeContract: any = null
         const contractSelect =
-          'id, agreement_ref_id, convenio_doc_id, convenio_province, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary, occupation_code'
+          'id, agreement_ref_id, convenio_doc_id, convenio_province, cotization_group, professional_category, start_date, work_center_address, agreed_base_salary, occupation_code, weekly_hours, full_time, workday_percentage'
         if (emp.contractId) {
           const { data: c } = await supabase
             .from('contracts')
@@ -1249,19 +1425,22 @@ export async function runPayrollGeneration(
           (salaryConcepts ?? []) as SalaryConceptCatalogRow[],
           partTimeCoefficient,
         )
-        const automaticSalaryConceptAmount = round2(
-          automaticAgreementConcepts.concepts
-            .filter((concept) => concept.type === 'salary')
-            .reduce((sum, concept) => sum + concept.amount, 0),
-        )
-        const automaticNonSalaryConceptAmount = round2(
-          automaticAgreementConcepts.concepts
-            .filter((concept) => concept.type === 'non_salary')
-            .reduce((sum, concept) => sum + concept.amount, 0),
+        const agreementAmounts = sumAgreementConceptAmounts(automaticAgreementConcepts.concepts)
+        const automaticSalaryConceptAmount = agreementAmounts.cotizable
+        const automaticNonSalaryConceptAmount = agreementAmounts.nonCotizable
+
+        const persistedComp = (persistedEmployee as any)?.compensation
+        const employeeComplements = resolveEmployeeComplements(
+          resolveFixedComplementsInput(persistedComp?.fixedComplements, emp.fixedComplements),
+          (salaryConcepts ?? []) as SalaryConceptCatalogRow[],
         )
 
         const effectiveFixed =
-          (emp.fixedComplements || 0) + (derived?.seniorityAmount ?? 0) + automaticSalaryConceptAmount
+          employeeComplements.cotizableAmount +
+          (derived?.seniorityAmount ?? 0) +
+          automaticSalaryConceptAmount
+        const effectiveNonSalary =
+          employeeComplements.nonCotizableAmount + automaticNonSalaryConceptAmount
         // Prorrata a base CC:
         //  - Modo prorrateado: 0 (ya va como devengo mensual en otherSalaryAccruals)
         //  - Modo íntegro: prorrata solo los meses sin paga (bonusBaseCC)
@@ -1284,10 +1463,8 @@ export async function runPayrollGeneration(
         // Pago íntegro este mes (modo íntegro)
         const integralBonusPayment = derived?.integralBonusThisMonth ?? 0
 
-        // ── IRPF: resolver el tipo de retención real (AEAT) si no está persistido ──
-        // Se calcula con el Modelo 145 del empleado y la retribución anual estimada,
-        // con fallback offline para que la nómina sea 100% automática.
-        if (irpfRateSource === 'manual' || effectiveIrpfPercentage <= 0) {
+        // ── IRPF: AEAT en vivo solo si no hay % manual ni AEAT persistido ──
+        if (effectiveIrpfPercentage <= 0 && initialIrpf.source !== 'manual') {
           try {
             const persistedAny = persistedEmployee as any
             const annualGross = round2((effectiveBase + effectiveFixed) * (12 + effectiveNumberOfBonuses))
@@ -1308,7 +1485,10 @@ export async function runPayrollGeneration(
               test: process.env.NODE_ENV !== 'production',
             })
             effectiveIrpfPercentage = resolvedIrpf.rate
-            irpfRateSource = resolvedIrpf.source
+            irpfRateSource = resolvedIrpf.source === 'estimated' ? 'estimated' : 'aeat_live'
+            if (Array.isArray(resolvedIrpf.warnings)) {
+              irpfLiveWarnings.push(...resolvedIrpf.warnings)
+            }
             if (!dryRun) {
             try {
               const prevIrpf = (persistedAny?.irpf_data && typeof persistedAny.irpf_data === 'object')
@@ -1365,7 +1545,7 @@ export async function runPayrollGeneration(
           cotizationGroup: (emp.cotizationGroup || 7) as GrupoCotizacion,
           irpfPercentage: effectiveIrpfPercentage,
           fixedComplements: effectiveFixed,
-          nonSalaryComplements: automaticNonSalaryConceptAmount,
+          nonSalaryComplements: effectiveNonSalary,
           proratedBonuses: effectiveProratedForCC,
           numberOfBonuses: effectiveNumberOfBonuses,
           contractType: mapContractType(emp.contractType),
@@ -1375,6 +1555,25 @@ export async function runPayrollGeneration(
         }
 
         const vars = emp.variables
+
+        const weeklyHours = Number(activeContract?.weekly_hours ?? 40)
+        const dailyStandardHours = weeklyHours > 0 ? weeklyHours / 5 : 8
+        const autoOvertime = await resolveMonthOvertimeHours(supabase as any, {
+          companyId,
+          employeeId: emp.employeeId,
+          periodStart,
+          periodEnd,
+          dailyStandardHours,
+        })
+        const reqExtras: any = (vars as any) ?? {}
+        const overtimeSource: 'manual' | 'fichajes' =
+          reqExtras.overtimeSource === 'manual' || reqExtras.overtimeHoursExplicit === true
+            ? 'manual'
+            : 'fichajes'
+        const resolvedOvertimeHours =
+          overtimeSource === 'manual'
+            ? Number(vars.overtimeHours) || 0
+            : autoOvertime.overtimeHours
 
         // ── Vacaciones y ausencias (no IT) del periodo: carga automática ──
         let monthAbsences = {
@@ -1412,7 +1611,6 @@ export async function runPayrollGeneration(
         }
         // Las variables adicionales pueden venir en el cuerpo de la petición
         // (asistente) y tienen prioridad sobre las persistidas.
-        const reqExtras: any = (vars as any) ?? {}
         const inKindInput = reqExtras.inKind ?? persistedMonthlyVars?.in_kind ?? null
         const garnishmentInput = reqExtras.garnishment ?? persistedMonthlyVars?.garnishments ?? null
         const erteInput = reqExtras.erte ?? persistedMonthlyVars?.erte ?? null
@@ -1485,8 +1683,8 @@ export async function runPayrollGeneration(
         const monthlyVars: MonthlyVariablesInput = {
           calendarDaysInMonth: calendarDays,
           workedDays: vars.workedDays ?? calendarDays,
-          overtimeHours: vars.overtimeHours || 0,
-          overtimeAmount: (vars.overtimeHours || 0) * (effectiveBase / 30 / 8) * 1.25,
+          overtimeHours: resolvedOvertimeHours,
+          overtimeAmount: resolvedOvertimeHours * (effectiveBase / 30 / 8) * 1.25,
           overtimeForceMajeureHours: 0,
           overtimeForceMajeureAmount: 0,
           accumulatedOvertimeHoursYear: await fetchAccumulatedOvertimeHours(supabase as any, {
@@ -1574,22 +1772,23 @@ export async function runPayrollGeneration(
           { concept: 'Gratificaciones Extraordinarias', amount: payslipResult.accruals.bonusPayment },
           { concept: 'Salario en especie', amount: 0 },
         ]
-        // Complementos fijos: antigüedad primero (si existe), luego el resto
         if ((derived?.seniorityAmount ?? 0) > 0) {
           perceptions.push({
             concept: `ANTIGÜEDAD (${derived!.seniorityPeriods}×${derived!.context.seniority?.periodYears ?? 3}a · ${derived!.seniorityPercent}%)`,
             amount: derived!.seniorityAmount,
           })
-          const restComplements = manualFixedComplements - derived!.seniorityAmount
-          if (restComplements > 0.01) {
-            perceptions.push({ concept: 'Complementos Salariales', amount: round2(restComplements) })
+        }
+        const cotizableEmployeeLines = employeeComplements.lines.filter((line) => line.cotizesSS)
+        if (cotizableEmployeeLines.length > 0) {
+          for (const line of cotizableEmployeeLines) {
+            perceptions.push({ concept: line.concept, amount: line.amount })
           }
         } else if (manualFixedComplements > 0) {
           perceptions.push({ concept: 'Complementos Salariales', amount: manualFixedComplements })
         } else {
           perceptions.push({ concept: 'Complementos Salariales', amount: 0 })
         }
-        for (const concept of automaticAgreementConcepts.concepts.filter((item) => item.type === 'salary')) {
+        for (const concept of automaticAgreementConcepts.concepts.filter((item) => item.cotizesSS)) {
           perceptions.push({ concept: concept.concept, amount: concept.amount })
         }
         // Pagas extra: una línea por cada paga o prorrateo mensual
@@ -1629,15 +1828,18 @@ export async function runPayrollGeneration(
           },
           { concept: 'Ind. por traslados, suspensiones o despidos', amount: 0 },
           ...itComplement.lines.map((line) => ({ concept: line.concept, amount: line.amount })),
+          ...employeeComplements.lines
+            .filter((line) => !line.cotizesSS)
+            .map((line) => ({ concept: line.concept, amount: line.amount })),
           ...automaticAgreementConcepts.concepts
-            .filter((concept) => concept.type === 'non_salary')
+            .filter((concept) => !concept.cotizesSS)
             .map((concept) => ({ concept: concept.concept, amount: concept.amount })),
           {
             concept: 'Otras percepciones no salariales',
             amount: Math.max(0, round2(
               (payslipResult.accruals.nonSalaryComplements ?? 0) +
               (payslipResult.accruals.otherNonSalaryAccruals ?? 0) -
-              automaticNonSalaryConceptAmount
+              effectiveNonSalary
             )),
           },
         ]
@@ -1732,6 +1934,9 @@ export async function runPayrollGeneration(
               ...(smiWarning ? [smiWarning] : []),
               ...payrollParameterResolution.warnings,
               ...automaticAgreementConcepts.warnings,
+              ...employeeComplements.warnings,
+              ...irpfLiveWarnings,
+              ...autoOvertime.warnings,
             ],
             temporary_disability: resolvedITAbsence
               ? {
@@ -1742,13 +1947,24 @@ export async function runPayrollGeneration(
               : null,
             it_agreement_complement: itComplement,
             automatic_agreement_concepts: automaticAgreementConcepts,
+            complements: {
+              employee: employeeComplements.lines,
+              cotizable: employeeComplements.cotizableAmount,
+              non_cotizable: employeeComplements.nonCotizableAmount,
+              warnings: employeeComplements.warnings,
+            },
+            overtime: {
+              hours: resolvedOvertimeHours,
+              source: overtimeSource,
+              days_with_overtime: autoOvertime.daysWithOvertime,
+              total_worked_hours: autoOvertime.totalWorkedHours,
+            },
             irpf: {
               rate: effectiveIrpfPercentage,
-              source: persistedEmployee?.irpf_data?.lastResult?.tipoRetencion != null
-                ? 'aeat_employee_irpf_data'
-                : persistedEmployee?.compensation?.irpfPercentage != null
-                  ? 'employee_compensation'
-                  : 'request_fallback',
+              source: irpfRateSource,
+              manual_rate: initialIrpf.manualRate,
+              aeat_rate: initialIrpf.aeatRate,
+              differs: initialIrpf.differs,
             },
             smi_check: {
               year,

@@ -116,9 +116,9 @@ export function ExpenseCard({
               : "bg-gradient-to-br from-[#1B2A41] to-slate-700"
           )}>
             {hasAI ? (
-              <SparklesIcon className="w-5 h-5 text-white" />
+              <SparklesIcon className="h-4.5 w-4.5 shrink-0 text-white" />
             ) : (
-              <ClipboardDocumentListIcon className="w-5 h-5 text-white" />
+              <ClipboardDocumentListIcon className="h-4.5 w-4.5 shrink-0 text-white" />
             )}
           </div>
         )}
@@ -188,7 +188,7 @@ export function ExpenseCard({
               className="p-1.5 rounded-lg text-slate-600 hover:bg-primary/10 hover:text-primary transition-colors"
               title="Ver imagen"
             >
-              <EyeIcon className="w-4 h-4" />
+              <EyeIcon className="h-4.5 w-4.5 shrink-0" />
             </button>
           )}
           {onView && (
@@ -200,7 +200,7 @@ export function ExpenseCard({
               className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
               title="Tiquet Digital"
             >
-              <DocumentTextIcon className="w-4 h-4" />
+              <DocumentTextIcon className="h-4.5 w-4.5 shrink-0" />
             </button>
           )}
           {onDelete && (
@@ -212,7 +212,7 @@ export function ExpenseCard({
               className="p-1.5 rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors"
               title="Eliminar"
             >
-              <TrashIcon className="w-4 h-4" />
+              <TrashIcon className="h-4.5 w-4.5 shrink-0" />
             </button>
           )}
         </div>
@@ -309,7 +309,7 @@ export function ExpenseCard({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center">
-                <CreditCardIcon className="w-4 h-4 text-red-600" />
+                <CreditCardIcon className="h-4.5 w-4.5 shrink-0 text-red-600" />
               </div>
               <div>
                 <p className="text-xs font-medium text-red-700 uppercase tracking-wide">Importe</p>
@@ -335,7 +335,7 @@ export function ExpenseCard({
               className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-sm font-medium"
               title="Ver imagen"
             >
-              <EyeIcon className="w-4 h-4" />
+              <EyeIcon className="h-4.5 w-4.5 shrink-0" />
             </button>
           )}
           {onView && (
@@ -346,7 +346,7 @@ export function ExpenseCard({
               }}
               className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors text-sm font-medium"
             >
-              <DocumentTextIcon className="w-4 h-4" />
+              <DocumentTextIcon className="h-4.5 w-4.5 shrink-0" />
               Tiquet Digital
             </button>
           )}
@@ -358,7 +358,7 @@ export function ExpenseCard({
               }}
               className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors text-sm font-medium"
             >
-              <TrashIcon className="w-4 h-4" />
+              <TrashIcon className="h-4.5 w-4.5 shrink-0" />
             </button>
           )}
         </div>

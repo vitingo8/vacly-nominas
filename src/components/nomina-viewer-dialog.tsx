@@ -79,7 +79,7 @@ export function NominaViewerDialog({
         <DialogHeader className="px-6 py-4 border-b bg-slate-50">
           <DialogTitle className="text-xl font-bold text-slate-800 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-              <DocumentTextIcon className="w-5 h-5 text-white" />
+              <DocumentTextIcon className="h-4.5 w-4.5 shrink-0 text-white" />
             </div>
             {nominaData?.employee?.name || `Página ${document?.pageNumber ?? ''}`}
           </DialogTitle>
