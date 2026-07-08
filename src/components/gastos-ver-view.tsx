@@ -18,6 +18,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { PersonAvatar } from '@/components/ui/person-avatar'
 import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
+import { cn } from '@/lib/utils'
 import { useEmbeddedMode } from '@/lib/embedded-mode'
 import type { Expense } from '@/types/expenses'
 

@@ -11,6 +11,7 @@ import { EmployeeFilterSelect, type EmployeeFilterOption } from '@/components/em
 import { ExcelColumnHeader } from '@/components/excel-column-header'
 import { PersonAvatar } from '@/components/ui/person-avatar'
 import type { NominaEstadoFilter, NominaSortColumn, NominaSortDir } from '@/lib/nomina-list-query'
+import type { NominaViewerData } from '@/components/nomina-viewer-dialog'
 import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
 import {
   AdjustmentsHorizontalIcon,

@@ -28,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ExpenseCard } from '@/components/ui/expense-card'
 import { DigitalTicket } from '@/components/ui/digital-ticket'
 import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
+import { cn } from '@/lib/utils'
 import type { Expense, ReceiptAnalysis, ExpenseStats, EXPENSE_CATEGORIES, PAYMENT_METHODS } from '@/types/expenses'
 
 // Categorías de gastos

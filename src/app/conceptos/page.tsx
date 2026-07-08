@@ -30,6 +30,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
 import { DASHBOARD_PAGE_BG, DASHBOARD_CARD, DASHBOARD_CARD_HEADER, DASHBOARD_TITLE } from '@/components/dashboard-styles'
+import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface SalaryConcept {

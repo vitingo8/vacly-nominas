@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/table'
 import { PersonAvatar } from '@/components/ui/person-avatar'
 import { DASHBOARD_PAGE_BG } from '@/components/dashboard-styles'
+import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface Employee {

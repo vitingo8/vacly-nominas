@@ -76,6 +76,8 @@ interface EmployeeRow {
     concept: string
     amount: number
     type: 'salary' | 'non_salary'
+    cotizesSS?: boolean
+    tributesIRPF?: boolean
   }>
   // Editable variables
   workedDays: number
@@ -538,7 +540,7 @@ function GeneracionContent() {
             || contract.cotization_group
             || (hasActiveContract ? 7 : Number(defaults.default_cotization_group) || 7),
           irpfPercentage: comp.irpfPercentage || 0,
-          fixedComplements: comp.fixedComplementsCotizable ?? comp.fixedComplements || 0,
+          fixedComplements: comp.fixedComplementsCotizable ?? (comp.fixedComplements || 0),
           proratedBonuses: comp.proratedBonuses || 0,
           numberOfBonuses,
           contractType: contract.contract_type || 'permanent',
