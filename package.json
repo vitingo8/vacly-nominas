@@ -31,8 +31,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "clean": "rm -rf dist/ .next/",
-    "test:admin": "npx tsx --test src/lib/admin-integrations/__tests__/*.test.ts"
+    "clean": "rm -rf dist/ .next/"
   },
   "keywords": [
     "nominas",
