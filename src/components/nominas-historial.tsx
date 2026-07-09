@@ -652,8 +652,7 @@ export function NominasHistorial({ companyId }: NominasHistorialProps) {
   return (
     <div
       className={cn(
-        DASHBOARD_PAGE_BG,
-        isEmbedded ? 'min-h-full w-full' : '',
+        isEmbedded ? 'w-full bg-[#f6f8fa]' : DASHBOARD_PAGE_BG,
       )}
     >
       <div
